@@ -8,6 +8,7 @@ set -gx MANPAGER "sh -c 'col -bx | bat -l man -p'"
 set -gx PAGER bat
 set -gx SSH_AUTH_SOCK "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 set -gx VISUAL nano
+set -gx SAML2AWS_CONFIGFILE "~/.aws/saml2aws/config"
 
 ## Abbrs
 
