@@ -1,0 +1,32 @@
+[DSC]
+name                    = DSC
+provider                = Okta
+mfa                     = TOTP
+skip_verify             = false
+aws_urn                 = urn:amazon:webservices
+aws_session_duration    = 3600
+saml_cache              = true
+disable_remember_device = false
+disable_sessions        = false
+
+[DTC]
+name                    = DTC
+provider                = Browser
+mfa                     = TOTP
+skip_verify             = false
+aws_urn                 = urn:amazon:webservices
+aws_session_duration    = 3600
+saml_cache              = true
+disable_remember_device = false
+disable_sessions        = false
+
+[WB]
+name                    = WB
+provider                = Okta
+mfa                     = TOTP
+skip_verify             = false
+aws_urn                 = urn:amazon:webservices
+aws_session_duration    = 3600
+saml_cache              = true
+disable_remember_device = false
+disable_sessions        = false
