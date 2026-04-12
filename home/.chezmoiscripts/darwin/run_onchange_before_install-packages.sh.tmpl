@@ -2,11 +2,17 @@
 
 set -eufo pipefail
 
+{{ $brews := list
+     "fish"
+     "starship" -}}
 {{ $casks := list
      "discord"
      "obsidian" -}}
 
 brew bundle --file=/dev/stdin <<EOF
+{{ range ($brews | sortAlpha | uniq) -}}
+brew "{{ . }}"
+{{ end -}}
 {{ range ($casks | sortAlpha | uniq) -}}
 cask "{{ . }}"
 {{ end -}}
