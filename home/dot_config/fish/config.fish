@@ -25,6 +25,14 @@ alias ax="awsx"
 alias au="set -e AWS_PROFILE"
 alias ao="assume -ar"
 
+### Misc
+alias cat="bat --paging=never"
+alias less="bat"
+alias reload='exec $SHELL -l'
+alias tree="eza --tree"
+alias unset="set -e"
+alias unexport="set -e"
+
 ## Config
 
 fish_config theme choose catppuccin-mocha
