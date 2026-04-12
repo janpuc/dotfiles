@@ -2,7 +2,6 @@ set -g fish_greeting
 
 ## Envs
 
-set -gx PATH $PATH ~/.bin
 set -gx EDITOR nano
 set -gx MANROFFOPT "-c"
 set -gx MANPAGER "sh -c 'col -bx | bat -l man -p'"
