@@ -3,7 +3,12 @@
 set -eufo pipefail
 
 {{ $brews := list
+     "awscli"
+     "aws-sso-cli"
+     "eksctl"
      "fish"
+     "granted"
+     "saml2aws"
      "starship" -}}
 {{ $casks := list
      "discord"
