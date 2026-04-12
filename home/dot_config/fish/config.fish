@@ -1,5 +1,14 @@
 set -g fish_greeting
 
+## Envs
+
+set -gx EDITOR nano
+set -gx MANROFFOPT "-c"
+set -gx MANPAGER "sh -c 'col -bx | bat -l man -p'"
+set -gx PAGER bat
+set -gx SSH_AUTH_SOCK "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+set -gx VISUAL nano
+
 ## Abbrs
 
 abbr --add g git
