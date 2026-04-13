@@ -2,8 +2,8 @@
 
 ## TODO:
  - [ ] MacOS Defaults
- - [ ] fish config
- - [ ] ghostty
+ - [x] fish config
+ - [x] ghostty
  - [ ] slack
  - [ ] spotify
  - [ ] vscode
@@ -15,8 +15,8 @@
  - [ ] orion
  - [ ] utm
  - [ ] rectangle
- - [ ] aws/k8s configs
- - [ ] shell rice (catppuccin, starship)
- - [ ] shell aliases
- - [ ] dock
+ - [x] aws/k8s configs
+ - [x] shell rice (catppuccin, starship)
+ - [x] shell aliases
+ - [x] dock
  - [ ] bootstrap (hostname, default app removal)
