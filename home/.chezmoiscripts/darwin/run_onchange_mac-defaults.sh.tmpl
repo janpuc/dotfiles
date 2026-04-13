@@ -22,10 +22,10 @@ EOF
 # region
 
 ## Network (x-apple.systempreferences:com.apple.Network-Settings)
-/usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on    # Enable "Firewall"
-/usr/libexec/ApplicationFirewall/socketfilterfw --setallowsigned on    # Enable "Automatically allow built-in software to receive incoming connections"
-/usr/libexec/ApplicationFirewall/socketfilterfw --setallowsignedapp on # Enable "Automatically allow downloaded signed software to receive incoming connections"
-/usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode on    # "Enable stealth mode"
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on    # Enable "Firewall"
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setallowsigned on    # Enable "Automatically allow built-in software to receive incoming connections"
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setallowsignedapp on # Enable "Automatically allow downloaded signed software to receive incoming connections"
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode on    # "Enable stealth mode"
 
 ## General
 
