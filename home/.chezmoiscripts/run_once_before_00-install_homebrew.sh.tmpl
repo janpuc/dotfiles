@@ -52,7 +52,9 @@ found at ${HOMEBREW_PKG_PATH}. Exiting..."
         fi
 
         echo "Installing Homebrew at root volume mount point /..."
-        sudo installer -package "${HOMEBREW_PKG_DIR}" -target "/"
+        sudo installer -package "${HOMEBREW_PKG_PATH}" -target "/"
+
+        eval "$(/opt/homebrew/bin/brew shellenv)"
 
         if command pkgutil --pkg-info "sh.brew.homebrew" &> /dev/null; then
           echo "Homebrew installed successfully to $(builtin where brew)."
