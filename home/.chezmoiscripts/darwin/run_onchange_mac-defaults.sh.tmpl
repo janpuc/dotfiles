@@ -43,8 +43,8 @@ defaults write -g AppleLiveTextEnabled -bool true # Enable Live Text (Select tex
 ### Time Machine (x-apple.systempreferences:com.apple.Time-Machine-Settings)
 
 # Exclude `$XDG_CACHE_HOME` from Time Machine backups
-sudo defaults write /Library/Preferences/com.apple.TimeMachine SkipPaths -array \
-  "${HOME}/.cache"
+#sudo defaults write /Library/Preferences/com.apple.TimeMachine SkipPaths -array \
+#  "${HOME}/.cache"
 
 ## Appearance (x-apple.systempreferences:com.apple.Appearance-Settings)
 defaults write -g AppleInterfaceStyle -string "Dark"       # Dark mode
