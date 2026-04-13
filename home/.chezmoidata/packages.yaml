@@ -17,4 +17,5 @@ packages:
       - ghostty
       - microsoft-teams
       - obsidian
+      - slack
       - spotify
