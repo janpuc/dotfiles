@@ -15,5 +15,6 @@ packages:
       - beeper
       - discord
       - ghostty
+      - microsoft-teams
       - obsidian
       - spotify
