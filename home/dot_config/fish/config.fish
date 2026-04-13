@@ -45,7 +45,7 @@ alias nix-update="nix flake update"
 
 source <("$HOMEBREW_PREFIX/bin/brew" shellenv)
 
-source ~/.config/op/plugins.sh
+# source ~/.config/op/plugins.sh
 
 fish_config theme choose catppuccin-mocha
 
