@@ -25,8 +25,9 @@ function {
         # method more secure than running the convenience script.
         {{- $HOMEBREW_REPO := "Homebrew/brew" -}}
         {{- $homebrewLatestTagName := (gitHubLatestTag $HOMEBREW_REPO).Name -}}
-        {{- $homebrewLatestPkgFile := $homebrewLatestTagName | toString | printf "Homebrew-%s.pkg" }}
-        echo "Detected macOS, installing Homebrew with {{ $homebrewLatestPkgFile }} from {{ $HOMEBREW_REPO }}..."
+        {{- $homebrewLatestPkgFile := "Homebrew.pkg" }}
+        echo "Detected macOS, installing Homebrew version {{ $homebrewLatestTagName }} \
+with {{ $homebrewLatestPkgFile }} from {{ $HOMEBREW_REPO }}..."
 
         # While `((gitHubLatestRelease $HOMEBREW_REPO).Assets | first).BrowserDownloadURL`
         # would be less complex, it may fail in the case additional assets are
