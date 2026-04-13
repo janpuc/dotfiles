@@ -1,0 +1,17 @@
+packages:
+  darwin:
+    brews:
+      - awscli
+      - aws-sso-cli
+      - bat
+      - chezmoi
+      - dockutil
+      - eksctl
+      - fish
+      - granted
+      - saml2aws
+      - starship
+    casks:
+      - discord
+      - ghostty
+      - obsidian

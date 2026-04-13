@@ -19,10 +19,10 @@ set -eufo pipefail
      "obsidian" -}}
 
 /opt/homebrew/bin/brew bundle --file=/dev/stdin <<EOF
-{{ range ($brews | sortAlpha | uniq) -}}
-brew "{{ . }}"
+{{ range .packages.darwin.brews -}}
+brew {{ . | sortAlpha | uniq | quote }}
 {{ end -}}
-{{ range ($casks | sortAlpha | uniq) -}}
-cask "{{ . }}"
+{{ range .packages.darwin.casks -}}
+cask {{ . | sortAlpha | uniq | quote }}
 {{ end -}}
 EOF
