@@ -19,6 +19,7 @@ packages:
       - ghostty
       - microsoft-teams
       - obsidian
+      - orion
       - slack
       - spotify
       - visual-studio-code
