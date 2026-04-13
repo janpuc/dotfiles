@@ -1,0 +1,80 @@
+#!/usr/bin/env zsh
+#
+# Installs Homebrew package manager on macOS and Linux if it is not already
+# installed
+
+readonly HOMEBREW_PKG_PATH="/tmp/homebrew.pkg"
+
+function error() {
+  echo "[$(date "+%Y-%m-%dT%H:%M:%S%z")]: $*" >&2
+}
+
+function {
+  if command -v brew &> /dev/null; then
+    echo "Homebrew is already installed at $(where brew). Skipping installation..."
+  else
+    echo "Installing Homebrew..."
+    local OS
+    OS="$(uname)"
+
+    case "${OS}" in
+      "Darwin")
+        # Install with `.pkg` installer, introduced in Homebrew 4.1.2. Since
+        # Apple requires by default that all software installed via `installer`
+        # is signed by a developer certificate issued by Apple, I consider this
+        # method more secure than running the convenience script.
+        {{- $HOMEBREW_REPO := "Homebrew/brew" -}}
+        {{- $homebrewLatestTagName := (gitHubLatestTag $HOMEBREW_REPO).Name -}}
+        {{- $homebrewLatestPkgFile := $homebrewLatestTagName | toString | printf "Homebrew-%s.pkg" }}
+        echo "Detected macOS, installing Homebrew with {{ $homebrewLatestPkgFile }} from {{ $HOMEBREW_REPO }}..."
+
+        # While `((gitHubLatestRelease $HOMEBREW_REPO).Assets | first).BrowserDownloadURL`
+        # would be less complex, it may fail in the case additional assets are
+        # added to Homebrew releases in the future.
+        homebrew_pkg_download_url="{{ gitHubLatestReleaseAssetURL $HOMEBREW_REPO $homebrewLatestPkgFile }}"
+
+        curl --fail --location --show-error --silent --output "${HOMEBREW_PKG_PATH}" \
+          "${homebrew_pkg_download_url}"
+
+        if (( $? != 0 )); then
+          error "Failed to download Homebrew package installer from \
+${homebrew_pkg_download_url}. Exiting..."
+          return 1
+        fi
+
+        if [[ -f "${HOMEBREW_PKG_PATH}" ]]; then
+          echo "Homebrew package installer downloaded to ${HOMEBREW_PKG_PATH}"
+        else
+          error "Homebrew package installer download failed. File was not \
+found at ${HOMEBREW_PKG_PATH}. Exiting..."
+          return 1
+        fi
+
+        echo "Installing Homebrew at root volume mount point /..."
+        sudo installer -package "${HOMEBREW_PKG_DIR}" -target "/"
+
+        if command pkgutil --pkg-info "sh.brew.homebrew" &> /dev/null; then
+          echo "Homebrew installed successfully to $(builtin where brew)."
+          rm -f -v "${HOMEBREW_PKG_PATH}"
+        else
+          error "Homebrew installation failed. Please confirm that the file at \
+${HOMEBREW_PKG_PATH} is a valid package. You may download the .pkg file \
+manually at https://github.com/{{ $HOMEBREW_REPO }}/releases/latest."
+          return 1
+        fi
+        ;;
+      "Linux")
+        # Install with Bash shell script (https://github.com/Homebrew/install)
+        echo "Detected Linux, installing Homebrew with Bash shell script..."
+        NONINTERACTIVE=1 /bin/bash -c "$(
+          curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh
+        )"
+        echo "Installation script ran successfully. Exiting..."
+        ;;
+      *)
+        error "Unexpected OS: ${OS}. Homebrew is only supported on macOS and Linux. Exiting..."
+        return 1
+        ;;
+    esac
+  fi
+}

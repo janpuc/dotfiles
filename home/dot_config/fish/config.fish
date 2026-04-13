@@ -3,6 +3,7 @@ set -g fish_greeting
 ## Envs
 
 # set -gx XDG_CONFIG_HOME "~/.config"
+set -gx HOMEBREW_PREFIX "/opt/homebrew"
 set -gx EDITOR nano
 set -gx MANROFFOPT "-c"
 set -gx MANPAGER "sh -c 'col -bx | bat -l man -p'"
@@ -41,6 +42,8 @@ alias nix-home="nh home switch ~/nix-config"
 alias nix-update="nix flake update"
 
 ## Config
+
+source <("${HOMEBREW_PREFIX}/bin/brew" shellenv)
 
 source ~/.config/op/plugins.sh
 
