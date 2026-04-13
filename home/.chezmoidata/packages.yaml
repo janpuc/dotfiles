@@ -12,6 +12,7 @@ packages:
       - saml2aws
       - starship
     casks:
+      - beeper
       - discord
       - ghostty
       - obsidian
