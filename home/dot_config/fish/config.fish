@@ -43,7 +43,7 @@ alias nix-update="nix flake update"
 
 ## Config
 
-source <("${HOMEBREW_PREFIX}/bin/brew" shellenv)
+source <("$HOMEBREW_PREFIX/bin/brew" shellenv)
 
 source ~/.config/op/plugins.sh
 
