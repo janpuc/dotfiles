@@ -3,6 +3,8 @@
 # Inspired by Mathias Bynens's legendary `.macos` script
 # https://mths.be/macos
 
+trap 'killall Dock' EXIT
+
 sudo --validate # Authenticate the user and extends the sudo timeout for another 5 minutes
 
 # Enable /usr/lib/pam/pam_tid.so.2 for Touch ID authentication in `sudo`
@@ -103,7 +105,7 @@ defaults write -g AppleActionOnDoubleClick -string "Maximize"    # Set "Double-c
 defaults write com.apple.dock minimize-to-application -bool true # Enables "Minimize windows into application icon"
 
 defaults write com.apple.dock autohide -bool true                # Disable "Automatically hide and show the Dock"
-defaults write com.apple.dock autohide-delay -float 0            # Disable "Autohide Delay"
+defaults write com.apple.dock autohide-delay -int 0            # Disable "Autohide Delay"
 defaults write com.apple.dock launchanim -bool true              # Enable "Animate opening applications"
 defaults write com.apple.dock show-process-indicators -bool true # Enable "Show indicators for open applications"
 defaults write com.apple.dock show-recents -bool false           # Disable "Show suggested and recent apps in Dock"
