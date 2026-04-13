@@ -1,0 +1,5 @@
+#!/bin/bash
+
+set -eufo pipefail
+
+sudo chsh -s /opt/homebrew/bin/fish {{ .chezmoi.username }}
