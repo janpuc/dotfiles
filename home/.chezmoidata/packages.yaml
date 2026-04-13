@@ -1,6 +1,7 @@
 packages:
   darwin:
     brews:
+      - 1password-cli
       - awscli
       - aws-sso-cli
       - bat
@@ -12,6 +13,7 @@ packages:
       - saml2aws
       - starship
     casks:
+      - 1password
       - beeper
       - discord
       - ghostty
