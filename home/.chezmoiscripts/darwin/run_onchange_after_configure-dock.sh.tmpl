@@ -5,7 +5,6 @@ set -eufo pipefail
 trap 'killall Dock' EXIT
 
 dockutil --no-restart --remove all
-dockutil --no-restart --remove spacer-tiles
 
 dockutil --no-restart --add "/System/Applications/Apps.app"
 dockutil --no-restart --add "/System/Applications/System Settings.app"
