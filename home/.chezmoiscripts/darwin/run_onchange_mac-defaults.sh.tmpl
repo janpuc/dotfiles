@@ -347,3 +347,32 @@ defaults write -app TextEdit DataDetectors -bool true            # Enable "Data 
 defaults write -app TextEdit SmartQuotes -bool false             # Disable "Smart quotes"
 defaults write -app TextEdit SmartLinks -bool true
 defaults write -app TextEdit SmartSubstitutionsEnabledInRichTextOnly -bool false # Disable "Smart quotes and dashes in rich text documents only"
+
+#######################################
+# MARK: Orion
+#######################################
+
+defaults write com.kagi.kagimacOS AutoShowSidebar -bool true
+defaults write com.kagi.kagimacOS AutofillEnabled -bool false
+defaults write com.kagi.kagimacOS CurrentOpenSidebar -string "verticalTabs"
+defaults write com.kagi.kagimacOS CurrentProfileFirstLaunchActions -bool true
+defaults write com.kagi.kagimacOS DefaultSearchEngine -string "Kagi"
+defaults write com.kagi.kagimacOS HomePageURL -string "https://kagi.com/"
+defaults write com.kagi.kagimacOS IsFirstLaunch -bool false
+defaults write com.kagi.kagimacOS LastActiveHorizontalTabStyle -string "compact"
+defaults write com.kagi.kagimacOS LeftSidebarVisible -bool false
+defaults write com.kagi.kagimacOS Onboarded -bool true
+defaults write com.kagi.kagimacOS OpenExternalLinksInSetting -string "lastActiveProfile"
+defaults write com.kagi.kagimacOS OpenLinkPreview -bool false
+defaults write com.kagi.kagimacOS PasswordProvider -string "thirdParty"
+defaults write com.kagi.kagimacOS PasswordSavingEnabled -bool false
+defaults write com.kagi.kagimacOS ShowKagiPrivacyPass -bool false
+defaults write com.kagi.kagimacOS ShowNestedTabs -bool false
+
+defaults write com.kagi.kagimacOS StoredProfiles -dict \
+  "3401AC76-6D63-4217-BEE0-55FE75051E28" -string "Work (WBD)" \
+  "A257F2DF-46A0-4206-8800-35F73B94F2B8" -string "Work (Intive)" \
+  "C91F8F12-C809-4147-B885-3A5B6B87E525" -string AGH \
+  Defaults -string Primary
+
+defaults write com.kagi.kagimacOS UseDefaultSearchEngineInPrivateMode -bool true
