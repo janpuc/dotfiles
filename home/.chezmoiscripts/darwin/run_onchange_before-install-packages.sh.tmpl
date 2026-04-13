@@ -16,7 +16,7 @@ set -eufo pipefail
      "ghostty"
      "obsidian" -}}
 
-brew bundle --file=/dev/stdin <<EOF
+/opt/homebrew/bin/brew bundle --file=/dev/stdin <<EOF
 {{ range ($brews | sortAlpha | uniq) -}}
 brew "{{ . }}"
 {{ end -}}
