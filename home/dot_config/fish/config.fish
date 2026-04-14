@@ -49,10 +49,10 @@ source ~/.config/op/plugins.sh
 
 fish_config theme choose catppuccin-mocha
 
+atuin init fish | source
+
 starship init fish | source
 
 zoxide init --cmd cd fish | source
-
-atuin init fish | source
 
 enable_transience
