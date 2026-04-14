@@ -7,6 +7,7 @@ packages:
       - aws-sso-cli
       - bat
       - chezmoi
+      - direnv
       - dockutil
       - eksctl
       - fish
