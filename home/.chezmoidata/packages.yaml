@@ -13,11 +13,18 @@ packages:
       - eksctl
       - eza
       - fish
+      - fluxcd/tap/flux
       - fzf
+      - gh
       - granted
+      - jq
+      - k9s
+      - kubectl
       - saml2aws
       - spicetify-cli
       - starship
+      - yt-dlp
+      - yq
       - zoxide
     casks:
       - 1password
