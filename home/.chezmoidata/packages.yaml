@@ -33,3 +33,5 @@ packages:
       - spotify
       - visual-studio-code
       - zoom
+    vscode:
+      - Catppuccin.catppuccin-vsc

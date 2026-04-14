@@ -1,5 +1,12 @@
 {
   /* Visit https://code.visualstudio.com/docs/getstarted/settings to read more about this file */
 
+  "editor.semanticHighlighting.enabled": true,
+  "terminal.integrated.minimumContrastRatio": 1,
+  "window.titleBarStyle": "custom",
   "window.nativeTabs": true,
+
+  "gopls": {
+    "ui.semanticTokens": true,
+  },
 }
