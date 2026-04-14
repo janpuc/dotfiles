@@ -49,6 +49,8 @@ alias nix-update="nix flake update"
 
 fish_config theme choose catppuccin-mocha
 
+atuin init fish | source
+
 starship init fish | source
 
 enable_transience
