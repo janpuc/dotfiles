@@ -15,6 +15,7 @@ packages:
       - granted
       - saml2aws
       - starship
+      - zoxide
     casks:
       - 1password
       - 1password-cli

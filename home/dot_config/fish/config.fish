@@ -53,4 +53,6 @@ atuin init fish | source
 
 starship init fish | source
 
+zoxide init --cmd cd fish | source
+
 enable_transience
