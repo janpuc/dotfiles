@@ -1,6 +1,7 @@
 packages:
   darwin:
     brews:
+      - aria2
       - awscli
       - aws-sso-cli
       - bat
