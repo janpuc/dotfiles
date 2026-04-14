@@ -46,6 +46,7 @@ packages:
       - utm
       - slack
       - spotify
+      - tailscale-app
       - visual-studio-code
       - zoom
     vscode:
