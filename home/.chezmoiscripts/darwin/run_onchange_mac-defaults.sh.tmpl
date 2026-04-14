@@ -181,10 +181,10 @@ sudo sysadminctl -guestAccount off # Disable "Allow guests to log in to this com
 
 ## Keyboard (x-apple.systempreferences:com.apple.Keyboard-Settings)
 
-defaults write -g KeyRepeat -int 2                    # Set "Key repeat rate" to fastest
-defaults write -g InitialKeyRepeat_Level_Saved -int 6 # Set "Delay until repeat" to shortest
-defaults write com.apple.HIToolbox -int 1             # Set "Press 🌐︎ key to" to "Change Input Source"
-defaults write -g AppleKeyboardUIMode -int 2          # Enable "Keyboard navigation"
+defaults write -g KeyRepeat -int 1                     # Set "Key repeat rate" to fastest
+defaults write -g InitialKeyRepeat_Level_Saved -int 10 # Set "Delay until repeat" to shortest
+defaults write com.apple.HIToolbox -int 1              # Set "Press 🌐︎ key to" to "Change Input Source"
+defaults write -g AppleKeyboardUIMode -int 2           # Enable "Keyboard navigation"
 
 ### Text Input
 defaults write -g NSAutomaticSpellingCorrectionEnabled -bool true                     # Enable "Correct spelling automatically"
