@@ -20,12 +20,16 @@ packages:
     casks:
       - 1password
       - 1password-cli
+      - bambu-studio
       - beeper
       - discord
       - ghostty
       - microsoft-teams
       - obsidian
+      - orbstack
       - orion
+      - utm
       - slack
       - spotify
       - visual-studio-code
+      - zoom
