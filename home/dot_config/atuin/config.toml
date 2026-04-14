@@ -1,0 +1,11 @@
+auto_sync = true
+search_mode = "prefix"
+sync_address = "https://atuin.janpuc.com"
+sync_frequency = "5m"
+
+[daemon]
+enabled = true
+socket_path = "/Users/jan.pucilowski/.local/share/atuin/daemon.sock"
+
+[theme]
+name = "catppuccin-mocha-blue"
