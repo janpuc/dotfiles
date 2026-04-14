@@ -5,6 +5,7 @@
   "terminal.integrated.minimumContrastRatio": 1,
   "window.titleBarStyle": "custom",
   "window.nativeTabs": true,
+  "workbench.colorTheme": "Catppuccin Mocha",
 
   "gopls": {
     "ui.semanticTokens": true,
