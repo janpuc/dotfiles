@@ -15,6 +15,7 @@ packages:
       - fzf
       - granted
       - saml2aws
+      - spicetify-cli
       - starship
       - zoxide
     casks:
