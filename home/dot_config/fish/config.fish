@@ -31,6 +31,7 @@ alias ao="assume -ar"
 ### Misc
 alias cat="bat --paging=never"
 alias less="bat"
+alias ls="eza --group-directories-first --header --git --icons=auto"
 alias reload='exec $SHELL -l'
 alias tree="eza --tree"
 alias unset="set -e"
