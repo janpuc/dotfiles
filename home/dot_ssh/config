@@ -1,0 +1,16 @@
+# Include ~/.orbstack/ssh/config
+
+
+Host *
+  ForwardAgent no
+  ServerAliveInterval 0
+  ServerAliveCountMax 3
+  Compression no
+  AddKeysToAgent no
+  HashKnownHosts no
+  UserKnownHostsFile ~/.ssh/known_hosts
+  ControlMaster no
+  ControlPath ~/.ssh/master-%r@%n:%p
+  ControlPersist no
+  IdentityAgent "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+  
