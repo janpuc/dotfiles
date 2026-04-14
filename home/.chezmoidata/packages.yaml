@@ -9,6 +9,7 @@ packages:
       - chezmoi
       - direnv
       - dockutil
+      - editorconfig
       - eksctl
       - eza
       - fish
@@ -35,5 +36,6 @@ packages:
       - visual-studio-code
       - zoom
     vscode:
-      - Catppuccin.catppuccin-vsc
-      - Catppuccin.catppuccin-vsc-icons
+      - catppuccin.catppuccin-vsc
+      - catppuccin.catppuccin-vsc-icons
+      - editorconfig.editorconfig	
