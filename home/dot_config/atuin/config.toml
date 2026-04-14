@@ -4,6 +4,7 @@ sync_address = "https://atuin.janpuc.com"
 sync_frequency = "5m"
 
 [daemon]
+autostart = true
 enabled = true
 socket_path = "/Users/jan.pucilowski/.local/share/atuin/daemon.sock"
 
