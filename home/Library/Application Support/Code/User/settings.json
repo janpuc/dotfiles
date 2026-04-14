@@ -1,5 +1,5 @@
 {
   /* Visit https://code.visualstudio.com/docs/getstarted/settings to read more about this file */
 
-  "window.nativeTabs": "true",
+  "window.nativeTabs": true,
 }
