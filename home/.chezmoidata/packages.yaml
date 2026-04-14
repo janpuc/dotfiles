@@ -35,3 +35,4 @@ packages:
       - zoom
     vscode:
       - Catppuccin.catppuccin-vsc
+      - Catppuccin.catppuccin-vsc-icons
