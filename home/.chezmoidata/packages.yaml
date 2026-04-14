@@ -11,6 +11,7 @@ packages:
       - dockutil
       - eksctl
       - fish
+      - fzf
       - granted
       - saml2aws
       - starship
