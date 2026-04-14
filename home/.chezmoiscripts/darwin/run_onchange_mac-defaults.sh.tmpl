@@ -4,6 +4,7 @@
 # https://mths.be/macos
 
 trap 'killall Dock' EXIT
+trap 'killall SystemUIServer' EXIT
 
 sudo --validate # Authenticate the user and extends the sudo timeout for another 5 minutes
 
@@ -36,9 +37,9 @@ defaults write com.apple.sharingd DiscoverableMode -string "Contacts Only"
 
 ### Language & Region (x-apple.systempreferences:com.apple.Localization-Settings)
 defaults write -g AppleLanguages -array "en-US" "en" "pl" # Preferred languages
-defaults write -g AppleLocale -string "en_US@currency=usd"
+defaults write -g AppleLocale -string "en_US@currency=pln"
 defaults write -g AppleTemperatureUnit -string "Celsius"
-defaults write -g AppleMeasurementUnits -string "Centimeters" # Measurement system: US
+defaults write -g AppleMeasurementUnits -string "Centimeters" # Measurement system: Metric
 defaults write -g AppleMetricUnits -bool true
 defaults write -g AppleLiveTextEnabled -bool true # Enable Live Text (Select text in images to copy or take action)
 
@@ -76,6 +77,14 @@ defaults write com.apple.weather.menu "NSStatusItem Visible Item-0" -bool true  
 ### Menu Bar Only
 defaults write -g AppleMenuBarVisibleInFullscreen -bool false # Set "Automatically hide and show the menu bar" to "In Full Screen Only"
 defaults write -g "_HIHideMenuBar" -bool false                # See above
+defaults write -g "NSStatusItemSelectionPadding" -int 6
+defaults write -g "NSStatusItemSpacing" -int 6
+
+defaults write com.apple.menuextra.clock Show24Hour -bool true
+defaults write com.apple.menuextra.clock ShowAMPM -bool false
+defaults write com.apple.menuextra.clock ShowDate -bool true
+defaults write com.apple.menuextra.clock ShowDayOfWeek -bool true
+defaults write com.apple.menuextra.clock ShowSeconds -bool true
 
 ## Accessibility (x-apple.systempreferences:com.apple.Accessibility)
 
