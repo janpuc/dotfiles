@@ -1,5 +1,23 @@
 # Include ~/.orbstack/ssh/config
 
+Host ext-bastion.i.dsc.tv
+  HostName ext-bastion.i.dsc.tv
+  User jpucilowski
+
+  IdentityFile ~/.ssh/dgo_janpuc
+  #IdentityAgent "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+
+Host *.i 10.113.*
+  ProxyCommand ssh -W %h.dsc.tv:%p ext-bastion.i.dsc.tv
+  User ubuntu
+  IdentityFile ~/.ssh/dgo_janpuc
+  #IdentityAgent "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+
+Host lg
+  ProxyCommand ssh -W lg-17:%p sysadmin.i
+  User ubuntu
+  IdentityFile ~/.ssh/dgo_janpuc
+  #IdentityAgent "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 
 Host *
   ForwardAgent no
