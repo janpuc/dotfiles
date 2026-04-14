@@ -2,7 +2,7 @@
 
 set -eufo pipefail
 
-spicetify restore | true
+spicetify restore
 spicetify backup
 spicetify config current_theme catppuccin
 spicetify config color_scheme mocha
