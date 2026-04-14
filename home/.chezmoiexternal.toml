@@ -5,10 +5,10 @@
     stripComponents = 1
     refreshPeriod = "168h"
     exclude = [
-        ".github",
-        ".editorconfig",
-        "assets",
-        "LICENSE",
-        "manifest.json",
-        "README.md",
+        "*/.github",
+        "*/.editorconfig",
+        "*/assets",
+        "*/LICENSE",
+        "*/manifest.json",
+        "*/README.md",
     ]
