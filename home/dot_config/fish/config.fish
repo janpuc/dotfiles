@@ -45,14 +45,14 @@ alias nix-update="nix flake update"
 
 /opt/homebrew/bin/brew shellenv | source
 
-# source ~/.config/op/plugins.sh
+source ~/.config/op/plugins.sh
 
 fish_config theme choose catppuccin-mocha
-
-atuin init fish | source
 
 starship init fish | source
 
 zoxide init --cmd cd fish | source
+
+atuin init fish | source
 
 enable_transience
