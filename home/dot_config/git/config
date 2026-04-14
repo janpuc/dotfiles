@@ -1,0 +1,80 @@
+[advice]
+	statusHints = false
+
+[alias]
+	a = "add -A"
+	br = "branch"
+	c = "commit"
+	ca = "commit -am"
+	cl = "clone"
+	cm = "commit -m"
+	co = "checkout"
+	d = "diff"
+	dc = "diff --cached"
+	dlog = "!f() { GIT_EXTERNAL_DIFF=difft git log -p --ext-diff $@ }; f"
+	dshow = "!f() { GIT_EXTERNAL_DIFF=difft git show --ext-diff $@ }; f"
+	fucked = "reset --hard"
+	graph = "log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit"
+	p = "push"
+	pu = "pull"
+	st = "status"
+
+[color]
+	branch = false
+	diff = false
+	interactive = true
+	log = false
+	status = true
+	ui = false
+
+[commit]
+	gpgSign = true
+	gpgsign = true
+
+[core]
+	autocrlf = "input"
+	editor = "nano"
+	eol = "lf"
+	pager = "bat"
+
+[credential "https://gist.github.com"]
+	helper = "gh auth git-credential"
+
+[credential "https://github.com"]
+	helper = "gh auth git-credential"
+
+[diff]
+	external = "difft --display side-by-side-show-both"
+
+[fetch]
+	prune = true
+	pruneTags = true
+
+[gpg]
+	format = "ssh"
+
+[gpg "ssh"]
+	program = "/Applications/1Password.app/Contents/MacOS/op-ssh-sign"
+
+[init]
+	defaultBranch = "main"
+
+[pull]
+	rebase = true
+
+[push]
+	autoSetupRemote = true
+	default = "matching"
+
+[rebase]
+	autoStash = true
+
+[tag]
+	forceSignAnnotated = true
+	gpgSign = true
+	gpgsign = true
+
+[user]
+	email = "janpuc@proton.me"
+	name = "janpuc"
+	signingKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxcKV1Iao/IzHzbHUGaUKocgDR6WG3w5SA64U6cd8Nk"
