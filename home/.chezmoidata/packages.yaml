@@ -16,13 +16,19 @@ packages:
       - fluxcd/tap/flux
       - fzf
       - gh
+      - go
       - granted
+      - gum
+      - just
       - jq
       - k9s
       - kubectl
+      - ncdu
       - saml2aws
+      - showwin/speedtest/speedtest
       - spicetify-cli
       - starship
+      - talosctl
       - yt-dlp
       - yq
       - zoxide
