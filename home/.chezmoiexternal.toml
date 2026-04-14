@@ -1,6 +1,14 @@
-[".config/spicetify/Themes/catppuccin"]
+[".config/spicetify/Themes"]
     type = "archive"
     url = "https://github.com/catppuccin/spicetify/archive/main.tar.gz"
     exact = true
     stripComponents = 1
     refreshPeriod = "168h"
+    exclude = [
+        ".github",
+        ".editorconfig",
+        "assets",
+        "LICENSE",
+        "manifest.json",
+        "README.md",
+    ]
