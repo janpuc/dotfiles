@@ -35,5 +35,7 @@ else
     echo "Xcode Command Line Tools installed successfully."
 fi
 
+export PATH=/opt/homebrew/bin:$PATH
+
 echo "Running chezmoi init..."
 sh -c "$(curl -fsLS get.chezmoi.io)" -- init --apply janpuc
