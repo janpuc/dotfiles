@@ -1,0 +1,32 @@
+[
+  // Disable Control (⌃) + Option (⌥) + Return (↩), used for tiling (Window > Fill)
+  {
+    "key": "ctrl+alt+enter",
+    "command": "-workbench.action.chat.runInTerminal",
+    "when": "accessibleViewInCodeBlock && chatIsEnabled || chatIsEnabled && inChat"
+  },
+  // Disable Control (⌃) + Option (⌥) + Left Arrow (←), used for tiling (Window > Move & Resize > Left)
+  {
+    "key": "ctrl+alt+left",
+    "command": "-cursorWordPartLeft",
+    "when": "textInputFocus"
+  },
+  // Disable Control (⌃) + Option (⌥) + Right Arrow (→), used for tiling (Window > Move & Resize > Right)
+  {
+    "key": "ctrl+alt+right",
+    "command": "-cursorWordPartRight",
+    "when": "textInputFocus"
+  },
+  // Disable Control (⌃) + Option (⌥) + Right Arrow (→), used for tiling (Window > Move & Resize > Right)
+  {
+    "key": "ctrl+alt+right",
+    "command": "-quickInput.acceptInBackground",
+    "when": "cursorAtEndOfQuickInputBox && inQuickInput && quickInputType == 'quickPick' || inQuickInput && !inputFocus && quickInputType == 'quickPick'"
+  },
+  // Disable Control (⌃) + Option (⌥) + Delete (⌫), used for tiling (Window > Move & Resize > Return to Previous Size)
+  {
+    "key": "ctrl+alt+backspace",
+    "command": "-deleteWordPartLeft",
+    "when": "textInputFocus && !editorReadonly"
+  }
+]
