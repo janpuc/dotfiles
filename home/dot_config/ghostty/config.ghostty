@@ -1,5 +1,5 @@
 command = /opt/homebrew/bin/fish
 click-repeat-interval = 500
 auto-update-channel = stable
-#theme = Catppuccin Mocha
+theme = Catppuccin Mocha
 background-blur = macos-glass-regular
