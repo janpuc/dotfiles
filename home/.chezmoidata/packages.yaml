@@ -23,6 +23,7 @@ packages:
       - jq
       - k9s
       - kubectl
+      - mise
       - ncdu
       - saml2aws
       - showwin/speedtest/speedtest
