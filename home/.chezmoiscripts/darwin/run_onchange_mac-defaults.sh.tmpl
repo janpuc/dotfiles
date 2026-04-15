@@ -379,6 +379,21 @@ defaults write com.kagi.kagimacOS ShowKagiPrivacyPass -bool false
 defaults write com.kagi.kagimacOS ShowNestedTabs -bool false
 defaults write com.kagi.kagimacOS UseDefaultSearchEngineInPrivateMode -bool true
 
+/usr/libexec/PlistBuddy -c "add defaultProfile string 'Defaults'" \
+  ~/Library/Application\ Support/Orion/profiles | true
+
+/usr/libexec/PlistBuddy -c "add defaultProfileIndex integer '0'" \
+  ~/Library/Application\ Support/Orion/profiles | true
+
+/usr/libexec/PlistBuddy -c "add defaults:name string 'Primary'" \
+  ~/Library/Application\ Support/Orion/profiles | true
+
+/usr/libexec/PlistBuddy -c "add defaults:color integer '7'" \
+  ~/Library/Application\ Support/Orion/profiles | true
+
+/usr/libexec/PlistBuddy -c "add defaults:identifier string 'Defaults'" \
+  ~/Library/Application\ Support/Orion/profiles | true
+
 /usr/libexec/PlistBuddy -c "add profiles:0:color integer '0'" \
   ~/Library/Application\ Support/Orion/profiles | true
 
