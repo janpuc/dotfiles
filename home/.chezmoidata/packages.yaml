@@ -52,4 +52,4 @@ packages:
     vscode:
       - catppuccin.catppuccin-vsc
       - catppuccin.catppuccin-vsc-icons
-      - editorconfig.editorconfig	
+      - editorconfig.editorconfig
