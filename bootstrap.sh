@@ -16,7 +16,9 @@ echo "Setting hostname to: $NEW_HOSTNAME"
 echo "Configuring system names..."
 sudo scutil --set HostName "$NEW_HOSTNAME"
 sudo scutil --set LocalHostName "$NEW_HOSTNAME"
-sudo scutil --set ComputerName "$NEW_HOSTNAME"
+
+COMPUTER_NAME="${(U)NEW_HOSTNAME:0:1}${NEW_HOSTNAME:1}"
+sudo scutil --set ComputerName "$COMPUTER_NAME"
 
 echo "Flushing DNS cache..."
 dscacheutil -flushcache
