@@ -380,6 +380,8 @@ defaults write com.kagi.kagimacOS ShowKagiPrivacyPass -bool false
 defaults write com.kagi.kagimacOS ShowNestedTabs -bool false
 defaults write com.kagi.kagimacOS UseDefaultSearchEngineInPrivateMode -bool true
 
+mkdir -p ~/Library/Application\ Support/Orion
+
 /usr/libexec/PlistBuddy -c "add defaultProfile string 'Defaults'" \
   ~/Library/Application\ Support/Orion/profiles | true
 
