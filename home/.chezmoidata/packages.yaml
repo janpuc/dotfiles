@@ -6,7 +6,10 @@ packages:
       - awscli
       - aws-sso-cli
       - bat
+      - ccache
       - chezmoi
+      - cmake
+      - dfu-util
       - direnv
       - dockutil
       - editorconfig
@@ -25,6 +28,8 @@ packages:
       - kubectl
       - mise
       - ncdu
+      - ninja
+      - platformio
       - saml2aws
       - showwin/speedtest/speedtest
       - spicetify-cli
@@ -55,3 +60,4 @@ packages:
       - catppuccin.catppuccin-vsc
       - catppuccin.catppuccin-vsc-icons
       - editorconfig.editorconfig
+      - platformio.platformio-ide
