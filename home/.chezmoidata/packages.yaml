@@ -55,6 +55,7 @@ packages:
       - spotify
       - tailscale-app
       - visual-studio-code
+      - wireshark-app
       - zoom
     vscode:
       - catppuccin.catppuccin-vsc
