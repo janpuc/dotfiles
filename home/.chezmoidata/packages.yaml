@@ -65,9 +65,11 @@ packages:
           - platformio
         casks:
           - discord
+          - prismlauncher
           - protonvpn
           - tailscale-app
           - wireshark-app
+          - zulu@21
         vscode:
           - ms-vscode.cpptools
           - platformio.platformio-ide
