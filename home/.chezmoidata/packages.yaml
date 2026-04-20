@@ -1,64 +1,77 @@
 packages:
-  darwin:
-    brews:
-      - aria2
-      - atuin
-      - awscli
-      - aws-sso-cli
-      - bat
-      - ccache
-      - chezmoi
-      - cmake
-      - dfu-util
-      - direnv
-      - dockutil
-      - editorconfig
-      - eksctl
-      - eza
-      - fish
-      - fluxcd/tap/flux
-      - fzf
-      - gh
-      - go
-      - granted
-      - gum
-      - just
-      - jq
-      - k9s
-      - kubectl
-      - mise
-      - ncdu
-      - ninja
-      - platformio
-      - saml2aws
-      - showwin/speedtest/speedtest
-      - spicetify-cli
-      - starship
-      - talosctl
-      - yt-dlp
-      - yq
-      - zoxide
-    casks:
-      - 1password
-      - 1password-cli
-      - bambu-studio
-      - beeper
-      - discord
-      - ghostty
-      - microsoft-teams
-      - obsidian
-      - orbstack
-      - orion
-      - protonvpn
-      - utm
-      - slack
-      - spotify
-      - tailscale-app
-      - visual-studio-code
-      - wireshark-app
-      - zoom
-    vscode:
-      - catppuccin.catppuccin-vsc
-      - catppuccin.catppuccin-vsc-icons
-      - editorconfig.editorconfig
-      - platformio.platformio-ide
+  common:
+    darwin:
+      brews:
+        - aria2
+        - atuin
+        - awscli
+        - aws-sso-cli
+        - bat
+        - ccache
+        - chezmoi
+        - cmake
+        - direnv
+        - dockutil
+        - editorconfig
+        - eksctl
+        - eza
+        - fish
+        - fluxcd/tap/flux
+        - fzf
+        - gh
+        - go
+        - granted
+        - gum
+        - just
+        - jq
+        - k9s
+        - kubectl
+        - mise
+        - ncdu
+        - saml2aws
+        - showwin/speedtest/speedtest
+        - spicetify-cli
+        - starship
+        - talosctl
+        - yt-dlp
+        - yq
+        - zoxide
+      casks:
+        - 1password
+        - 1password-cli
+        - bambu-studio
+        - beeper
+        - ghostty
+        - microsoft-teams
+        - obsidian
+        - orbstack
+        - orion
+        - utm
+        - slack
+        - spotify
+        - visual-studio-code
+        - zoom
+      vscode:
+        - catppuccin.catppuccin-vsc
+        - catppuccin.catppuccin-vsc-icons
+        - editorconfig.editorconfig
+
+  hosts:
+    hermes:
+      darwin:
+        brews:
+          - dfu-util
+          - ninja
+          - platformio
+        casks:
+          - discord
+          - protonvpn
+          - tailscale-app
+          - wireshark-app
+        vscode:
+          - platformio.platformio-ide
+    sisyphus:
+      darwin:
+        brews: []
+        casks: []
+        vscode: []

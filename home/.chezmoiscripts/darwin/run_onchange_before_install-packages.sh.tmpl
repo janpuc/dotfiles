@@ -2,14 +2,38 @@
 
 set -eufo pipefail
 
-/opt/homebrew/bin/brew bundle --file=/dev/stdin <<EOF
-{{ range .packages.darwin.brews -}}
+{{- $hostname := .hostname -}}
+{{- $common := index .packages.common.darwin -}}
+{{- $host := index .packages.hosts $hostname -}}
+{{- $hostDarwin := dict -}}
+{{- if $host -}}
+{{-   $hostDarwin = $host.darwin | default dict -}}
+{{- end }}
+
+{{- /* Merge common and host-specific lists */ -}}
+{{- $brews := $common.brews -}}
+{{- if $hostDarwin.brews -}}
+{{-   $brews = concat $brews $hostDarwin.brews -}}
+{{- end }}
+
+{{- $casks := $common.casks -}}
+{{- if $hostDarwin.casks -}}
+{{-   $casks = concat $casks $hostDarwin.casks -}}
+{{- end }}
+
+{{- $vscode := $common.vscode -}}
+{{- if $hostDarwin.vscode -}}
+{{-   $vscode = concat $vscode $hostDarwin.vscode -}}
+{{- end }}
+
+/opt/homebrew/bin/brew bundle --file=/dev/stdin --cleanup <<EOF
+{{ range $brews -}}
 brew {{ . | quote }}
 {{ end -}}
-{{ range .packages.darwin.casks -}}
+{{ range $casks -}}
 cask {{ . | quote }}
 {{ end -}}
-{{ range .packages.darwin.vscode -}}
+{{ range $vscode -}}
 vscode {{ . | quote }}
 {{ end -}}
 EOF
