@@ -1,0 +1,20 @@
+{{- $osID := .chezmoi.os -}}
+{{- if (and (eq .chezmoi.os "linux") (hasKey .chezmoi.osRelease "id")) -}}
+{{-   $osID = printf "%s-%s" .chezmoi.os .chezmoi.osRelease.id -}}
+{{- end -}}
+
+{{/* work around unreliable hostname on darwin */}}
+{{- $hostname := .chezmoi.hostname -}}
+{{- if eq .chezmoi.os "darwin" -}}
+{{-   $hostname := output "scutil" "--get" "LocalHostName" | trim -}}
+{{- end -}}
+
+{{- $email := "contact@janpuc.com" -}}
+
+[data]
+    email = {{ $email | quote }}
+    hostname = {{ $hostname | quote }}
+    osid = {{ $osID | quote }}
+
+[github]
+    refreshPeriod = "12h"
