@@ -55,7 +55,7 @@ packages:
         - catppuccin.catppuccin-vsc
         - catppuccin.catppuccin-vsc-icons
         - editorconfig.editorconfig
-
+        - github.copilot-chat # Installed by default
   hosts:
     hermes:
       darwin:
@@ -69,6 +69,7 @@ packages:
           - tailscale-app
           - wireshark-app
         vscode:
+          - ms-vscode.cpptools
           - platformio.platformio-ide
     sisyphus:
       darwin:
