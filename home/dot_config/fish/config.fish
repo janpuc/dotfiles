@@ -42,6 +42,9 @@ alias tree="eza --tree"
 alias unset="set -e"
 alias unexport="set -e"
 
+## Granted
+alias assume="source (brew --prefix)/bin/assume.fish"
+
 ## Config
 
 /opt/homebrew/bin/brew shellenv | source
