@@ -42,11 +42,6 @@ alias tree="eza --tree"
 alias unset="set -e"
 alias unexport="set -e"
 
-### Temp
-alias nix-darwin="nh darwin switch ~/nix-config#darwinConfigurations.hermes"
-alias nix-home="nh home switch ~/nix-config"
-alias nix-update="nix flake update"
-
 ## Config
 
 /opt/homebrew/bin/brew shellenv | source
