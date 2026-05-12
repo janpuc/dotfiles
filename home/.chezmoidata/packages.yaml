@@ -29,6 +29,7 @@ packages:
         - jq
         - k9s
         - kubectl
+        - minijinja-cli
         - mise
         - ncdu
         - saml2aws
