@@ -15,6 +15,7 @@ packages:
         - editorconfig
         - eksctl
         - eza
+        - ffmpeg
         - fish
         - fluxcd/tap/flux
         - fzf
