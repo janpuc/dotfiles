@@ -6,6 +6,7 @@ packages:
         - atuin
         - awscli
         - aws-sso-cli
+        - bakito/tap/kube-metrics
         - bat
         - ccache
         - chezmoi
@@ -23,6 +24,7 @@ packages:
         - granted
         - gum
         - helm
+        - istioctl
         - just
         - jq
         - k9s
