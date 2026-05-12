@@ -6,7 +6,6 @@ packages:
         - atuin
         - awscli
         - aws-sso-cli
-        - bakito/tap/kube-metrics
         - bat
         - ccache
         - chezmoi
@@ -42,6 +41,7 @@ packages:
       casks:
         - 1password
         - 1password-cli
+        - bakito/tap/kube-metrics
         - bambu-studio
         - beeper
         - ghostty
