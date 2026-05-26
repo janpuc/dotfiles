@@ -55,6 +55,8 @@ fish_config theme choose catppuccin-mocha
 
 atuin init fish | source
 
+fzf --fish | source
+
 starship init fish | source
 
 zoxide init --cmd cd fish | source
