@@ -79,6 +79,7 @@ packages:
           - wireshark-app
           - zulu@21
         vscode:
+          - bierner.markdown-mermaid
           - ms-vscode.cpptools
           - platformio.platformio-ide
     sisyphus:
