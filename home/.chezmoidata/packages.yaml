@@ -80,8 +80,15 @@ packages:
           - zulu@21
         vscode:
           - bierner.markdown-mermaid
+          - bluebrown.yamlfmt
+          - blueglassblock.better-json5
+          - hverlin.mise-vscode
+          - irongeek.vscode-env
           - ms-vscode.cpptools
+          - nefrob.vscode-just-syntax
+          - PKief.material-icon-theme
           - platformio.platformio-ide
+          - redhat.vscode-yaml
     sisyphus:
       darwin:
         brews: []
