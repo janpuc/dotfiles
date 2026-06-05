@@ -26,7 +26,7 @@ set -eufo pipefail
 {{-   $vscode = concat $vscode $hostDarwin.vscode -}}
 {{- end }}
 
-/opt/homebrew/bin/brew bundle --file=/dev/stdin --cleanup <<EOF
+/opt/homebrew/bin/brew bundle --file=/dev/stdin --force-cleanup <<EOF
 {{ range $brews -}}
 brew {{ . | quote }}
 {{ end -}}
