@@ -51,11 +51,11 @@ alias assume="source (brew --prefix)/bin/assume.fish"
 
 source ~/.config/op/plugins.sh
 
+source ~/.orbstack/shell/init2.fish 2>/dev/null || :
+
 fish_config theme choose catppuccin-mocha
 
 atuin init fish | source
-
-fzf --fish | source
 
 starship init fish | source
 
