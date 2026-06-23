@@ -1,10 +1,12 @@
 function awsx --description "AWS Context Switcher"
     set -l INVENTORY "$HOME/.aws/inventory.json"
+    set -l FREC "$HOME/.aws/frecency.json"
 
     if not test -f "$INVENTORY"
         echo "Error: Inventory missing. Run 'aws-sync' first." >&2
         return 1
     end
+    test -s "$FREC"; or echo "{}" >"$FREC"
 
     # Direct profile argument
     if set -q argv[1]
@@ -13,8 +15,12 @@ function awsx --description "AWS Context Switcher"
             "$INVENTORY" | head -n1)
 
         if test -n "$MATCH"
+            set -l MID (jq -r --arg p "$MATCH" \
+                '.[] | select("\(.org)/\(.account_name)/\(.role_name)" == $p) | .account_id' \
+                "$INVENTORY" | head -n1)
             set -gx AWS_PROFILE "$MATCH"
             set -gx AWS_REGION "us-east-1"
+            __frecency_bump "$FREC" "$MID"
             assume "$MATCH"
             return 0
         else
@@ -23,11 +29,23 @@ function awsx --description "AWS Context Switcher"
         end
     end
 
-    # Interactive selection
-    set -l ACCOUNT_ROW (jq -r '
-        .[] | "\(.org) | \(if .account_name == "" or .account_name == null then .account_id else .account_name end) | \(.account_id)"
-    ' "$INVENTORY" | sort -u | column -t -s '|' | fzf \
-        --ansi --prompt="Account> " --height=40% --layout=default)
+    # Interactive selection. Accounts are de-duped (one row per org+id) and
+    # frecency-sorted (most-used first); --tiebreak=index honors that order.
+    # All columns stay searchable here — the account alias is the primary name.
+    set -l TAB (printf '\t')
+    set -l ACCOUNT_ROW (jq -r --slurpfile fr "$FREC" '
+            ($fr[0] // {}) as $f
+            | [ .[] | { org, account_id,
+                        name: (if .account_name == "" or .account_name == null then .account_id else .account_name end) } ]
+            | unique_by("\(.org)/\(.account_id)")
+            | .[]
+            | [ ($f[.account_id].n // 0), ($f[.account_id].t // 0), .org, .name, .account_id ]
+            | @tsv
+        ' "$INVENTORY" 2>/dev/null \
+        | sort -t "$TAB" -k1,1nr -k2,2nr \
+        | cut -f3- \
+        | column -t -s "$TAB" \
+        | fzf --ansi --prompt="Account> " --height=40% --layout=default --tiebreak=index)
 
     if test -z "$ACCOUNT_ROW"
         return 0
@@ -49,5 +67,6 @@ function awsx --description "AWS Context Switcher"
 
     set -gx AWS_PROFILE "$FINAL_PROFILE"
     set -gx AWS_REGION "us-east-1"
+    __frecency_bump "$FREC" "$SEL_ID"
     assume "$FINAL_PROFILE"
 end

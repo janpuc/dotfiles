@@ -1,11 +1,13 @@
 function kubectx --description "Kubernetes Context Switcher"
     set -l K8S_INV "$HOME/.kube/inventory.json"
     set -l KUBE_CLUSTER_DIR "$HOME/.kube/clusters"
+    set -l FREC "$HOME/.kube/frecency.json"
 
     if not test -f "$K8S_INV"
         echo "Error: Inventory missing. Run k8s-sync first." >&2
         return 1
     end
+    test -s "$FREC"; or echo "{}" >"$FREC"
 
     # Unset mode
     if test "$argv[1]" = "-u"
@@ -25,8 +27,24 @@ function kubectx --description "Kubernetes Context Switcher"
             return 1
         end
     else
-        # Interactive fzf selection
-        set -l SELECTED_ROW (jq -r '.[] | "\(.cluster_name) | \(.account_name) | \(.account_id)"' "$K8S_INV" | sort | column -t -s '|' | fzf --ansi --prompt="Cluster> " --height=40% --layout=default)
+        # Interactive fzf selection.
+        # Columns are ordered cluster_name | account_id | alias, so under
+        # --tiebreak=begin a query matching earlier columns wins: cluster name
+        # outranks the id, which outranks the alias. All columns stay searchable
+        # (the alias is just worth less). Rows are frecency-sorted first and
+        # `index` is the final tiebreak, so usage order survives equal matches.
+        set -l TAB (printf '\t')
+        set -l SELECTED_ROW (jq -r --slurpfile fr "$FREC" '
+                ($fr[0] // {}) as $f
+                | .[]
+                | [ ($f[.cluster_name].n // 0), ($f[.cluster_name].t // 0),
+                    .cluster_name, .account_id, .account_name ]
+                | @tsv
+            ' "$K8S_INV" 2>/dev/null \
+            | sort -t "$TAB" -k1,1nr -k2,2nr \
+            | cut -f3- \
+            | column -t -s "$TAB" \
+            | fzf --ansi --prompt="Cluster> " --height=40% --layout=default --tiebreak=begin,index)
 
         if test -z "$SELECTED_ROW"
             return 0
@@ -47,6 +65,7 @@ function kubectx --description "Kubernetes Context Switcher"
 
     set -gx KUBECONFIG "$KUBE_PATH"
     set -gx AWS_PROFILE "$FIN_PROFILE"
+    __frecency_bump "$FREC" "$FIN_CLUSTER"
     echo "✔ Context: $FIN_CLUSTER ($FIN_PROFILE)"
     assume "$FIN_PROFILE"
 end
