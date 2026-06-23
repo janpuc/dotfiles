@@ -39,7 +39,7 @@ function k8s-sync --description "Discover EKS clusters and generate kubeconfigs"
 
             # Find matching AWS profiles for this account ID
             set -l PROFILES (jq -r --arg id "$ACC_ID" '.[] | select(.account_id == $id) | "\(.org)/\(.account_name)/\(.role_name)"' "$AWS_INV")
-            set -l COUNT (echo "$PROFILES" | string match -vr '^$' | wc -l | string trim)
+            set -l COUNT (count $PROFILES)
 
             if test "$COUNT" -eq 0
                 continue
@@ -48,7 +48,7 @@ function k8s-sync --description "Discover EKS clusters and generate kubeconfigs"
             set -l SELECTED_PROFILE ""
 
             if test "$COUNT" -eq 1
-                set SELECTED_PROFILE "$PROFILES"
+                set SELECTED_PROFILE $PROFILES[1]
             else
                 # Check if we have a saved preference
                 set -l PREF (jq -r --arg eks "$EKS_NAME" '.[$eks]' "$PREFS")
@@ -57,7 +57,7 @@ function k8s-sync --description "Discover EKS clusters and generate kubeconfigs"
                 else
                     # Try priority roles
                     for priority_role in $ROLE_PRIORITY
-                        set -l MATCH (echo "$PROFILES" | grep "/$priority_role\$" | head -n1)
+                        set -l MATCH (printf '%s\n' $PROFILES | grep "/$priority_role\$" | head -n1)
                         if test -n "$MATCH"
                             set SELECTED_PROFILE "$MATCH"
                             break
@@ -67,7 +67,7 @@ function k8s-sync --description "Discover EKS clusters and generate kubeconfigs"
                     if test -z "$SELECTED_PROFILE"
                         echo "  ? No tiered match for $EKS_NAME ($ACC_ID). Select role:"
                         # fzf reads from terminal even when stdin is a pipe
-                        set SELECTED_PROFILE (echo "$PROFILES" | fzf --height 15% --reverse --header "Role for $EKS_NAME" < /dev/tty)
+                        set SELECTED_PROFILE (printf '%s\n' $PROFILES | fzf --height 15% --reverse --header "Role for $EKS_NAME" < /dev/tty)
                     end
 
                     if test -n "$SELECTED_PROFILE"
