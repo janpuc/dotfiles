@@ -1,0 +1,6 @@
+DefaultBrowser = "CUSTOM"
+CustomBrowserPath = "/Applications/Orion.app/Contents/MacOS/Orion"
+
+[AWSConsoleBrowserLaunchTemplate]
+UseForkProcess = false
+Command = 'open -a "/Users/jan.pucilowski/Applications/Orion/Orion Profiles/3401AC76-6D63-4217-BEE0-55FE75051E28/Orion - Work (WBD).app" "{{ .URL }}"'
