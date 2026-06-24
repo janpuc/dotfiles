@@ -38,6 +38,7 @@ packages:
         - spicetify-cli
         - starship
         - talosctl
+        - vals
         - yt-dlp
         - yq
         - zoxide
