@@ -9,6 +9,7 @@ packages:
         - bat
         - ccache
         - chezmoi
+        - cliproxyapi
         - cmake
         - direnv
         - dockutil
@@ -50,6 +51,7 @@ packages:
         - beeper
         - claude
         - claude-code
+        - codex
         - ghostty
         - microsoft-teams
         - obsidian
