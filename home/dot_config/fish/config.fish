@@ -52,6 +52,8 @@ CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=3 \
 ENABLE_TOOL_SEARCH=false \
 claude --model gpt-5.6-sol'
 
+alias opencode='op run --env-file ~/.config/opencode/memini.env -- opencode'
+
 ## Config
 
 /opt/homebrew/bin/brew shellenv | source
