@@ -1,6 +1,31 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["@eleboucher/opencode-memini"],
+  // base_url is passed inline rather than relying on MEMINI_BASE_URL reaching
+  // the plugin's Bun process — otherwise it silently falls back to
+  // http://localhost:8080. MEMINI_API_KEY stays in the env: it is the one
+  // option the plugin accepts by env only, because it is a secret.
+  //
+  // recall_budget_ms is raised from its 2000 default because this deployment
+  // reranks with a cross-encoder and a recall measures 1.3-2.3s end to end; at
+  // 2000 a large share of recalls would time out and be silently discarded.
+  //
+  // recall_min_score is deliberately left at 0: it floors the FUSED score, and
+  // the fused score is miscalibrated against bge-m3 here. Gating is done
+  // server-side by MEMINI_RERANK_MIN_SCORE on the cross-encoder instead.
+  //
+  // namespace is intentionally unset so the server handshake resolves it —
+  // that is what lets pins and MEMINI_NAMESPACE_PREFIX (work/) apply.
+  "plugin": [
+    [
+      "@eleboucher/opencode-memini",
+      {
+        "base_url": "https://memini.janpuc.com",
+        "recall_limit": 5,
+        "recall_budget_ms": 4000,
+        "recall_max_tokens": 400
+      }
+    ]
+  ],
   // MiniMax M3 is the default: 1M context, and it is already the default plus
   // the universal fallback in the Hermes litellm config, so it is the most
   // proven model in this stack. Switch to opencode-go/kimi-k2.7-code for
