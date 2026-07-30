@@ -20,6 +20,7 @@
       "@eleboucher/opencode-memini",
       {
         "base_url": "https://memini.janpuc.com",
+        "home": "personal/jan",
         "recall_limit": 5,
         "recall_budget_ms": 4000,
         "recall_max_tokens": 400

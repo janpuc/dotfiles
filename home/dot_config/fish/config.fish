@@ -21,6 +21,11 @@ set -gx SAML2AWS_CONFIGFILE "~/.aws/saml2aws/config"
 set -gx MEMINI_BASE_URL "https://memini.janpuc.com"
 set -gx LITELLM_BASE_URL "https://litellm.janpuc.com"
 
+# Personal namespace, merged read-only into every recall on top of whatever
+# project namespace is in force. This is why facts about me stay visible in the
+# work tree too, which does not inherit homelab.
+set -gx MEMINI_HOME "personal/jan"
+
 # API keys are fetched once by `ai-sync` into a 0600 cache under XDG_STATE_HOME
 # so no 1Password prompt fires on shell start or agent launch. Re-run after a
 # key rotation.
