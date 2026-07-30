@@ -17,6 +17,17 @@ set -gx SSH_AUTH_SOCK "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/age
 set -gx VISUAL nano
 set -gx SAML2AWS_CONFIGFILE "~/.aws/saml2aws/config"
 
+### AI endpoints — not secrets, so plaintext here
+set -gx MEMINI_BASE_URL "https://memini.janpuc.com"
+set -gx LITELLM_BASE_URL "https://litellm.janpuc.com"
+
+# API keys are fetched once by `ai-sync` into a 0600 cache under XDG_STATE_HOME
+# so no 1Password prompt fires on shell start or agent launch. Re-run after a
+# key rotation.
+if test -r "$XDG_STATE_HOME/ai/credentials.fish"
+    source "$XDG_STATE_HOME/ai/credentials.fish"
+end
+
 ## Abbrs
 
 abbr --add g git
@@ -51,6 +62,14 @@ CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1 \
 CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=3 \
 ENABLE_TOOL_SEARCH=false \
 claude --model gpt-5.6-sol'
+
+# Claude Code against the self-hosted litellm instead of Anthropic. Uses the
+# anthropic-format models, since Claude Code speaks /v1/messages. Plain `claude`
+# is untouched and stays on claude-opus-5[1m].
+alias claudel='ANTHROPIC_BASE_URL=$LITELLM_BASE_URL \
+ANTHROPIC_AUTH_TOKEN=$LITELLM_API_KEY \
+claude --model minimax/MiniMax-M3-anthropic'
+
 ## Config
 
 /opt/homebrew/bin/brew shellenv | source
@@ -68,3 +87,8 @@ starship init fish | source
 zoxide init --cmd cd fish | source
 
 enable_transience
+
+# Autoloaded --on-variable handlers only register once the function has been
+# loaded, so call it here to both register the hook and apply it to the
+# directory this shell started in.
+__memini_namespace_prefix

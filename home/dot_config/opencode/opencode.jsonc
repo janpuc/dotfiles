@@ -1,6 +1,11 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": ["@eleboucher/opencode-memini"],
+  // MiniMax M3 is the default: 1M context, and it is already the default plus
+  // the universal fallback in the Hermes litellm config, so it is the most
+  // proven model in this stack. Switch to opencode-go/kimi-k2.7-code for
+  // code-specialised work, or opencode-go/glm-5.2 for a fast non-reasoning one.
+  "model": "litellm/minimax/MiniMax-M3",
   "provider": {
     "litellm": {
       "npm": "@ai-sdk/openai-compatible",
@@ -8,51 +13,63 @@
       "options": {
         "baseURL": "https://litellm.janpuc.com/v1"
       },
+      // Mirrors the live catalogue at litellm.janpuc.com/v1/models.
+      // bge-embedding-m3 and bge-reranker-v2-m3 are deliberately omitted —
+      // they are embedding and rerank models, not chat models.
       "models": {
+        "minimax/MiniMax-M3": {
+          "name": "MiniMax M3 (1M ctx)"
+        },
+        "minimax/MiniMax-M3-anthropic": {
+          "name": "MiniMax M3 (anthropic fmt)"
+        },
         "minimax/MiniMax-M2-7": {
           "name": "MiniMax M2.7"
         },
-        "minimax/MiniMax-M3": {
-          "name": "MiniMax M3"
+        "minimax/MiniMax-M2-7-anthropic": {
+          "name": "MiniMax M2.7 (anthropic fmt)"
         },
-        "neuralwatt/glm-5.2-fast": {
-          "name": "GLM 5.2 Fast"
-        },
-        "neuralwatt/glm-5.2-short-fast-flex": {
-          "name": "GLM 5.2 Short Fast Flex"
-        },
-        "neuralwatt/glm-5.2-short-fast": {
-          "name": "GLM 5.2 Short Fast"
-        },
-        "neuralwatt/glm-5.2-short": {
-          "name": "GLM 5.2 Short"
-        },
-        "neuralwatt/glm-5.2": {
-          "name": "GLM 5.2"
-        },
-        "neuralwatt/kimi-k2.6-fast": {
-          "name": "Kimi K2.6 Fast"
-        },
-        "neuralwatt/kimi-k2.6-flex": {
-          "name": "Kimi K2.6 Flex"
-        },
-        "neuralwatt/kimi-k2.6": {
-          "name": "Kimi K2.6"
-        },
-        "neuralwatt/kimi-k2.7-code": {
+        "opencode-go/kimi-k2.7-code": {
           "name": "Kimi K2.7 Code"
         },
-        "neuralwatt/qwen3.5-397b-fast": {
-          "name": "Qwen 3.5 397B Fast"
+        "opencode-go/kimi-k2.6": {
+          "name": "Kimi K2.6"
         },
-        "neuralwatt/qwen3.5-397b": {
-          "name": "Qwen 3.5 397B"
+        "opencode-go/kimi-k3": {
+          "name": "Kimi K3"
         },
-        "neuralwatt/qwen3.6-35b-fast": {
-          "name": "Qwen 3.6 35B Fast"
+        "opencode-go/glm-5.2": {
+          "name": "GLM 5.2 (no reasoning)"
         },
-        "neuralwatt/qwen3.6-35b": {
-          "name": "Qwen 3.6 35B"
+        "opencode-go/deepseek-v4-pro": {
+          "name": "DeepSeek V4 Pro"
+        },
+        "opencode-go/deepseek-v4-flash": {
+          "name": "DeepSeek V4 Flash"
+        },
+        "opencode-go/grok-4.5": {
+          "name": "Grok 4.5"
+        },
+        "opencode-go/mimo-v2.5-pro": {
+          "name": "MiMo V2.5 Pro"
+        },
+        "opencode-go/mimo-v2.5": {
+          "name": "MiMo V2.5"
+        },
+        "opencode-go/qwen3.7-max": {
+          "name": "Qwen 3.7 Max"
+        },
+        "opencode-go/qwen3.7-plus": {
+          "name": "Qwen 3.7 Plus"
+        },
+        "opencode-go/qwen3.6-plus": {
+          "name": "Qwen 3.6 Plus"
+        },
+        "opencode-go/minimax-m3": {
+          "name": "MiniMax M3 (opencode-go)"
+        },
+        "opencode-go/minimax-m2.7": {
+          "name": "MiniMax M2.7 (opencode-go)"
         }
       }
     }
