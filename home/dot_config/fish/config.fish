@@ -97,3 +97,6 @@ enable_transience
 # loaded, so call it here to both register the hook and apply it to the
 # directory this shell started in.
 __memini_namespace_prefix
+
+# Hermes Agent — ensure ~/.local/bin is on PATH
+fish_add_path "$HOME/.local/bin"

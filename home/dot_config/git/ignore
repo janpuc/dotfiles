@@ -4,3 +4,5 @@
 bin/
 dist/
 result
+
+**/.claude/settings.local.json

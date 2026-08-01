@@ -1,0 +1,21 @@
+[projects."/Users/jan.pucilowski/Development/Xiao/Humidifier"]
+trust_level = "trusted"
+
+[projects."/Users/jan.pucilowski/Development/koment"]
+trust_level = "trusted"
+
+[tui.model_availability_nux]
+"gpt-5.6-sol" = 1
+
+# Streamable HTTP to the same memini MCP endpoint Claude Code uses
+# (https://memini.janpuc.com/mcp). Bearer token is read from $MEMINI_API_KEY
+# at launch — the secret itself stays in 1Password and is materialised into
+# the shell by `ai-sync.fish` (config.fish line 32). MEMINI_BASE_URL and
+# MEMINI_HOME are also exported globally in config.fish and reach the codex
+# MCP server process by inherited env, matching the path Claude Code takes
+# via its `enabledPlugins: memini@memini` block. Namespace (project vs
+# homelab/scratch) is resolved server-side at handshake, so the opencode
+# Bun-process gotcha does not apply here.
+[mcp_servers.memini]
+url = "https://memini.janpuc.com/mcp"
+bearer_token_env_var = "MEMINI_API_KEY"

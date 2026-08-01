@@ -10,4 +10,5 @@
   "gopls": {
     "ui.semanticTokens": true,
   },
+  "mise.binPath": "/opt/homebrew/bin/mise",
 }
