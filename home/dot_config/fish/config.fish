@@ -71,8 +71,14 @@ claude --model gpt-5.6-sol'
 # Claude Code against the self-hosted litellm instead of Anthropic. Uses the
 # anthropic-format models, since Claude Code speaks /v1/messages. Plain `claude`
 # is untouched and stays on claude-opus-5[1m].
+#
+# CLAUDE_CODE_SUBAGENT_MODEL must be set to the same litellm-routed model: the
+# subagent loop reads its model from settings.json ("claude-opus-5[1m]"), which
+# only exists on Anthropic's API and is rejected by litellm with a 400. The
+# explicit override forces every Workflow/Agent subagent through litellm too.
 alias claudel='ANTHROPIC_BASE_URL=$LITELLM_BASE_URL \
 ANTHROPIC_AUTH_TOKEN=$LITELLM_API_KEY \
+CLAUDE_CODE_SUBAGENT_MODEL=minimax/MiniMax-M3-anthropic \
 claude --model minimax/MiniMax-M3-anthropic'
 
 ## Config
