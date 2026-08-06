@@ -9,13 +9,11 @@ packages:
         - bat
         - ccache
         - chezmoi
-        - cliproxyapi
         - cmake
         - direnv
         - dockutil
         - editorconfig
         - eksctl
-        - eza
         - ffmpeg
         - fish
         - fluxcd/tap/flux
@@ -60,6 +58,8 @@ packages:
         - utm
         - slack
         - spotify
+        - t3-code
+        - thebrowsercompany-dia
         - visual-studio-code
         - zoom
       vscode:

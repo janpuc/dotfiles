@@ -1,8 +1,10 @@
 {
-  "model": "claude-opus-5[1m]",
+  "model": "minimax/MiniMax-M3-anthropic",
   "effortLevel": "xhigh",
   "theme": "dark",
   "env": {
+    "ANTHROPIC_BASE_URL": "https://litellm.janpuc.com",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "minimax/MiniMax-M3-anthropic",
     "MEMINI_BASE_URL": "https://memini.janpuc.com",
     "MEMINI_HOME": "personal/jan"
   },
