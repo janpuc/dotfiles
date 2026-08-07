@@ -58,7 +58,7 @@ packages:
         - utm
         - slack
         - spotify
-        - t3-code
+        - t3-code@nightly
         - thebrowsercompany-dia
         - visual-studio-code
         - zoom
