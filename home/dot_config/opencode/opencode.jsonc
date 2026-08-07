@@ -27,6 +27,17 @@
       }
     ]
   ],
+  // koment is wired as an MCP server (read + write tools) but no plugin entry:
+  // the project-scoped .opencode/plugins/koment.js policy gate is added per
+  // repo via `koment agents install` and would deny edits at the user level.
+  // command is a single argv array — opencode's MCP shape, not the
+  // command+args split most other clients use.
+  "mcp": {
+    "koment": {
+      "type": "local",
+      "command": ["koment", "mcp", "--write"]
+    }
+  },
   // MiniMax M3 is the default: 1M context, and it is already the default plus
   // the universal fallback in the Hermes litellm config, so it is the most
   // proven model in this stack. Switch to opencode-go/kimi-k2.7-code for
