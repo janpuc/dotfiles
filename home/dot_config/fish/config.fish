@@ -69,15 +69,17 @@ ENABLE_TOOL_SEARCH=false \
 claude --model gpt-5.6-sol'
 
 # Claude Code against the self-hosted litellm instead of Anthropic. The base
-# URL, model and subagent model all live in ~/.claude/settings.litellm.json
-# (chezmoi-tracked at home/dot_claude/settings.litellm.json) so plain `claude`
-# stays untouched on Anthropic. ANTHROPIC_AUTH_TOKEN is scoped to this
-# function call only (`set -lx`), so the litellm master key never leaks into
-# the rest of the shell — global-exporting it would break plain `claude` by
-# sending the key to api.anthropic.com.
+# URL, model and subagent model all live in ~/.claudel, which is the full
+# config dir (settings.json, plugins, agents, etc.) — a mirror of ~/.claude
+# — chosen via CLAUDE_CONFIG_DIR so plain `claude` keeps using ~/.claude and
+# isn't affected. ANTHROPIC_AUTH_TOKEN is scoped to this function call only
+# (`set -lx`), so the litellm master key never leaks into the rest of the
+# shell — global-exporting it would break plain `claude` by sending the key
+# to api.anthropic.com.
 function claudel --description "Claude Code against self-hosted litellm"
     set -lx ANTHROPIC_AUTH_TOKEN $LITELLM_API_KEY
-    command claude --settings ~/.claude/settings.litellm.json $argv
+    set -lx CLAUDE_CONFIG_DIR ~/.claudel
+    command claude $argv
 end
 
 ## Config
