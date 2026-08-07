@@ -51,6 +51,7 @@ packages:
         - claude-code
         - codex
         - ghostty
+        - hermes-desktop
         - microsoft-teams
         - obsidian
         - orbstack
