@@ -14,6 +14,7 @@ packages:
         - dockutil
         - editorconfig
         - eksctl
+        - eza
         - ffmpeg
         - fish
         - fluxcd/tap/flux
