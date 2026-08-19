@@ -1,7 +1,4 @@
 {
-  "model": "claude-opus-5[1m]",
-  "effortLevel": "xhigh",
-  "theme": "dark",
   "env": {
     "MEMINI_BASE_URL": "https://memini.janpuc.com",
     "MEMINI_HOME": "personal/jan"
@@ -26,5 +23,7 @@
         "repo": "koment-dev/koment"
       }
     }
-  }
+  },
+  "effortLevel": "xhigh",
+  "theme": "dark"
 }

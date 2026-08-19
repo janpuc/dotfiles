@@ -1,7 +1,5 @@
 {
   "model": "minimax/MiniMax-M3-anthropic",
-  "effortLevel": "xhigh",
-  "theme": "dark",
   "env": {
     "ANTHROPIC_BASE_URL": "https://litellm.janpuc.com",
     "CLAUDE_CODE_SUBAGENT_MODEL": "minimax/MiniMax-M3-anthropic",
@@ -28,5 +26,7 @@
         "repo": "koment-dev/koment"
       }
     }
-  }
+  },
+  "effortLevel": "xhigh",
+  "theme": "dark"
 }
