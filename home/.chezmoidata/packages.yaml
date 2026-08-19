@@ -64,6 +64,7 @@ packages:
         - t3-code@nightly
         - thebrowsercompany-dia
         - visual-studio-code
+        - zed@preview
         - zoom
       vscode:
         - catppuccin.catppuccin-vsc
