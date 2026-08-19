@@ -1,0 +1,82 @@
+// Zed settings
+//
+// For information on how to configure Zed, see the Zed
+// documentation: https://zed.dev/docs/configuring-zed
+//
+// To see all of Zed's default settings without changing your
+// custom settings, run `zed: open default settings` from the
+// command palette (cmd-shift-p / ctrl-shift-p)
+{
+  "cli_default_open_behavior": "new_window",
+  "base_keymap": "Zed",
+  "ui_font_size": 16,
+  "buffer_font_size": 15,
+  "theme": {
+    "mode": "system",
+    "light": "One Light",
+    "dark": "One Dark"
+  },
+  // Same self-hosted gateway `opencode` (home/dot_config/opencode/opencode.jsonc) and `claudel`
+  // (home/dot_claudel/settings.json) already use. The provider id "litellm" is load-bearing:
+  // Zed derives the API key env var as UPPER_SNAKE(id) + "_API_KEY", i.e. LITELLM_API_KEY,
+  // which `ai-sync` already writes to $XDG_STATE_HOME/ai/credentials.fish and config.fish
+  // sources into every shell — no new secret plumbing needed. This only works if Zed inherits
+  // that shell env (e.g. launched via the `zed` CLI from a fish session, or fish exports it via
+  // `launchctl setenv` for GUI launches). If Zed can't see the env var, paste the same key into
+  // Zed's Agent Settings > LiteLLM instead (it's stored in the system keychain from there).
+  //
+  // max_tokens values are conservative public-spec estimates, not pulled from the authoritative
+  // model config (home-ops: kubernetes/apps/ai/litellm/app/models/*.yaml) — tighten them there
+  // if exact context windows start mattering. Model list mirrors the live catalog at
+  // litellm.janpuc.com/v1/models (embedding/rerank models omitted, they aren't chat models).
+  "language_models": {
+    "openai_compatible": {
+      "litellm": {
+        "api_url": "https://litellm.janpuc.com/v1",
+        "available_models": [
+          { "name": "minimax/MiniMax-M3", "display_name": "MiniMax M3 (1M ctx)", "max_tokens": 1000000 },
+          { "name": "minimax/MiniMax-M3-anthropic", "display_name": "MiniMax M3 (anthropic fmt)", "max_tokens": 1000000 },
+          { "name": "minimax/MiniMax-M2-7", "display_name": "MiniMax M2.7", "max_tokens": 200000 },
+          { "name": "minimax/MiniMax-M2-7-anthropic", "display_name": "MiniMax M2.7 (anthropic fmt)", "max_tokens": 200000 },
+          { "name": "opencode-go/kimi-k2.7-code", "display_name": "Kimi K2.7 Code", "max_tokens": 256000 },
+          { "name": "opencode-go/kimi-k2.6", "display_name": "Kimi K2.6", "max_tokens": 256000 },
+          { "name": "opencode-go/kimi-k3", "display_name": "Kimi K3", "max_tokens": 256000 },
+          { "name": "opencode-go/glm-5.2", "display_name": "GLM 5.2 (no reasoning)", "max_tokens": 128000 },
+          { "name": "opencode-go/deepseek-v4-pro", "display_name": "DeepSeek V4 Pro", "max_tokens": 128000 },
+          { "name": "opencode-go/deepseek-v4-flash", "display_name": "DeepSeek V4 Flash", "max_tokens": 128000 },
+          { "name": "opencode-go/grok-4.5", "display_name": "Grok 4.5", "max_tokens": 128000 },
+          { "name": "opencode-go/mimo-v2.5-pro", "display_name": "MiMo V2.5 Pro", "max_tokens": 128000 },
+          { "name": "opencode-go/mimo-v2.5", "display_name": "MiMo V2.5", "max_tokens": 128000 },
+          { "name": "opencode-go/qwen3.7-max", "display_name": "Qwen 3.7 Max", "max_tokens": 128000 },
+          { "name": "opencode-go/qwen3.7-plus", "display_name": "Qwen 3.7 Plus", "max_tokens": 128000 },
+          { "name": "opencode-go/qwen3.6-plus", "display_name": "Qwen 3.6 Plus", "max_tokens": 128000 },
+          { "name": "opencode-go/minimax-m3", "display_name": "MiniMax M3 (opencode-go, 1M ctx)", "max_tokens": 1000000 },
+          { "name": "opencode-go/minimax-m2.7", "display_name": "MiniMax M2.7 (opencode-go)", "max_tokens": 200000 }
+        ]
+      }
+    }
+  },
+  "agent": {
+    "default_model": {
+      "provider": "litellm",
+      "model": "minimax/MiniMax-M3"
+    }
+  },
+  // Real Claude (Opus/Sonnet/Haiku) via subscription login — a separate ACP thread in the Agent
+  // Panel, not the inline assistant configured above. `env: {}` is deliberate: it must NOT
+  // inherit ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN — those belong to `claudel` and would
+  // silently redirect this agent at a MiniMax model wearing an Anthropic costume instead of
+  // real Claude. First use: open a Claude Agent thread and run `/login`.
+  // Mirrors Zed's own bundled ACP registry entry (id "claude-acp" in
+  // ~/Library/Application Support/Zed/external_agents/registry/registry.json) as a manual
+  // custom agent so it's reproducible via chezmoi without the in-app "Install from Registry"
+  // step. Bump the pinned version below if Zed's bundled registry moves past it.
+  "agent_servers": {
+    "Claude Agent": {
+      "type": "custom",
+      "command": "npx",
+      "args": ["-y", "@agentclientprotocol/claude-agent-acp@0.70.0"],
+      "env": {}
+    }
+  }
+}
