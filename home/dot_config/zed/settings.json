@@ -77,6 +77,16 @@
       "command": "npx",
       "args": ["-y", "@agentclientprotocol/claude-agent-acp@0.70.0"],
       "env": {}
+    },
+    // Codex via the ACP adapter from Zed's bundled registry. It uses the same
+    // ~/.codex authentication and config as the Codex CLI, including the model,
+    // reasoning effort, trusted projects, and MCP servers managed by chezmoi.
+    // Authenticate once with `codex login` if the CLI is not already signed in.
+    // Bump the pinned version when Zed's bundled registry moves past it.
+    "Codex": {
+      "type": "custom",
+      "command": "npx",
+      "args": ["-y", "@agentclientprotocol/codex-acp@1.4.0"]
     }
   }
 }
