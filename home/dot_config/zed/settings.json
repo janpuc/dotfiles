@@ -16,6 +16,32 @@
     "light": "One Light",
     "dark": "One Dark"
   },
+  "icon_theme": "Material Icon Theme",
+  // The counterpart to home-ops' .vscode/extensions.json, which Zed has no per-project
+  // equivalent of: `auto_install_extensions` is read via ExtensionSettings::get_global, so it
+  // only works from this file. Anything listed here installs on startup in *every* project.
+  //
+  // "oxc" is the formatter half of the pair (oxfmt, not oxlint) and matters because home-ops
+  // runs oxfmt on yaml/json/md at pre-commit; `.zed/settings.json` there points the formatter
+  // at the "oxfmt" language server this provides. Note it npm-installs its own oxfmt rather
+  // than using the mise-pinned one.
+  //
+  // YAML is deliberately absent: Zed bundles yaml-language-server, so redhat.vscode-yaml needs
+  // no counterpart. mise is absent because no Zed extension exists — launch Zed via the `zed`
+  // CLI from a shell where mise has activated, which the LiteLLM key below already requires.
+  //
+  // "koment" is NOT here. It is installed as a dev extension from
+  // ~/Development/koment/integrations/editors/zed until it lands in the registry; listing it
+  // here would make Zed try to fetch a registry entry that does not exist yet.
+  "auto_install_extensions": {
+    "env": true,
+    "helm": true,
+    "html": true,
+    "json5": true,
+    "just": true,
+    "material-icon-theme": true,
+    "oxc": true
+  },
   // Same self-hosted gateway `opencode` (home/dot_config/opencode/opencode.jsonc) and `claudel`
   // (home/dot_claudel/settings.json) already use. The provider id "litellm" is load-bearing:
   // Zed derives the API key env var as UPPER_SNAKE(id) + "_API_KEY", i.e. LITELLM_API_KEY,
