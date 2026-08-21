@@ -59,6 +59,7 @@ packages:
         - orion
         - plexamp
         - utm
+        - Sikarugir-App/sikarugir/sikarugir
         - slack
         - spotify
         - t3-code@nightly
