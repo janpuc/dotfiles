@@ -57,6 +57,7 @@ alias reload='exec $SHELL -l'
 alias tree="eza --tree"
 alias unset="set -e"
 alias unexport="set -e"
+alias aether="ssh ubuntu@aether"
 
 ## Granted
 alias assume="source (brew --prefix)/bin/assume.fish"
