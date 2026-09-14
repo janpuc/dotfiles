@@ -7,6 +7,7 @@ packages:
         - awscli
         - aws-sso-cli
         - bat
+        - bun
         - ccache
         - chezmoi
         - cmake
@@ -25,6 +26,7 @@ packages:
         - granted
         - gum
         - helm
+        - herdr
         - istioctl
         - just
         - jq
@@ -33,11 +35,13 @@ packages:
         - minijinja-cli
         - mise
         - ncdu
+        - can1357/tap/omp
         - saml2aws
         - showwin/speedtest/speedtest
         - spicetify-cli
         - starship
         - talosctl
+        - uv
         - vals
         - yt-dlp
         - yq
@@ -49,14 +53,13 @@ packages:
         - bambu-studio
         - beeper
         - claude
-        - claude-code
+        - claude-code@latest
         - codex
         - ghostty
-        - hermes-desktop
         - microsoft-teams
         - obsidian
         - orbstack
-        - orion
+        - plex
         - plexamp
         - utm
         - Sikarugir-App/sikarugir/sikarugir

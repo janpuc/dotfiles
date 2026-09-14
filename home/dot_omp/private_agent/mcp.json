@@ -1,0 +1,5 @@
+{
+  "$schema": "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json",
+  "//": "The Claude-compatible memini marketplace plugin supplies its skills and commands, but its MCP config uses Claude Code's unsupported headersHelper field. Disable that server; @eleboucher/pi-memini supplies native memory tools and lifecycle integration through omp's Pi extension compatibility layer.",
+  "disabledServers": ["memini:memini"]
+}

@@ -1,0 +1,40 @@
+# omp (oh-my-pi) — https://github.com/can1357/oh-my-pi
+#
+# Counterpart to the same self-hosted gateway `opencode`
+# (home/dot_config/opencode/opencode.jsonc), `claudel` (home/dot_claudel/settings.json)
+# and Zed (home/dot_config/zed/settings.json) already use.
+#
+# Unlike those three, NO model catalogue is enumerated here: omp fetches
+# /v1/models from the gateway itself and caches it in ~/.omp/agent/models.db
+# (32 models as of writing). `omp models refresh` re-pulls it. That is why this
+# file stays a handful of lines while the Zed/opencode configs carry a
+# hand-maintained list that drifts.
+#
+# Auth: no apiKey field — omp derives the env var from the provider id,
+# i.e. litellm -> LITELLM_API_KEY, the same UPPER_SNAKE(id)+_API_KEY convention
+# Zed uses. `ai-sync` writes it to $XDG_STATE_HOME/ai/credentials.fish and
+# config.fish sources it into every shell, so no new secret plumbing. This only
+# works when omp inherits that shell env (launched from fish, as usual).
+providers:
+  litellm:
+    baseUrl: https://litellm.janpuc.com/v1
+
+# The Anthropic and OpenAI providers are deliberately absent: both are
+# built-in, and both are authorised by SUBSCRIPTION OAuth rather than a key in
+# this file. Run `/login anthropic` and `/login openai-codex` once inside omp;
+# credentials land in omp's own vault, not here. Until that is done, `omp
+# models` lists only litellm. Do NOT export ANTHROPIC_API_KEY or OPENAI_API_KEY
+# globally — a key in the env outranks the stored OAuth credential and would
+# silently bill the API instead of the subscription.
+modelRoles:
+  # Roles are referenced as <provider>/<model>. Ctrl+P cycles between them.
+  default: anthropic/claude-opus-5
+  plan: anthropic/claude-opus-5
+  # gpt-5.6-sol matches the model dot_codex/private_config.toml already pins,
+  # so the OpenAI subscription gets used for second-opinion/reasoning passes.
+  slow: openai-codex/gpt-5.6-sol
+  # Cheap, self-hosted, no subscription quota burned — same choice as aether.
+  smol: litellm/opencode-go/deepseek-v4.1-flash
+
+tools:
+  approvalMode: yolo
