@@ -12,6 +12,7 @@ packages:
         - chezmoi
         - cmake
         - direnv
+        - difftastic
         - dockutil
         - editorconfig
         - eksctl
