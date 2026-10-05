@@ -1,5 +1,13 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  // opencode v2 schema: plural `plugins` / `providers`, and
+  // `package` + `settings` on a provider instead of v1's `npm` + `options`.
+  // v2 would still normalize the v1 keys on load, but v1 plugins do not load
+  // under it, so this file is v2-only.
+  //
+  // memini ships its v2 plugin as a separate package — the v1
+  // @eleboucher/opencode-memini module fails v2's plugin loader.
+  //
   // base_url is passed inline rather than relying on MEMINI_BASE_URL reaching
   // the plugin's Bun process — otherwise it silently falls back to
   // http://localhost:8080. MEMINI_API_KEY stays in the env: it is the one
@@ -15,39 +23,29 @@
   //
   // namespace is intentionally unset so the server handshake resolves it —
   // that is what lets pins and MEMINI_NAMESPACE_PREFIX (work/) apply.
-  "plugin": [
-    [
-      "@eleboucher/opencode-memini",
-      {
+  "plugins": [
+    {
+      "package": "@eleboucher/opencode-memini-v2",
+      "options": {
         "base_url": "https://memini.janpuc.com",
         "home": "personal/jan",
         "recall_limit": 5,
         "recall_budget_ms": 4000,
         "recall_max_tokens": 400
       }
-    ]
-  ],
-  // koment is wired as an MCP server (read + write tools) but no plugin entry:
-  // the project-scoped .opencode/plugins/koment.js policy gate is added per
-  // repo via `koment agents install` and would deny edits at the user level.
-  // command is a single argv array — opencode's MCP shape, not the
-  // command+args split most other clients use.
-  "mcp": {
-    "koment": {
-      "type": "local",
-      "command": ["koment", "mcp", "--write"]
     }
-  },
+  ],
   // MiniMax M3 is the default: 1M context, and it is already the default plus
   // the universal fallback in the Hermes litellm config, so it is the most
   // proven model in this stack. Switch to opencode-go/kimi-k2.7-code for
   // code-specialised work, or opencode-go/glm-5.2 for a fast non-reasoning one.
   "model": "litellm/minimax/MiniMax-M3",
-  "provider": {
+  "providers": {
     "litellm": {
-      "npm": "@ai-sdk/openai-compatible",
       "name": "LiteLLM",
-      "options": {
+      // v2's built-in equivalent of v1's @ai-sdk/openai-compatible npm package.
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
         "baseURL": "https://litellm.janpuc.com/v1"
       },
       // Mirrors the live catalogue at litellm.janpuc.com/v1/models.
