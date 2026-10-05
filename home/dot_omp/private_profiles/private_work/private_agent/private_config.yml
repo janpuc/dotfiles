@@ -1,0 +1,51 @@
+# omp work profile — ~/.omp/profiles/work/agent/config.yml
+#
+# Selected by `omp --profile work`, `OMP_PROFILE=work`, or the `ompw` alias;
+# __omp_profile.fish exports OMP_PROFILE automatically under ~/Development/Work,
+# the same trigger __memini_namespace_prefix uses, so memory namespace and
+# billing flip together.
+#
+# WHY A PROFILE AND NOT A SECOND PROVIDER ENTRY: a profile relocates omp's
+# whole user base to ~/.omp/profiles/work, agent.db included, and agent.db is
+# the credential vault. omp ranks and rotates every stored credential of one
+# provider id automatically (an Enterprise seat and a personal plan on the same
+# email count as two `anthropic` accounts), and there is no per-project account
+# pin. Logging the enterprise workspace into the default profile would let work
+# turns spend the personal sub and personal turns spend the company seat. Two
+# agent.db files are the only hard partition.
+#
+# Log in once, inside this profile — pick the enterprise workspace on the
+# browser consent page:
+#   ompw   then   /login anthropic
+# If work issues a Console API key or Bedrock access instead of a seat, put
+# ANTHROPIC_API_KEY (or AWS_PROFILE) in ~/.omp/profiles/work/agent/.env, which
+# only this profile reads. Never export either from config.fish: an env key
+# outranks stored OAuth, so it would also hijack the personal profile.
+#
+# Personal backends are unreachable here by construction: no `providers` block,
+# and the ids below are disabled outright because config.fish exports
+# LITELLM_BASE_URL + LITELLM_API_KEY globally, which would otherwise make the
+# homelab gateway selectable for work code.
+disabledProviders:
+  - litellm
+  - openai-codex
+  - openai
+
+modelRoles:
+  # Enterprise seat serves every role; litellm/deepseek is out of scope in this
+  # profile, so the cheap role is haiku rather than the homelab gateway.
+  default: anthropic/claude-opus-5-5:xhigh
+  plan: anthropic/claude-opus-5
+  slow: anthropic/claude-opus-5
+  smol: anthropic/claude-haiku-4-5
+
+tools:
+  approvalMode: yolo
+
+# UI state written by omp itself (setup wizard and /settings).
+symbolPreset: nerd
+composer:
+  shape: band
+theme:
+  dark: titanium
+setupVersion: 2

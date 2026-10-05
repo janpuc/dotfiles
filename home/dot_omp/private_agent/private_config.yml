@@ -18,6 +18,8 @@
 providers:
   litellm:
     baseUrl: https://litellm.janpuc.com/v1
+  webSearchOrder:
+    []
 
 # The Anthropic and OpenAI providers are deliberately absent: both are
 # built-in, and both are authorised by SUBSCRIPTION OAuth rather than a key in
@@ -26,6 +28,13 @@ providers:
 # models` lists only litellm. Do NOT export ANTHROPIC_API_KEY or OPENAI_API_KEY
 # globally — a key in the env outranks the stored OAuth credential and would
 # silently bill the API instead of the subscription.
+#
+# PERSONAL SUBSCRIPTIONS ONLY. The enterprise Claude seat belongs in the `work`
+# profile (~/.omp/profiles/work/agent/config.yml, reached via `ompw` or
+# automatically under ~/Development/Work). Never `/login anthropic` the
+# enterprise workspace here: omp would hold two `anthropic` accounts in this
+# agent.db, rank and rotate them automatically, and work turns would start
+# spending the personal sub.
 modelRoles:
   # Roles are referenced as <provider>/<model>. Ctrl+P cycles between them.
   default: anthropic/claude-opus-5
@@ -38,3 +47,11 @@ modelRoles:
 
 tools:
   approvalMode: yolo
+
+# UI state written by omp itself (setup wizard and /settings).
+symbolPreset: nerd
+composer:
+  shape: band
+theme:
+  dark: titanium
+setupVersion: 2

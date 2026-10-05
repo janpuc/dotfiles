@@ -66,6 +66,11 @@ alias aether-herdr="herdr --remote ubuntu@aether"
 alias assume="source (brew --prefix)/bin/assume.fish"
 
 ## AI
+
+### Explicit work-profile omp session from outside ~/Development/Work
+### (inside it, __omp_profile exports OMP_PROFILE=work on its own).
+alias ompw="omp --profile work"
+
 alias claudex='CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-sol \
 CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1 \
 CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=3 \
@@ -105,9 +110,10 @@ zoxide init --cmd cd fish | source
 enable_transience
 
 # Autoloaded --on-variable handlers only register once the function has been
-# loaded, so call it here to both register the hook and apply it to the
+# loaded, so call them here to both register the hook and apply it to the
 # directory this shell started in.
 __memini_namespace_prefix
+__omp_profile
 
 # Hermes Agent — ensure ~/.local/bin is on PATH
 fish_add_path "$HOME/.local/bin"
