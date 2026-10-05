@@ -4,9 +4,6 @@ approvals_reviewer = "auto_review"
 [projects."/Users/jan.pucilowski/Development/Xiao/Humidifier"]
 trust_level = "trusted"
 
-[projects."/Users/jan.pucilowski/Development/koment"]
-trust_level = "trusted"
-
 [projects."/Users/jan.pucilowski/Development/home-ops"]
 trust_level = "trusted"
 

@@ -29,10 +29,6 @@
   // YAML is deliberately absent: Zed bundles yaml-language-server, so redhat.vscode-yaml needs
   // no counterpart. mise is absent because no Zed extension exists — launch Zed via the `zed`
   // CLI from a shell where mise has activated, which the LiteLLM key below already requires.
-  //
-  // "koment" is NOT here. It is installed as a dev extension from
-  // ~/Development/koment/integrations/editors/zed until it lands in the registry; listing it
-  // here would make Zed try to fetch a registry entry that does not exist yet.
   "auto_install_extensions": {
     "env": true,
     "helm": true,

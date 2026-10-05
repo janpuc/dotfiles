@@ -3,12 +3,12 @@
     "MEMINI_BASE_URL": "https://memini.janpuc.com",
     "MEMINI_HOME": "personal/jan"
   },
+  "model": "opus",
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": true,
     "swift-lsp@claude-plugins-official": true,
     "clangd-lsp@claude-plugins-official": true,
-    "memini@memini": true,
-    "koment@koment-dev": true
+    "memini@memini": false
   },
   "extraKnownMarketplaces": {
     "memini": {
@@ -16,14 +16,14 @@
         "source": "github",
         "repo": "eleboucher/memini"
       }
-    },
-    "koment-dev": {
-      "source": {
-        "source": "github",
-        "repo": "koment-dev/koment"
-      }
     }
   },
   "effortLevel": "xhigh",
-  "theme": "dark"
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "xhigh"
+    }
+  },
+  "theme": "dark",
+  "agentPushNotifEnabled": true
 }
