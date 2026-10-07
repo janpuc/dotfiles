@@ -12,14 +12,15 @@ sessions there.
 | | |
 |---|---|
 | `bootstrap-linux.sh` | mise, then `chezmoi init --apply` |
-| `home/.chezmoidata/packages.yaml` → `linux.apt` | the few apt packages (zsh, fish, git, curl, libatomic1, python3-yaml) |
+| `home/.chezmoidata/packages.yaml` → `linux.apt` | the few apt packages (zsh, fish, git, curl, dtach, libatomic1, python3-yaml) |
 | `home/dot_config/mise/config.toml` | node, Pi, T3, `op`, chezmoi, gh, jq |
 | `home/dot_config/systemd/user/t3code.service` | T3 on the tailnet address, port 3773 |
 | `home/dot_t3/userdata/create_settings.json.tmpl` | seeds one `pi` provider instance, only if T3 has no settings yet |
 | `home/dot_config/git/config.tmpl` | Linux: commits signed with the server's `~/.ssh/id_ed25519` (GitHub signing key `aether-sign`); no `bat`/`difft` |
 | `home/.system/aether-hosts-sync*` (installed by the `05-linux-system` script) | hourly: internal `*.janpuc.com` names from public home-ops into `/etc/hosts`, because the UniFi gateway does not answer DNS from the tailnet |
 | `home/.system/aether-keepalive*` | holds 25% of RAM (no CPU), so Oracle never sees the instance as idle: it reclaims only when CPU p95, network and memory are all under 20% for 7 days |
-| `home/dot_config/fish/conf.d/linux.fish` | puts the launcher and mise's tools on fish's PATH |
+| `home/dot_config/fish/config.fish.tmpl` | the laptop's fish setup with mise; at login it says when Pi sessions are still running |
+| `dtach` (apt) + `pi-attach` | interactive Pi survives a dropped SSH connection; see `home/dot_pi/shared/README.md`, Sessions |
 
 ## What lives on the server only
 
@@ -42,6 +43,5 @@ Never in this (public) repo:
 
 ## Left out on purpose
 
-The fish config and memini namespace hook (the launcher's
-own handshake picks the namespace), Codex/OpenCode/Claude Code as separate T3 providers, ChatGPT usage
+Codex/OpenCode/Claude Code as separate T3 providers, ChatGPT usage
 in the Pi footer (needs the Codex CLI), and anything from the old aether repo.

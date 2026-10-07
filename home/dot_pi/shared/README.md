@@ -14,6 +14,7 @@ Sources live in the dotfiles repo: `home/dot_local/bin/executable_pi` (launcher)
 | `piw --personal-models -c` | **Work override**: same Work session and `work/*` memory, but on the Personal models (enterprise credits ran out). Explicit per launch, announced, never automatic |
 | `pi -c` / `pi -r` / `pi --session <file>` | continue / pick / open a session — only within the launch's profile |
 | `pi-profile [--work] [--personal-models]` | show what a launch here would do: profile, reason, dirs, memory namespace, memini handshake |
+| `pi-attach [<n>\|<id>\|--list]` | aether: get back to an interactive Pi that kept running after its terminal went away (below) |
 
 Every launch recomputes the profile from the canonical directory and git common dir; nothing depends on fish's
 PWD hooks. A process started from a Work session stays Work. The launcher `exec`s the real `pi`, so arguments, exit
@@ -144,6 +145,47 @@ a narrow terminal the right-hand parts shorten first, then the left is cut.
   is under 90% is used, and an advisor whose pool is used up is refused with the alternative. Work: `fable` (high) on
   the enterprise seat only — it is the most expensive model there; astra is refused, with the override as the hint.
   Advisors and order: `routing.json` → `advisors`.
+
+## Tool policy (Personal)
+
+Work mirrors the organisation's Claude Code policy (Isolation, below). Personal has its own, in
+`~/.pi/shared/personal-policy.json` (Claude Code rule syntax, same engine): anything no rule covers runs. Pi asks before
+`git push`, PR merges and releases, cluster changes (`kubectl apply/delete/patch/...`, `flux reconcile/suspend`,
+`talosctl` upgrades/reboots, `helm`, `terraform/tofu apply`), `sudo`, `chezmoi apply/update`, `op` and `rm -rf`, and
+before editing home-ops. It never reads the credential caches, the 1Password token, SSH keys or `.env` files, by tool
+or by shell, and search results naming them are hidden. "Allow for this session" covers the same command prefix until
+Pi exits. The prompts also appear in T3, so the phone can approve; headless runs (subagents, the advisor, `pi -p`)
+cannot ask and are refused instead. A policy file that does not parse turns Personal tools off, like Work.
+
+## Web access (Personal)
+
+`pi-web-access` (pinned) adds `web_search`, `fetch_content` (pages, PDFs, GitHub repos and PRs) and
+`get_search_content`. No keys: Exa, or OpenAI search through the ChatGPT login. Work does not have it.
+
+## Sessions: one Pi per session, and runs that survive a dropped connection
+
+T3 runs `pi --mode rpc` on the same session files as terminal Pi. Pi has no lock of its own, so the profile extension
+takes one per session file (`<session>.jsonl.lock/`, owner by pid, boot and process start). A second Pi opening a
+session that is already open stops and says where it is open: in T3, in a detached terminal (`pi-attach <id>`), or in a
+`pi -p` run. `/resume` into a session open elsewhere is refused. The lock survives `/reload` and moves with `/new`,
+`/resume` and forks; a crashed owner's lock is taken over. It is a guard, not a hard lock: Pi writes a few things
+before extensions start (`--name`, migrating an old session file), and `--no-extensions` skips it. One edge: Pi may not
+have written a brand-new session to disk during its first turn, so a `pi -c` then starts another session instead.
+
+On aether (Linux with `dtach`), the launcher runs an interactive Pi under dtach. An SSH drop, a closed laptop or a
+closed terminal only ends the dtach client: the run carries on, and `pi-attach` brings it back (with one session it
+attaches directly; `pi-attach --list` shows them). The login shell says when sessions are still running. On attach
+Pi replays its terminal setup (alternate screen, mouse, paste mode, keyboard protocol) and repaints the whole screen,
+since a plain reattach shows a blank or partial screen. dtach has no detach key and no status line; every key goes to
+Pi. Print and RPC modes, subcommands and non-terminals are never wrapped; `PI_DETACH=off` opts out. A Pi run under
+dtach no longer passes its exit status to the shell.
+
+## Notifications
+
+A run that took 30 seconds or more ends with a terminal notification ("Pi · <dir>: done in 2m 14s"), and so does a
+policy prompt waiting for an answer: OSC 777 (Ghostty, iTerm2, WezTerm; it passes through SSH, so aether sessions
+notify the laptop) or OSC 99 (Kitty). Only on a terminal; T3 notifies on its own. `PI_NOTIFY_AFTER=<seconds>` changes
+the threshold, `PI_NOTIFY=off` turns them off.
 
 ## Commit attribution
 
