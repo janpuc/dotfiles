@@ -5,4 +5,7 @@
 set -eu
 sudo apt-get update -qq
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends {{ .packages.linux.apt | join " " }}
+# fish is the login shell, as on the laptop.
+user=$(id -un)
+[ "$(getent passwd "$user" | cut -d: -f7)" = /usr/bin/fish ] || sudo chsh -s /usr/bin/fish "$user"
 {{- end }}

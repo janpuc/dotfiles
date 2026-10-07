@@ -6,7 +6,7 @@ sync_frequency = "5m"
 [daemon]
 autostart = true
 enabled = true
-socket_path = "/Users/jan.pucilowski/.local/share/atuin/daemon.sock"
+socket_path = {{ joinPath .chezmoi.homeDir ".local/share/atuin/daemon.sock" | quote }}
 
 [theme]
 name = "catppuccin-mocha-blue"

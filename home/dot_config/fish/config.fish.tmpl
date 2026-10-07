@@ -7,15 +7,24 @@ set -gx XDG_CONFIG_HOME "$HOME/.config"
 set -gx XDG_CACHE_HOME "$HOME/.cache"
 set -gx XDG_DATA_HOME "$HOME/.local/share"
 set -gx XDG_STATE_HOME "$HOME/.local/state"
+{{- if eq .chezmoi.os "darwin" }}
 
 set -gx HOMEBREW_PREFIX "/opt/homebrew"
+{{- end }}
 set -gx EDITOR nano
 set -gx MANROFFOPT "-c"
 set -gx MANPAGER "sh -c 'col -bx | bat -l man -p'"
 set -gx PAGER bat
+{{- if eq .chezmoi.os "darwin" }}
 set -gx SSH_AUTH_SOCK "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+{{- end }}
 set -gx VISUAL nano
+{{- if eq .chezmoi.os "darwin" }}
 set -gx SAML2AWS_CONFIGFILE "~/.aws/saml2aws/config"
+{{- else }}
+# Claude Code is a mise tool here (`mise up claude`); its own updater would install a second copy.
+set -gx DISABLE_AUTOUPDATER 1
+{{- end }}
 
 ### AI endpoints — not secrets, so plaintext here
 set -gx MEMINI_BASE_URL "https://memini.janpuc.com"
@@ -45,6 +54,7 @@ end
 abbr --add g git
 
 ## Aliases
+{{- if eq .chezmoi.os "darwin" }}
 
 ### Kubernetes
 alias k="kubectl"
@@ -55,6 +65,7 @@ alias ku="kubectx -u"
 alias ax="awsx"
 alias au="set -e AWS_PROFILE"
 alias ao="assume -ar"
+{{- end }}
 
 ### Misc
 alias cat="bat --paging=never"
@@ -64,6 +75,7 @@ alias reload='exec $SHELL -l'
 alias tree="eza --tree"
 alias unset="set -e"
 alias unexport="set -e"
+{{- if eq .chezmoi.os "darwin" }}
 
 ### Aether
 alias aether="ssh ubuntu@aether"
@@ -77,22 +89,34 @@ alias assume="source (brew --prefix)/bin/assume.fish"
 ### Explicit work-profile omp session from outside ~/Development/Work
 ### (inside it, __omp_profile exports OMP_PROFILE=work on its own).
 alias ompw="omp --profile work"
+{{- end }}
 
 ### pi / piw / pi-profile: see functions/pi.fish and ~/.local/bin/pi.
+{{- if eq .chezmoi.os "darwin" }}
 
 alias claudex='CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-sol \
 CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1 \
 CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=3 \
 ENABLE_TOOL_SEARCH=false \
 claude --model gpt-5.6-sol'
+{{- end }}
 
 ## Config
+{{- if eq .chezmoi.os "darwin" }}
 
 /opt/homebrew/bin/brew shellenv | source
 
 source ~/.config/op/plugins.sh
 
 source ~/.orbstack/shell/init2.fish 2>/dev/null || :
+{{- else }}
+
+# Tools come from mise. The launcher in ~/.local/bin goes ahead of mise's shims, which include
+# the real `pi`; `mise activate` puts tool directories first again, so functions/pi.fish names
+# the launcher explicitly.
+fish_add_path --prepend "$HOME/.local/bin" "$HOME/.local/share/mise/shims"
+status is-interactive; and mise activate fish | source
+{{- end }}
 
 fish_config theme choose catppuccin-mocha
 
@@ -108,7 +132,9 @@ enable_transience
 # loaded, so call them here to both register the hook and apply it to the
 # directory this shell started in.
 __memini_namespace_prefix
+{{- if eq .chezmoi.os "darwin" }}
 __omp_profile
 
 # Hermes Agent — ensure ~/.local/bin is on PATH
 fish_add_path "$HOME/.local/bin"
+{{- end }}

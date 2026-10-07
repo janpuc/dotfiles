@@ -3,8 +3,11 @@
 # Install the tools in ~/.config/mise/config.toml (Pi, T3, op, chezmoi, ...). Runs before the Pi
 # package setup, which needs the real `pi`. Re-runs when the tool list changes.
 # {{ include "dot_config/mise/config.toml" | sha256sum }}
+# bat theme {{ include "dot_config/bat/themes/Catppuccin Mocha.tmTheme" | sha256sum }}
 set -eu
 export PATH="$HOME/.local/bin:$PATH"
 command -v mise >/dev/null || { echo "mise is not installed (see bootstrap-linux.sh)" >&2; exit 1; }
 mise install --yes
+# bat only reads custom themes from its cache.
+mise exec bat -- bat cache --build >/dev/null
 {{- end }}

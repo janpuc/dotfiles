@@ -24,8 +24,12 @@ step() { print "\n== $1"; shift; "$@" || { rc=1; print "!! failed" } }
 syntax() {
   local f t out=$(mktemp)
   zsh -n $src/dot_local/bin/executable_pi || return 1
-  for f in $src/dot_config/fish/config.fish $src/dot_config/fish/functions/{pi,__omp_profile,__memini_namespace_prefix}.fish; do
+  for f in $src/dot_config/fish/functions/{pi,__omp_profile,__memini_namespace_prefix}.fish; do
     fish --no-execute $f || return 1
+  done
+  # config.fish renders for the laptop and for the Linux server.
+  for os in darwin linux; do
+    (cd $src && chezmoi execute-template --override-data "{\"chezmoi\":{\"os\":\"$os\"}}" < dot_config/fish/config.fish.tmpl) > $out && fish --no-execute $out || { rm -f $out; return 1 }
   done
   for f in $src/dot_pi/shared/routing.json $src/dot_pi/private_agent/models.json $src/dot_pi/**/settings.json(.) $src/dot_omp/private_agent/mcp.json; do
     jq empty $f || return 1

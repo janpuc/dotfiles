@@ -9,3 +9,11 @@ claude = "latest"                             # Claude Code, for `pi-profile log
 chezmoi = "latest"
 gh = "latest"                                 # git's credential helper
 jq = "latest"                                 # the Pi launcher's memini handshake
+
+# The shell, as on the laptop (config.fish, starship, atuin, bat, eza; difft for git).
+starship = "latest"
+atuin = "latest"
+zoxide = "latest"
+eza = "latest"
+bat = "latest"
+difftastic = "latest"

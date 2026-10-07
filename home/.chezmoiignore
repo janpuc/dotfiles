@@ -18,11 +18,21 @@
 !.config/systemd
 !.config/systemd/**
 !.config/fish
+!.config/fish/config.fish
+!.config/fish/themes
+!.config/fish/themes/**
 !.config/fish/functions
 !.config/fish/functions/ai-sync.fish
 !.config/fish/functions/pi.fish
-!.config/fish/conf.d
-!.config/fish/conf.d/linux.fish
+!.config/fish/functions/__memini_namespace_prefix.fish
+!.config/starship.toml
+!.config/atuin
+!.config/atuin/**
+!.config/bat
+!.config/bat/**
+!.config/eza
+!.config/eza/**
+!.editorconfig
 !.local
 !.local/bin
 !.local/bin/**
@@ -35,7 +45,6 @@
 !.t3/**
 {{- else -}}
 .chezmoiscripts/*-linux-*.sh
-.config/fish/conf.d/linux.fish
 .config/mise
 .config/mise/**
 .config/systemd
