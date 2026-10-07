@@ -6,7 +6,8 @@
 # Ctrl+P cycles auto/daily/deep/fast. Virtual models, chains and usage
 # budgets live in ~/.pi/shared/routing.json. Packages are
 # pinned and installed per profile into ~/.pi/agent/npm by Pi itself (and
-# pre-fetched by run_onchange_after_configure-pi.sh).
+# pre-fetched by run_onchange_after_configure-pi.sh). pi-web-access (web_search, fetch_content,
+# GitHub clones) is Personal only; it needs no keys (Exa, or OpenAI search through the ChatGPT login).
 #
 # maxRetries is 4 rather than 3 so a three-step fallback chain still gets a
 # transient retry. The local BC250 alias has a 24k window, so its compaction
@@ -24,7 +25,7 @@ managed='{
       "litellm/bc250/qwen3.6-35b-a3b": { "reserveTokens": 4096, "keepRecentTokens": 6000 }
     }
   },
-  "packages": ["npm:pi-claude-bridge@0.9.1", "npm:@eleboucher/pi-memini@0.7.34"],
+  "packages": ["npm:pi-claude-bridge@0.9.1", "npm:@eleboucher/pi-memini@0.7.34", "npm:pi-web-access@0.37.0"],
   "extensions": ["~/.pi/shared/extensions/profile", "~/.pi/shared/extensions/subagent"],
   "prompts": ["~/.pi/shared/prompts"]
 }'
