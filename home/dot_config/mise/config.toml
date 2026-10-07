@@ -9,6 +9,7 @@ node = "lts"                                  # Pi needs >= 22.19
 "npm:t3" = "0.0.46-nightly.20261007.2774"
 "1password-cli" = "latest"                    # `op`, for ai-sync
 claude = "latest"                             # Claude Code, for `pi-profile login` (the bridge has its own copy)
+codex = "latest"                              # Codex CLI: its app-server reports the ChatGPT usage in the Pi footer (`codex login --device-auth`)
 chezmoi = "latest"
 gh = "latest"                                 # git's credential helper
 jq = "latest"                                 # the Pi launcher's memini handshake

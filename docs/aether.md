@@ -13,7 +13,7 @@ sessions there.
 |---|---|
 | `bootstrap-linux.sh` | mise, then `chezmoi init --apply` |
 | `home/.chezmoidata/packages.yaml` → `linux.apt` | the few apt packages (zsh, fish, git, curl, dtach, libatomic1, python3-yaml) |
-| `home/dot_config/mise/config.toml` | node, Pi, T3, `op`, chezmoi, gh, jq |
+| `home/dot_config/mise/config.toml` | node, Pi, T3, `op`, Codex, chezmoi, gh, jq |
 | `home/dot_config/systemd/user/t3code.service` | T3 on the tailnet address, port 3773 |
 | `home/dot_t3/userdata/create_settings.json.tmpl` | seeds one `pi` provider instance, only if T3 has no settings yet |
 | `home/dot_config/git/config.tmpl` | Linux: commits signed with the server's `~/.ssh/id_ed25519` (GitHub signing key `aether-sign`); no `bat`/`difft` |
@@ -40,9 +40,9 @@ Never in this (public) repo:
    credentials of its own.
 2. `pi-profile login`: Claude subscription login for the bridge. In Pi, `/login openai` for ChatGPT.
    Providers without a login are skipped by the router.
+   `codex login --device-auth`: the Pi footer reads ChatGPT usage through the Codex CLI's own login.
 3. Pair the T3 apps with the server (`t3 --help` for the pairing command).
 
 ## Left out on purpose
 
-Codex/OpenCode/Claude Code as separate T3 providers, ChatGPT usage
-in the Pi footer (needs the Codex CLI), and anything from the old aether repo.
+Codex/OpenCode/Claude Code as separate T3 providers, and anything from the old aether repo.
