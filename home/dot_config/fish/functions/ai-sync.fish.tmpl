@@ -5,8 +5,9 @@ function ai-sync --description "Fetch AI service credentials from 1Password into
     # The server reads 1Password through a read-only service account; its token lives in this
     # 0600 file, which is never managed or committed.
     if not set -q OP_SERVICE_ACCOUNT_TOKEN; and test -r "$HOME/.config/op/aether.env"
-        # The file has comment lines; take the value of the one assignment.
-        set -lx OP_SERVICE_ACCOUNT_TOKEN (string match -rg '^\s*(?:export\s+)?OP_SERVICE_ACCOUNT_TOKEN=(.*)$' <"$HOME/.config/op/aether.env" | string trim -c '"\'')[1]
+        # The file has comment lines; take the value of the one assignment. Function scope (-f):
+        # a -l variable would end with this if block.
+        set -fx OP_SERVICE_ACCOUNT_TOKEN (string match -rg '^\s*(?:export\s+)?OP_SERVICE_ACCOUNT_TOKEN=(.*)$' <"$HOME/.config/op/aether.env" | string trim -c '"\'')[1]
     end
 {{- end }}
     set -l CRED_FILE "$XDG_STATE_HOME/ai/credentials.fish"
