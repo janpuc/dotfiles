@@ -100,6 +100,22 @@ and when a limited subscription is usable again. Agents read it with the `usage_
 tool before picking a model, subagent or advisor. ChatGPT usage needs the Codex CLI logged into the same ChatGPT
 account.
 
+## Footer
+
+The profile extension replaces Pi's footer (no token counts or cost; these are subscriptions):
+
+```
+ personal  ~/Development/home-ops ⎇ main                         ● mem homelab/home-ops
+auto → daily → claude-opus-5-5 · medium  multi-file refactor        ctx ▰▰▰▱▱▱▱▱ 34% of 200k
+```
+
+Line 1: profile badge (green personal, yellow work, red work on personal models or blocked), directory, branch, session
+name, and the memini state with its namespace (green ok, yellow degraded, red conflict, dim off). Line 2: the selected
+model and, in bold, the model actually answering: the request in flight, otherwise the one behind the latest reply in
+the session, so it survives `/reload` and resumed sessions (for `auto` also the tier and the classifier's reason). Then
+the thinking level in its theme colour and the context gauge. Statuses from other extensions get a third line only when there are any. On
+a narrow terminal the right-hand parts shorten first, then the left is cut.
+
 ## Subagents and the advisor
 
 - **Subagents:** Pi's official subagent extension, vendored in `extensions/subagent`. Agents live in `agents/`

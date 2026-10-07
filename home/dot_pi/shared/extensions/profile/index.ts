@@ -55,6 +55,7 @@ import { registerAdvisor } from "./advisor.ts";
 import { describe as describeUsage, limitedUntilFrom, pressure, shortTime } from "./usage.ts";
 import { renderBars, renderPanel, type PoolView } from "./usage-view.ts";
 import { stripAiTrailers } from "./commit-trailers.ts";
+import { renderFooter, type FooterState } from "./footer-view.ts";
 import { readCache, SOURCES, writeCache, type UsageCache } from "./usage-sources.ts";
 
 const HOME = homedir();
@@ -286,6 +287,16 @@ export default function profileExtension(pi: ExtensionAPI) {
 		alertsSeeded = true;
 	};
 
+	// Where the request in flight went (set by route(), cleared when its reply lands); after that
+	// the footer reads the model from the session, so it survives /reload and resumed sessions.
+	let lastRoute: FooterState["route"];
+	let autoWhy: string | undefined;
+	let footerTui: { requestRender(): void } | undefined;
+	const noteRoute = (r: NonNullable<FooterState["route"]>) => {
+		lastRoute = r;
+		footerTui?.requestRender();
+	};
+
 	// --- virtual models -----------------------------------------------------------
 
 	for (const [id, spec] of Object.entries(cfg?.profiles[models].models ?? {})) {
@@ -324,6 +335,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 					},
 				});
 				if (choice.note) say(ctx, choice.note, "warning");
+				noteRoute({ model: choice.target.model, thinking: choice.target.thinking });
 				return {
 					model: registry.find(choice.target.provider, choice.target.model)!,
 					thinkingLevel: choice.target.thinking,
@@ -392,7 +404,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 					const next = decideTier(tier, proposed?.tier, auto.tiers, auto.default, facts.estimatedTokens);
 					if (next !== tier && tier) note = `auto: ${tier} → ${next}${proposed?.why ? ` (${proposed.why})` : ""}`;
 					tier = next;
-					ctx.ui.setStatus("pi-router", `auto→${tier}${proposed?.why ? ` (${proposed.why})` : ""}`);
+					autoWhy = proposed?.why;
 				}
 				tier ??= auto.default;
 				const inner = request.state?.byTier?.[tier];
@@ -414,6 +426,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 					},
 				});
 				if (note || choice.note) say(ctx, [note, choice.note].filter(Boolean).join("; "), "info");
+				noteRoute({ model: choice.target.model, thinking: choice.target.thinking, tier, why: autoWhy });
 				const changed = tier !== request.state?.tier || choice.state !== undefined;
 				return {
 					model: registry.find(choice.target.provider, choice.target.model)!,
@@ -463,6 +476,71 @@ export default function profileExtension(pi: ExtensionAPI) {
 		return `${profile}${override ? " on PERSONAL models" : ""} · mem ${mem}${blocked() ? " · BLOCKED" : ""}`;
 	};
 
+	// Replaces Pi's footer (token counts, cost) with profile, place, memory, route and context.
+	const OWN_STATUSES = new Set(["pi-profile", "pi-router"]);
+	// The model behind the latest reply and the `auto` tier, from the session; cached per entry count.
+	let answered: { key: string; route?: FooterState["route"] } = { key: "" };
+	const answeredRoute = (sm: any): FooterState["route"] => {
+		const key = `${sm.getSessionId?.()}:${sm.getLeafId?.()}:${sm.getEntryCount?.()}`;
+		if (answered.key === key) return answered.route;
+		let route: FooterState["route"];
+		let tier: string | undefined;
+		const branch: any[] = sm.getBranch?.() ?? sm.getEntries?.() ?? [];
+		for (let i = branch.length - 1; i >= 0 && (!route || !tier); i--) {
+			const e = branch[i];
+			if (!route && e?.type === "message" && e.message?.role === "assistant" && e.message.model)
+				route = { model: e.message.model, thinking: e.message.thinkingLevel };
+			if (!tier && e?.type === "custom" && e.customType === "pi.virtual-model-state" && e.data?.modelId === "auto") tier = e.data.state?.tier;
+		}
+		if (route && tier) route.tier = tier;
+		answered = { key, route };
+		return route;
+	};
+	const withWhy = (r: FooterState["route"]) => (r && autoWhy && r.tier ? { ...r, why: autoWhy } : r);
+	const showFooter = (ctx: any) => {
+		if (!ctx?.hasUI) return;
+		ctx.ui.setFooter((tui: any, theme: any, data: any) => {
+			footerTui = tui;
+			const unsub = data.onBranchChange(() => tui.requestRender());
+			return {
+				dispose() {
+					unsub();
+					if (footerTui === tui) footerTui = undefined;
+				},
+				invalidate() {},
+				render(width: number): string[] {
+					const m = ctx.model;
+					const virtual = !!m && m.provider === models && (m.id === "auto" || !!cfg?.profiles[models].models[m.id]);
+					const usage = ctx.getContextUsage?.();
+					const statuses = [...data.getExtensionStatuses().entries()]
+						.filter(([k]: [string, string]) => !OWN_STATUSES.has(k))
+						.sort(([a]: [string, string], [b]: [string, string]) => a.localeCompare(b))
+						.map(([, v]: [string, string]) => String(v).replace(/\s+/g, " ").trim())
+						.filter(Boolean);
+					return renderFooter(
+						{
+							profile,
+							override,
+							blocked: !!blocked(),
+							cwd: ctx.sessionManager.getCwd?.() ?? ctx.cwd,
+							home: HOME,
+							branch: data.getGitBranch() ?? undefined,
+							sessionName: ctx.sessionManager.getSessionName?.() ?? undefined,
+							memory: memState,
+							model: m ? { provider: m.provider, id: m.id, virtual } : undefined,
+							route: virtual ? (lastRoute ?? withWhy(answeredRoute(ctx.sessionManager))) : undefined,
+							thinking: m?.reasoning ? pi.getThinkingLevel() : undefined,
+							context: usage ? { percent: usage.percent, window: usage.contextWindow } : m?.contextWindow ? { percent: null, window: m.contextWindow } : undefined,
+							statuses,
+						},
+						theme,
+						width,
+					);
+				},
+			};
+		});
+	};
+
 	let usageTimer: ReturnType<typeof setInterval> | undefined;
 	let liveCtx: any;
 	pi.on("session_shutdown", () => {
@@ -504,6 +582,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 		}
 		ctx.ui.setStatus("pi-profile", status());
 		noteActive(ctx.model?.provider);
+		showFooter(ctx);
 		showBars(ctx);
 		checkAlerts(ctx);
 		const why = blocked();
@@ -532,6 +611,8 @@ export default function profileExtension(pi: ExtensionAPI) {
 	// left selected so the request guard fails the run loudly instead of answering with another model.
 	pi.on("model_select", async (event, ctx) => {
 		noteActive(event.model.provider);
+		lastRoute = undefined;
+		autoWhy = undefined;
 		if (models !== "work" || !cfg || providerAllowed(cfg, "work", event.model.provider)) return;
 		if (!ctx.hasUI) return;
 		const back =
@@ -619,6 +700,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 	// provider's own text is kept in a session entry and shown as a notice.
 	pi.on("message_end", (event, ctx) => {
 		const m = event.message as any;
+		if (m?.role === "assistant") lastRoute = undefined;
 		if (m?.role === "assistant" && cfg) {
 			const pool = poolOf(cfg, { provider: m.provider });
 			if (m.stopReason === "error" && classifyError(m.errorMessage) === "quota") markLimited(m.provider, m.errorMessage ?? "");
