@@ -52,10 +52,18 @@ function run(cmd: string, args: string[], opts: { env?: NodeJS.ProcessEnv; input
 async function claude(agentDir: string, label: string): Promise<SubUsage> {
 	const sdk = join(agentDir, "npm", "node_modules", "@anthropic-ai", "claude-agent-sdk", "sdk.mjs");
 	if (!existsSync(sdk)) throw new Error("pi-claude-bridge's Agent SDK is not installed in this profile");
-	const out = await run(process.execPath, [CLAUDE_USAGE_SCRIPT, sdk], { timeoutMs: 45_000 });
+	// pi-claude-bridge sets CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC in Pi's own env, and Claude
+	// Code counts /api/oauth/usage as non-essential: with it set, rate_limits is always null.
+	// Drop it for this probe only and keep the narrower opt-outs it would have covered.
+	const { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: _, ...env } = process.env;
+	const out = await run(process.execPath, [CLAUDE_USAGE_SCRIPT, sdk], {
+		env: { ...env, DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1", DISABLE_AUTOUPDATER: "1" },
+		timeoutMs: 45_000,
+	});
 	const r = JSON.parse(out);
 	if (r.error) throw new Error(r.error);
 	if (!r.rate_limits_available) throw new Error("no plan limits for this login");
+	if (!r.rate_limits) throw new Error("Claude Code returned no rate limits (usage endpoint not reached)");
 	return fromClaude(r, new Date().toISOString(), label);
 }
 
