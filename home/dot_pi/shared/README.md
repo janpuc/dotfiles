@@ -180,6 +180,21 @@ since a plain reattach shows a blank or partial screen. dtach has no detach key 
 Pi. Print and RPC modes, subcommands and non-terminals are never wrapped; `PI_DETACH=off` opts out. A Pi run under
 dtach no longer passes its exit status to the shell.
 
+## Skills (Personal)
+
+`~/.pi/shared/skills/<name>/SKILL.md`, loaded by the Personal profile only. Pi sees each skill's name and description
+and reads the rest when a task matches (or on `/skill:<name>`):
+
+| Skill | For |
+|---|---|
+| `chezmoi-change` | editing these dotfiles safely on both machines (render checks, tests, approval before apply) |
+| `home-ops-verify` | rendering and verifying home-ops changes: rendered, merged, reconciled, working; no mutations, no secrets printed |
+| `memini-scope-maintenance` | namespace resolution, pins, moving and splitting memories |
+| `llm-route-diagnostics` | Pi routing and the LiteLLM gateway: real model IDs, the right wire, multi-turn tool tests |
+| `homelab-dns-diagnostics` | internal names across UniFi, Tailscale and aether's `/etc/hosts` sync |
+
+The repo is public: skills hold procedures, never secrets, addresses or Work details.
+
 ## Notifications
 
 A run that took 30 seconds or more ends with a terminal notification ("Pi · <dir>: done in 2m 14s"), and so does a
