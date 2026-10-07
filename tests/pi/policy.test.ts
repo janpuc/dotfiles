@@ -157,6 +157,83 @@ test("tool loops and compaction stay on the model that answered last", () => {
 		assert.equal(pick(input({ profile: "personal", virtualId: "daily", reason, previous: { provider: "openai", id: "gpt-6.1-sol" } }, [], { chatgpt: { usedPct: 93 } })), "openai/gpt-6.1-sol:medium");
 });
 
+// --- long conversations stay put -------------------------------------------------------------------
+
+const OPUS = { provider: "claude-bridge", id: "claude-opus-5-5" };
+const SONNET = { provider: "claude-bridge", id: "claude-sonnet-5-5" };
+const behindPace = { claude: { usedPct: 80, aheadOfPace: 22 } };
+const daily = (over: Partial<RouteInput>, pools: PoolState = behindPace, noAuth: string[] = []) =>
+	pick(input({ profile: "personal", virtualId: "daily", ...over }, noAuth, pools));
+
+test("long conversations stay on the last model through budget and pace pressure", () => {
+	const LONG = 50_000;
+	// Short: pace moves Opus to Sonnet as before. Long: Opus stays.
+	assert.equal(daily({ previous: OPUS, estimatedTokens: 1_000 }), "claude-bridge/claude-sonnet-5-5:medium");
+	assert.equal(daily({ previous: OPUS, estimatedTokens: LONG }), "claude-bridge/claude-opus-5-5:medium");
+	assert.equal(daily({ previous: OPUS, estimatedTokens: LONG }, { claude: { usedPct: 93 } }), "claude-bridge/claude-opus-5-5:medium", "even past maxUsed");
+	// A long conversation on Sonnet is not pulled back up to Opus when Opus recovers.
+	assert.equal(daily({ previous: SONNET, estimatedTokens: LONG }, { claude: { usedPct: 40 } }), "claude-bridge/claude-sonnet-5-5:medium");
+	assert.equal(daily({ previous: SONNET, estimatedTokens: 1_000 }, { claude: { usedPct: 40 } }), "claude-bridge/claude-opus-5-5:medium");
+	// It can be on another provider too.
+	assert.equal(daily({ previous: { provider: "openai", id: "gpt-6.1-sol" }, estimatedTokens: LONG }, { chatgpt: { usedPct: 95 } }), "openai/gpt-6.1-sol:medium");
+});
+
+test("the long-conversation threshold is exclusive and configurable", () => {
+	assert.equal(daily({ previous: OPUS, estimatedTokens: 30_000 }), "claude-bridge/claude-sonnet-5-5:medium");
+	assert.equal(daily({ previous: OPUS, estimatedTokens: 30_001 }), "claude-bridge/claude-opus-5-5:medium");
+	const tuned = clone();
+	tuned.usage!.stickyAboveTokens = 5_000;
+	assert.equal(daily({ previous: OPUS, estimatedTokens: 6_000, cfg: loadRouting(tuned) }), "claude-bridge/claude-opus-5-5:medium");
+	assert.equal(daily({ previous: OPUS, estimatedTokens: 4_000, cfg: loadRouting(tuned) }), "claude-bridge/claude-sonnet-5-5:medium");
+	for (const bad of [0, -1, 1.5, "30000"]) {
+		const c = clone();
+		(c.usage as any).stickyAboveTokens = bad;
+		assert.throws(() => loadRouting(c), /usage.stickyAboveTokens must be a positive integer/);
+	}
+});
+
+test("long conversations still move for hard limits", () => {
+	const LONG = 50_000;
+	assert.equal(daily({ previous: OPUS, estimatedTokens: LONG }, { claude: { exhausted: true, usedPct: 100 } }), "openai/gpt-6.1-sol:medium", "exhausted");
+	assert.equal(daily({ previous: OPUS, estimatedTokens: LONG }, {}, ["claude-bridge"]), "openai/gpt-6.1-sol:medium", "no credentials");
+	assert.equal(daily({ previous: { provider: "opencode-go", id: "glm-5.3" }, estimatedTokens: LONG, hasImages: true }, {}), "claude-bridge/claude-opus-5-5:medium", "no image input");
+	// A previous model outside the chain (e.g. picked by hand) gives no affinity.
+	assert.equal(daily({ previous: { provider: "claude-bridge", id: "claude-fable-5-1" }, estimatedTokens: LONG }), "claude-bridge/claude-sonnet-5-5:medium");
+	assert.equal(daily({ estimatedTokens: LONG }), "claude-bridge/claude-sonnet-5-5:medium", "no previous");
+	// Provider policy: a Work chain never reaches outside the allowlist, whatever was answering.
+	assert.throws(() => chooseRoute(input({ profile: "work", virtualId: "daily", previous: { provider: "openai", id: "gpt-6.1-sol" }, estimatedTokens: LONG }, [], { claude: { exhausted: true, usedPct: 100 } })), RouteError);
+});
+
+test("long conversations clear stale failure state and yield to a fallback for another target", () => {
+	const LONG = 50_000;
+	// Stale counters and an expired fallback are cleared even though the previous model stays.
+	const stale = chooseRoute(input({ profile: "personal", virtualId: "daily", previous: OPUS, estimatedTokens: LONG, state: { fails: { "claude-bridge/claude-opus-5-5": 1 }, sticky: { index: 1, until: 500_000 } } }, [], behindPace));
+	assert.equal(stale.target.model, "claude-opus-5-5");
+	assert.deepEqual(stale.state, {});
+	// A fallback being tried (previous still names the failing primary) is not overridden.
+	const trying = { sticky: { index: 1, until: 2_000_000 } };
+	assert.equal(pick(input({ profile: "personal", virtualId: "daily", previous: OPUS, estimatedTokens: LONG, state: trying, now: 1_500_000 }, [], {})), "claude-bridge/claude-sonnet-5-5:medium");
+	// Once that fallback has answered, an expired timer does not send a long conversation back.
+	const expired = chooseRoute(input({ profile: "personal", virtualId: "daily", previous: SONNET, estimatedTokens: LONG, state: trying, now: 2_500_000 }, [], {}));
+	assert.equal(expired.target.model, "claude-sonnet-5-5");
+	assert.deepEqual(expired.state, {});
+	// While it is active and matches, it keeps its timer.
+	const held = chooseRoute(input({ profile: "personal", virtualId: "daily", previous: SONNET, estimatedTokens: LONG, state: trying, now: 1_500_000 }, [], {}));
+	assert.equal(held.target.model, "claude-sonnet-5-5");
+	assert.deepEqual(held.state, undefined);
+});
+
+test("retries, tool loops and the same model at a higher effort are unaffected by size", () => {
+	const LONG = 200_000;
+	const failed = { ...OPUS, errorMessage: "529 overloaded_error" };
+	assert.equal(chooseRoute(input({ profile: "personal", virtualId: "daily", reason: "retry", failed, estimatedTokens: LONG })).target.model, "claude-opus-5-5");
+	const plan = { ...OPUS, errorMessage: "Claude rate limit (seven_day) — resets Oct 9" };
+	assert.equal(pick(input({ profile: "personal", virtualId: "deep", reason: "retry", failed: plan, estimatedTokens: LONG })), "openai/gpt-6.1-sol:xhigh");
+	assert.equal(pick(input({ profile: "personal", virtualId: "daily", reason: "continuation", previous: SONNET, estimatedTokens: LONG })), "claude-bridge/claude-sonnet-5-5:medium");
+	// auto moving daily -> deep stays on Opus, only the effort changes.
+	assert.equal(pick(input({ profile: "personal", virtualId: "deep", previous: OPUS, estimatedTokens: LONG })), "claude-bridge/claude-opus-5-5:high");
+});
+
 test("images are routed to a vision model or refused, never dropped", () => {
 	const busy = { claude: { exhausted: true }, chatgpt: { exhausted: true } };
 	assert.equal(pick(input({ profile: "personal", virtualId: "daily", hasImages: true }, [], busy)), "minimax/MiniMax-M3:medium", "GLM-5.3 is text-only");

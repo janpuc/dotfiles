@@ -54,9 +54,24 @@ export interface UsagePolicy {
 	exhaustedPercent: number;
 	defaultMaxUsed: number;
 	paceSlack: number;
+	/**
+	 * Estimated tokens above which a conversation stays on the model that answered last: a switch
+	 * would only be for budget or pace, and every provider's prompt cache is per model.
+	 */
+	stickyAboveTokens: number;
 }
 
-export const DEFAULT_USAGE: UsagePolicy = { refreshMinutes: 5, staleMinutes: 30, exhaustedPercent: 97, defaultMaxUsed: 90, paceSlack: 10 };
+/** A conversation this large is worth keeping on its model (cache) and tier (see decideTier). */
+export const LONG_CONVERSATION_TOKENS = 30_000;
+
+export const DEFAULT_USAGE: UsagePolicy = {
+	refreshMinutes: 5,
+	staleMinutes: 30,
+	exhaustedPercent: 97,
+	defaultMaxUsed: 90,
+	paceSlack: 10,
+	stickyAboveTokens: LONG_CONVERSATION_TOKENS,
+};
 
 /** What the router needs to know about a target's usage pool; undefined means unknown. */
 export interface TargetPressure {
@@ -100,6 +115,8 @@ export function loadRouting(raw: unknown): RoutingConfig {
 		errors.push("transientRetriesPerModel must be a non-negative integer");
 	if (typeof cfg.stickyFallbackMinutes !== "number" || cfg.stickyFallbackMinutes < 0)
 		errors.push("stickyFallbackMinutes must be a non-negative number");
+	const sticky = cfg.usage?.stickyAboveTokens;
+	if (sticky !== undefined && (!Number.isInteger(sticky) || sticky <= 0)) errors.push("usage.stickyAboveTokens must be a positive integer");
 	for (const profile of PROFILES) {
 		const spec = cfg.profiles?.[profile];
 		if (!spec) {
@@ -313,6 +330,20 @@ export function chooseRoute(input: RouteInput): RouteChoice {
 	const order = [...chain.keys()].filter((i) => i >= start).concat([...chain.keys()].filter((i) => i < start));
 	const prevIndex = input.previous ? chain.findIndex((t) => sameTarget(t, input.previous!)) : -1;
 	const policy = usagePolicy(cfg);
+
+	// A long conversation stays on the model that answered last: budgets and pace would only move
+	// it for a saving, and the new model starts with a cold prompt cache. Hard limits still move
+	// it (provider policy, credentials, images, exhaustion), as do failures: a fallback that is
+	// active for another target wins, and `previous` is the last *successful* answer, so it can lag
+	// a fallback that is being tried. Context overflow stays Pi's compaction.
+	if (
+		input.reason === "user" &&
+		prevIndex >= 0 &&
+		input.estimatedTokens > policy.stickyAboveTokens &&
+		(!active || active.index === prevIndex) &&
+		!usable(input, chain[prevIndex], false)
+	)
+		return { index: prevIndex, target: chain[prevIndex], state };
 	const overBudget = (index: number): string | undefined => {
 		const t = chain[index];
 		const p = input.pressure?.(t);
@@ -584,5 +615,5 @@ export function decideTier(current: string | undefined, proposed: string | undef
 	const base = current && tiers.includes(current) ? current : fallback;
 	if (!proposed || !tiers.includes(proposed)) return base;
 	const downgrade = tiers.indexOf(proposed) < tiers.indexOf(base);
-	return downgrade && estimatedTokens > 30_000 ? base : proposed;
+	return downgrade && estimatedTokens > LONG_CONVERSATION_TOKENS ? base : proposed;
 }

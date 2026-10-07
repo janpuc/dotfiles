@@ -23,13 +23,14 @@
       "failsOverInternally": true
     }
   },
-  "//usage": "Pools are re-read every refreshMinutes and ignored once older than staleMinutes (unknown = no preference). At exhaustedPercent, or when the plan reports its limit, a pool is skipped outright. Otherwise a target is skipped on a new prompt when its pool is at or over maxUsed (default defaultMaxUsed), or, with paced, when a window is more than paceSlack points ahead of its elapsed time. If every target is over budget the first usable one still runs; budgets steer, they never block.",
+  "//usage": "Pools are re-read every refreshMinutes and ignored once older than staleMinutes (unknown = no preference). At exhaustedPercent, or when the plan reports its limit, a pool is skipped outright. Otherwise a target is skipped on a new prompt when its pool is at or over maxUsed (default defaultMaxUsed), or, with paced, when a window is more than paceSlack points ahead of its elapsed time. If every target is over budget the first usable one still runs; budgets steer, they never block. Above stickyAboveTokens (estimated conversation size) a new prompt stays on the model that answered last unless a hard limit forces a move (exhausted, no login, images, provider policy) or a failure fallback for another target is active: every provider's prompt cache is per model, so a budget-driven switch mid-conversation costs more than it saves.",
   "usage": {
     "refreshMinutes": 5,
     "staleMinutes": 30,
     "exhaustedPercent": 97,
     "defaultMaxUsed": 90,
-    "paceSlack": 10
+    "paceSlack": 10,
+    "stickyAboveTokens": 30000
   },
   "//tuning": "transientRetriesPerModel: retries of the same target after an overloaded/5xx/network error before moving down the chain. stickyFallbackMinutes: how long later prompts stay on a failure fallback before trying the primary again.",
   "transientRetriesPerModel": 1,

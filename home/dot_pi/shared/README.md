@@ -70,6 +70,18 @@ reports its limit or a request fails with one, the pool is skipped outright unti
 block: if every target is over budget the first usable one runs. Near a threshold the model in use keeps its place
 until 5 points over, and a higher-ranked target needs to be 5 under to take over.
 
+**Long conversations stay put.** Every provider's prompt cache is per model, so moving a long conversation to another
+model for budget or pace reasons costs more than it saves. Above `usage.stickyAboveTokens` (30,000 estimated tokens,
+the same size at which `auto` stops downgrading a tier) a new prompt stays on the model that answered last, even past
+its `maxUsed` or pace, and is not pulled back up to a higher-ranked model that has since recovered. It still moves when
+the model is exhausted or limited, has no login, cannot take the prompt's images or is not allowed in the profile,
+when a failure fallback for another target is active, and on any failure (retries, tool loops and compaction are
+unchanged). A fallback that has answered is kept after its sticky timer ends, until compaction brings the conversation
+under the threshold. The trade-off is that a pool can run to its 97% cutoff sooner, which matters most for Work's small
+spend allowance. It keeps the model, not the effort: `auto` moving `daily` to `deep` on the same model still changes
+the thinking level, which invalidates the message cache. The size is a rough estimate (characters / 4), not a
+measurement of a warm cache.
+
 **auto.** For each new prompt (not short follow-ups like "yes"), a classifier sees the message, a snippet of the last
 answer and the conversation size, and picks `fast`, `daily` or `deep`; it judges how hard the thinking is, not how
 long the answer should be. It is the OpenAI Decisions API (`gpt-6-luna`, one `choice` question over the tiers, $0.10
