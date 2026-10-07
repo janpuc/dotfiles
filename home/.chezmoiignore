@@ -20,6 +20,7 @@
 !.config/fish
 !.config/fish/functions
 !.config/fish/functions/ai-sync.fish
+!.config/fish/functions/pi.fish
 !.config/fish/conf.d
 !.config/fish/conf.d/linux.fish
 !.local
