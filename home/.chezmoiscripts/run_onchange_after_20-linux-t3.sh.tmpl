@@ -1,7 +1,9 @@
 {{- if eq .chezmoi.os "linux" -}}
 #!/bin/sh
-# Run the T3 Code server as a user service that survives logout. Re-runs when the unit changes.
+# Run the T3 Code server as a user service that survives logout. Re-runs when the unit or the tool
+# list changes, so a new T3 version is picked up by a restart.
 # {{ include "dot_config/systemd/user/t3code.service" | sha256sum }}
+# {{ include "dot_config/mise/config.toml" | sha256sum }}
 set -eu
 sudo loginctl enable-linger "$(id -un)"
 systemctl --user daemon-reload
