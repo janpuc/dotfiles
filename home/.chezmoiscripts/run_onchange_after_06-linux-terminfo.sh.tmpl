@@ -1,0 +1,10 @@
+{{- if eq .chezmoi.os "linux" -}}
+#!/bin/sh
+# Ghostty's terminfo for the aether server: Ubuntu 24.04's ncurses predates xterm-ghostty, so an
+# SSH session from Ghostty (TERM=xterm-ghostty) would make fish and other TUIs fall back with a
+# warning. Compiled from Ghostty's own entry (`infocmp -x xterm-ghostty` on the laptop) into
+# ~/.terminfo. Re-runs when the entry changes.
+# {{ include ".system/xterm-ghostty.terminfo" | sha256sum }}
+set -eu
+tic -x -o "$HOME/.terminfo" {{ joinPath .chezmoi.sourceDir ".system/xterm-ghostty.terminfo" | quote }}
+{{- end }}

@@ -18,6 +18,7 @@ sessions there.
 | `home/dot_t3/userdata/create_settings.json.tmpl` | seeds one `pi` provider instance, only if T3 has no settings yet |
 | `home/dot_config/git/config.tmpl` | Linux: commits signed with the server's `~/.ssh/id_ed25519` (GitHub signing key `aether-sign`); no `bat`/`difft` |
 | `home/.system/aether-hosts-sync*` (installed by the `05-linux-system` script) | hourly: internal `*.janpuc.com` names from public home-ops into `/etc/hosts`, because the UniFi gateway does not answer DNS from the tailnet |
+| `home/.system/xterm-ghostty.terminfo` (`06-linux-terminfo` script) | Ghostty's terminfo in `~/.terminfo`; Ubuntu's ncurses lacks it |
 | `home/.system/aether-keepalive*` | holds 25% of RAM (no CPU), so Oracle never sees the instance as idle: it reclaims only when CPU p95, network and memory are all under 20% for 7 days |
 | `home/dot_config/fish/config.fish.tmpl` | the laptop's fish setup with mise; at login it says when Pi sessions are still running |
 | `dtach` (apt) + `pi-attach` | interactive Pi survives a dropped SSH connection; see `home/dot_pi/shared/README.md`, Sessions |
