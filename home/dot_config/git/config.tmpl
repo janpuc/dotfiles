@@ -30,13 +30,8 @@
 	ui = false
 
 [commit]
-{{- if eq .chezmoi.os "darwin" }}
 	gpgSign = true
 	gpgsign = true
-{{- else }}
-	gpgSign = false
-	gpgsign = false
-{{- end }}
 
 [core]
 	autocrlf = "input"
@@ -60,10 +55,10 @@
 [fetch]
 	prune = true
 	pruneTags = true
-{{- if eq .chezmoi.os "darwin" }}
 
 [gpg]
 	format = "ssh"
+{{- if eq .chezmoi.os "darwin" }}
 
 [gpg "ssh"]
 	program = "/Applications/1Password.app/Contents/MacOS/op-ssh-sign"
@@ -83,18 +78,16 @@
 	autoStash = true
 
 [tag]
-{{- if eq .chezmoi.os "darwin" }}
 	forceSignAnnotated = true
 	gpgSign = true
 	gpgsign = true
-{{- else }}
-	gpgSign = false
-	gpgsign = false
-{{- end }}
 
 [user]
 	email = {{ .email | quote }}
 	name = "janpuc"
 {{- if eq .chezmoi.os "darwin" }}
 	signingKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxcKV1Iao/IzHzbHUGaUKocgDR6WG3w5SA64U6cd8Nk"
+{{- else }}
+	# The server's own key, registered on GitHub as a signing key (aether-sign).
+	signingKey = "~/.ssh/id_ed25519.pub"
 {{- end }}

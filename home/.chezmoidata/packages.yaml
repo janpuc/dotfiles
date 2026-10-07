@@ -118,4 +118,5 @@ packages:
       - fish
       - git
       - libatomic1  # the T3 binary links it
+      - python3-yaml  # aether-hosts-sync
       - zsh

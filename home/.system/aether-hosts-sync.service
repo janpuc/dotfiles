@@ -1,0 +1,8 @@
+[Unit]
+Description=Pin home-ops internal DNS names in /etc/hosts
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/aether-hosts-sync

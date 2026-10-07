@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""aether-hosts-sync: pin home-ops internal DNS names in /etc/hosts.
+
+The UniFi gateway holds the LAN records for *.janpuc.com but does not answer
+queries from the tailnet, so this derives the same records from home-ops
+(a bare mirror of the public repo, kept by this service) and writes them into a managed block in
+/etc/hosts. External-gateway names are left alone: they resolve publicly.
+
+Sources, all read from git so the working tree is never touched:
+  * Gateway objects: lbipam IP + external-dns target  -> internal.janpuc.com
+  * anything with parentRefs [envoy-internal] + hostnames (HTTPRoutes and
+    app-template `route:` values)                     -> internal gateway IP
+  * anything annotated with both external-dns hostname and lbipam IP
+    (kube-api VIP, plex, smb...)                       -> that IP
+  * the Talos node names, which DHCP registers at home but not here.
+"""
+import os, re, subprocess, sys, tempfile, yaml
+
+# The service keeps its own bare mirror so it never writes into the user's checkout.
+REPO = os.environ.get("HOME_OPS_MIRROR", "/var/lib/aether-hosts-sync/home-ops.git")
+UPSTREAM = os.environ.get("HOME_OPS_URL", "https://github.com/janpuc/home-ops.git")
+REF = os.environ.get("HOME_OPS_REF", "main")
+HOSTS = os.environ.get("HOSTS_FILE", "/etc/hosts")
+INTERNAL_GATEWAYS = {"envoy-internal"}
+NODES = {"k8s-0": "192.168.69.20", "k8s-1": "192.168.69.21", "k8s-2": "192.168.69.22"}
+BEGIN = "# BEGIN aether-hosts-sync (generated from home-ops, do not edit by hand)"
+END = "# END aether-hosts-sync"
+# external-dns dropped the `alpha` prefix in v0.22.0. home-ops now carries the new
+# spelling; read both so a checkout from either side of that rename yields every name.
+ANN_PREFIXES = ("external-dns.kubernetes.io/", "external-dns.alpha.kubernetes.io/")
+ANN_IP = "lbipam.cilium.io/ips"
+TEMPLATE_RE = re.compile(r"\{\{\s*\.Release\.(Name|Namespace)\s*\}\}")
+HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
+
+
+def git(*args):
+    return subprocess.run(["git", "-c", "safe.directory=*", "-C", REPO, *args],
+                          check=True, capture_output=True, text=True).stdout
+
+
+def dns_ann(annotations, suffix):
+    """Read an external-dns annotation under whichever prefix the manifest uses."""
+    for prefix in ANN_PREFIXES:
+        value = annotations.get(prefix + suffix)
+        if value is not None:
+            return value
+    return None
+
+
+def walk(node):
+    """Yield every dict in a YAML tree."""
+    if isinstance(node, dict):
+        yield node
+        for v in node.values():
+            yield from walk(v)
+    elif isinstance(node, list):
+        for v in node:
+            yield from walk(v)
+
+
+def main():
+    try:
+        if not os.path.isdir(REPO):
+            os.makedirs(os.path.dirname(REPO), exist_ok=True)
+            subprocess.run(["git", "clone", "--mirror", "-q", UPSTREAM, REPO], check=True, capture_output=True, timeout=120)
+        else:
+            # `git remote update` takes only -p/--prune -- it has no -q, so the old call
+            # exited 129 ("unknown switch `q'") on every run and the except below quietly
+            # served whatever the initial clone had fetched. `git fetch` does take --quiet
+            # and, on a mirror (refspec +refs/*:refs/*, one remote), does the same work.
+            subprocess.run(["git", "-c", "safe.directory=*", "-C", REPO, "fetch", "--prune", "--quiet", "origin"],
+                           check=True, capture_output=True, timeout=60)
+    except Exception as e:  # offline: fall back to the last fetched ref
+        if not os.path.isdir(REPO):
+            sys.exit(f"error: no mirror at {REPO} and clone failed: {e}")
+        print(f"warn: mirror update failed ({e}); using cached {REF}", file=sys.stderr)
+
+    files = [f for f in git("ls-tree", "-r", "--name-only", REF, "--", "kubernetes/apps").split("\n")
+             if f.endswith((".yaml", ".yml"))]
+    gateway_ip, records = {}, {}
+    docs = []
+    for f in files:
+        try:
+            docs.extend(d for d in yaml.safe_load_all(git("show", f"{REF}:{f}")) if isinstance(d, dict))
+        except Exception as e:
+            print(f"warn: skipping {f}: {e}", file=sys.stderr)
+
+    for d in docs:  # pass 1: gateways
+        if d.get("kind") == "Gateway":
+            name = d.get("metadata", {}).get("name")
+            ann = d.get("spec", {}).get("infrastructure", {}).get("annotations", {}) or {}
+            target = dns_ann(d.get("metadata", {}).get("annotations", {}) or {}, "target")
+            ip = ann.get(ANN_IP)
+            if name and ip:
+                gateway_ip[name] = ip.split(",")[0].strip()
+                if target:
+                    records[target] = gateway_ip[name]
+
+    for d in docs:  # pass 2: routes and annotated services
+        # app-template charts write hostnames like "{{ .Release.Name }}.janpuc.com";
+        # render the two Release fields from the HelmRelease itself.
+        release = {}
+        if d.get("kind") == "HelmRelease":
+            meta = d.get("metadata", {}) or {}
+            release = {"Name": meta.get("name", ""), "Namespace": meta.get("namespace", "")}
+        for sub in walk(d):
+            refs, hosts = sub.get("parentRefs"), sub.get("hostnames")
+            if isinstance(refs, list) and isinstance(hosts, list):
+                for r in refs:
+                    gw = r.get("name") if isinstance(r, dict) else None
+                    if gw in INTERNAL_GATEWAYS and gw in gateway_ip:
+                        for h in hosts:
+                            if not isinstance(h, str):
+                                continue
+                            h = TEMPLATE_RE.sub(lambda m: release.get(m.group(1), m.group(0)), h)
+                            if HOSTNAME_RE.match(h):
+                                records[h] = gateway_ip[gw]
+            ann = sub.get("annotations")
+            host = dns_ann(ann, "hostname") if isinstance(ann, dict) else None
+            if host and ANN_IP in ann:
+                for h in str(host).split(","):
+                    if not HOSTNAME_RE.match(h.strip()):
+                        continue
+                    records[h.strip()] = str(ann[ANN_IP]).split(",")[0].strip()
+
+    by_ip = {}
+    for host, ip in sorted(records.items()):
+        by_ip.setdefault(ip, []).append(host)
+    lines = [BEGIN, f"# source: {REPO} @ {git('rev-parse', '--short', REF).strip()}"]
+    for ip in sorted(by_ip, key=lambda s: tuple(int(o) for o in s.split("."))):
+        lines.append(f"{ip:<16}{' '.join(by_ip[ip])}")
+    lines.append("# Talos nodes (DHCP names at home)")
+    for name, ip in NODES.items():
+        lines.append(f"{ip:<16}{name}")
+    lines.append(END)
+    block = "\n".join(lines) + "\n"
+
+    with open(HOSTS) as fh:
+        current = fh.read()
+    if BEGIN in current and END in current:
+        head, rest = current.split(BEGIN, 1)
+        _, tail = rest.split(END + "\n", 1) if END + "\n" in rest else (None, "")
+        new = head + block + tail
+    else:
+        new = current.rstrip("\n") + "\n\n" + block
+    if new != current:
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(HOSTS), prefix=".hosts.")
+        with os.fdopen(fd, "w") as fh:
+            fh.write(new)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, HOSTS)
+    print(f"{len(records)} names across {len(by_ip)} addresses, {len(NODES)} node names; "
+          f"{'updated' if new != current else 'unchanged'} {HOSTS}")
+
+
+if __name__ == "__main__":
+    main()
