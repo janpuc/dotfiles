@@ -1,0 +1,13 @@
+[Unit]
+Description=Hold a quarter of RAM so Oracle does not reclaim the idle instance
+
+[Service]
+ExecStart=/usr/local/sbin/aether-keepalive
+DynamicUser=yes
+# First to go under memory pressure; back five minutes later.
+OOMScoreAdjust=1000
+Restart=always
+RestartSec=300
+
+[Install]
+WantedBy=multi-user.target

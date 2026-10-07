@@ -3,3 +3,5 @@
 # shells, so the `pi` function names the launcher explicitly, as it does on the laptop.
 fish_add_path --prepend "$HOME/.local/bin" "$HOME/.local/share/mise/shims"
 status is-interactive; and mise activate fish | source
+# Claude Code is a mise tool here (`mise up claude`); its own updater would install a second copy.
+set -gx DISABLE_AUTOUPDATER 1

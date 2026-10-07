@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""aether-keepalive: keep memory use above Oracle's idle-reclaim line.
+
+Oracle reclaims an Always Free instance when, over 7 days, CPU (p95), network AND memory
+(A1 shapes) are all under 20%. Holding a quarter of RAM resident is enough to stay out of
+that on its own, and costs no CPU. The box has no swap, so touched pages stay resident.
+The unit gives this process the highest OOM score, so real work always wins memory.
+"""
+import mmap, os, signal, time
+
+FRACTION = float(os.environ.get("KEEPALIVE_FRACTION", "0.25"))
+PAGE = mmap.PAGESIZE
+
+with open("/proc/meminfo") as f:
+    total = next(int(l.split()[1]) * 1024 for l in f if l.startswith("MemTotal:"))
+size = int(total * FRACTION) // PAGE * PAGE
+
+buf = mmap.mmap(-1, size, flags=mmap.MAP_PRIVATE | mmap.MAP_ANONYMOUS)
+for off in range(0, size, PAGE):  # write every page so the kernel backs it with RAM
+    buf[off] = 1
+print(f"holding {size / 2**30:.1f} GiB of {total / 2**30:.1f} GiB ({FRACTION:.0%})", flush=True)
+
+signal.signal(signal.SIGTERM, lambda *_: os._exit(0))
+while True:
+    time.sleep(3600)

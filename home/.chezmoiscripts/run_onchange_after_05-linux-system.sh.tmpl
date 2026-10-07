@@ -1,15 +1,19 @@
 {{- if eq .chezmoi.os "linux" -}}
 #!/bin/sh
 # System files for the aether server: the hourly sync of home-ops' internal DNS names into
-# /etc/hosts (the UniFi gateway does not answer DNS from the tailnet). Re-runs when they change.
+# /etc/hosts (the UniFi gateway does not answer DNS from the tailnet), and the memory hold that
+# keeps Oracle from reclaiming the instance as idle. Re-runs when they change.
 #   script  {{ include ".system/aether-hosts-sync" | sha256sum }}
 #   service {{ include ".system/aether-hosts-sync.service" | sha256sum }}
 #   timer   {{ include ".system/aether-hosts-sync.timer" | sha256sum }}
+#   keepalive {{ include ".system/aether-keepalive" | sha256sum }} {{ include ".system/aether-keepalive.service" | sha256sum }}
 set -eu
 src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
-sudo install -m 755 "$src/aether-hosts-sync" /usr/local/sbin/aether-hosts-sync
-sudo install -m 644 "$src/aether-hosts-sync.service" "$src/aether-hosts-sync.timer" /etc/systemd/system/
+sudo install -m 755 "$src/aether-hosts-sync" "$src/aether-keepalive" /usr/local/sbin/
+sudo install -m 644 "$src/aether-hosts-sync.service" "$src/aether-hosts-sync.timer" "$src/aether-keepalive.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now aether-hosts-sync.timer
 sudo systemctl start aether-hosts-sync.service
+sudo systemctl enable aether-keepalive.service
+sudo systemctl restart aether-keepalive.service
 {{- end }}
