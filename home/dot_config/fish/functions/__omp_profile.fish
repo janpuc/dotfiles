@@ -1,5 +1,5 @@
 function __omp_profile --on-variable PWD --description "Keep omp on the work profile inside the work tree"
-    set -l work_root "$HOME/Development/Work"
+    set -l work_root "$HOME/Work"
 
     # An omp profile relocates the whole user base to ~/.omp/profiles/<name>,
     # agent.db included — and agent.db is the credential vault. Personal Claude

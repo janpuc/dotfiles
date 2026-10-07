@@ -1,6 +1,6 @@
 function __memini_namespace_prefix --on-variable PWD --description "Keep memini namespaces inside the homelab/work trees automatically"
     set -l dev_root "$HOME/Development"
-    set -l work_root "$dev_root/Work"
+    set -l work_root "$HOME/Work"
 
     # MEMINI_NAMESPACE_PREFIX is prepended to the DERIVED name, giving
     # <prefix>/<repo>. A server-side pin still beats it, so the explicit pins

@@ -1,7 +1,7 @@
 # omp work profile — ~/.omp/profiles/work/agent/config.yml
 #
 # Selected by `omp --profile work`, `OMP_PROFILE=work`, or the `ompw` alias;
-# __omp_profile.fish exports OMP_PROFILE automatically under ~/Development/Work,
+# __omp_profile.fish exports OMP_PROFILE automatically under ~/Work,
 # the same trigger __memini_namespace_prefix uses, so memory namespace and
 # billing flip together.
 #

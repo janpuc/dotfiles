@@ -9,7 +9,7 @@ Sources live in the dotfiles repo: `home/dot_local/bin/executable_pi` (launcher)
 
 | Command | Profile |
 |---|---|
-| `pi` | Work under `~/Development/Work` (also via symlinks, case variants, or a worktree whose repo lives there); Personal elsewhere |
+| `pi` | Work under `~/Work` (also via symlinks, case variants, or a worktree whose repo lives there); Personal elsewhere |
 | `piw` | Work from anywhere (`work/scratch` memory outside a repo) |
 | `piw --personal-models -c` | **Work override**: same Work session and `work/*` memory, but on the Personal models (enterprise credits ran out). Explicit per launch, announced, never automatic |
 | `pi -c` / `pi -r` / `pi --session <file>` | continue / pick / open a session — only within the launch's profile |

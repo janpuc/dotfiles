@@ -31,7 +31,7 @@ providers:
 #
 # PERSONAL SUBSCRIPTIONS ONLY. The enterprise Claude seat belongs in the `work`
 # profile (~/.omp/profiles/work/agent/config.yml, reached via `ompw` or
-# automatically under ~/Development/Work). Never `/login anthropic` the
+# automatically under ~/Work). Never `/login anthropic` the
 # enterprise workspace here: omp would hold two `anthropic` accounts in this
 # agent.db, rank and rotate them automatically, and work turns would start
 # spending the personal sub.

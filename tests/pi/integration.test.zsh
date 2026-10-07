@@ -63,7 +63,7 @@ ln -s ../shared/agents $H/.pi/agent/agents
 ln -s ../../../shared/agents $H/.pi/profiles/work/agent/agents
 cp -R $HOME/.pi/agent/npm $H/.pi/agent/npm
 cp -R $HOME/.pi/profiles/work/agent/npm $H/.pi/profiles/work/agent/npm
-mkdir -p $H/Development/Work/repo && git -C $H/Development/Work/repo init -q
+mkdir -p $H/Work/repo && git -C $H/Work/repo init -q
 # Projects trusted up front so print mode never waits on a trust prompt.
 for f in $H/.pi/agent/settings.json $H/.pi/profiles/work/agent/settings.json; do
   jq '. + {defaultProjectTrust: "always"}' $f > $SB/s && mv $SB/s $f
@@ -223,7 +223,7 @@ rm $H/.pi/profiles/work/agent/models.json
 # --- Unwrapped launches and cross-profile sessions --------------------------------------------------
 
 print "bypass and sessions"
-pi_in $H/Development/Work/repo --raw -- -p "PI-SMOKE hello" --model personal/fast; st=$?
+pi_in $H/Work/repo --raw -- -p "PI-SMOKE hello" --model personal/fast; st=$?
 check "bare pi in a Work repo (Personal agent dir) sends nothing" "$(requests)" ""
 contains "…and explains" "$(out)" "is a Work project but Pi started with the Personal profile"
 
@@ -236,17 +236,17 @@ contains "…and is refused" "$(out)" "recorded under the personal profile"
 
 print "work override"
 gw '{}'
-pi_in $H/Development/Work/repo -- --personal-models -p "PI-SMOKE hello" --model personal/fast; st=$?
+pi_in $H/Work/repo -- --personal-models -p "PI-SMOKE hello" --model personal/fast; st=$?
 check "override runs Work on a personal model" "$st/$(requests)" "0/opencode-go/deepseek-v4.1-flash"
 contains "…and announces it" "$(out)" "PERSONAL models"
-wdir=$H/.pi/profiles/work/agent/sessions/--${${${:-$H/Development/Work/repo}#/}//\//-}--
+wdir=$H/.pi/profiles/work/agent/sessions/--${${${:-$H/Work/repo}#/}//\//-}--
 wsess=($wdir/*.jsonl(N))
 check "…storing the session in Work's per-cwd store" "${#wsess}" 1
 check "…stamped as a Work session on personal models" "$(jq -c 'select(.customType == "pi-profile") | .data' $wsess[1])" '{"profile":"work","models":"personal"}'
-pi_in $H/Development/Work/repo -- --personal-models -c -p "PI-SMOKE again" --model personal/fast; st=$?
+pi_in $H/Work/repo -- --personal-models -c -p "PI-SMOKE again" --model personal/fast; st=$?
 wsess2=($wdir/*.jsonl(N))
 check "-c continues the same Work session" "$st/${#wsess2}" "0/1"
-pi_in $H/Development/Work/repo -- -c -p "PI-SMOKE back on the seat"; st=$?
+pi_in $H/Work/repo -- -c -p "PI-SMOKE back on the seat"; st=$?
 wsess3=($wdir/*.jsonl(N))
 check "plain Work -c finds the same session (one history)" "${#wsess3}/$(requests)" "1/"
 pi_in $H/plain -- --personal-models -p "PI-SMOKE" --session $wsess[1] --model personal/fast; st=$?
@@ -260,10 +260,10 @@ cat > $H/.pi/profiles/work/agent/claude/remote-settings.json <<'EOF'
 {"permissions": {"defaultMode": "default", "disableBypassPermissionsMode": "disable",
   "allow": ["Bash(git status *)"], "deny": ["Bash(ssh *)", "Read(./.env)", "Read(./.env.*)"], "ask": []}}
 EOF
-print 'PASSWORD=hunter2' > $H/Development/Work/repo/.env
-print 'the password policy lives here' > $H/Development/Work/repo/notes.txt
+print 'PASSWORD=hunter2' > $H/Work/repo/.env
+print 'the password policy lives here' > $H/Work/repo/notes.txt
 script() { gw "$(jq -cn --argjson s "$1" '{"mock/tools": {script: $s}}')" }
-work_tool() { script $1; pi_in $H/Development/Work/repo ${@[2,-1]} -- --personal-models -p "PI-SMOKE go" --model litellm/mock/tools }
+work_tool() { script $1; pi_in $H/Work/repo ${@[2,-1]} -- --personal-models -p "PI-SMOKE go" --model litellm/mock/tools }
 work_tool '[{"tool":"bash","args":{"command":"ssh prod uptime"}}]'
 contains "denied command is blocked" "$(out)" "denied by your organisation's Claude policy (Bash(ssh *))"
 work_tool '[{"tool":"bash","args":{"command":"git status"}}]'
@@ -276,7 +276,7 @@ work_tool '[{"tool":"read","args":{"path":".env"}}]'
 contains "denied file read is blocked" "$(out)" "is denied by your organisation's Claude policy (Read(./.env))"
 # grep is not a default tool (subagents and the advisor enable it), so enable it here.
 script '[{"tool":"grep","args":{"pattern":"(?i)password","path":"."}}]'
-pi_in $H/Development/Work/repo -- --personal-models -p "PI-SMOKE go" --model litellm/mock/tools --tools read,grep,find,ls,bash
+pi_in $H/Work/repo -- --personal-models -p "PI-SMOKE go" --model litellm/mock/tools --tools read,grep,find,ls,bash
 o=$(out)
 [[ $o == *notes.txt* && $o != *hunter2* && $o == *"1 result(s) hidden"* ]] && ok "search results from denied files are redacted" || bad "search redaction" "${o[1,300]}"
 mv $H/.pi/profiles/work/agent/claude/remote-settings.json $SB/policy.bak

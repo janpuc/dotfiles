@@ -3,7 +3,7 @@
 # Profile-aware launcher for Pi (https://pi.dev), installed as ~/.local/bin/pi
 # ahead of the real binary on PATH. Same script, three names:
 #
-#   pi           Work under ~/Development/Work (or a repo/worktree owned by it),
+#   pi           Work under ~/Work (or a repo/worktree owned by it),
 #                Personal everywhere else
 #   piw          Work, from anywhere
 #   pi-profile   print what `pi`/`piw` would do here, or run a profile's
@@ -37,7 +37,7 @@ setopt extended_glob no_unset pipe_fail
 readonly self=${0:A}
 readonly invoked=${0:t}
 
-readonly work_root=$HOME/Development/Work
+readonly work_root=$HOME/Work
 readonly dev_root=$HOME/Development
 readonly personal_dir=$HOME/.pi/agent
 readonly work_dir=$HOME/.pi/profiles/work/agent

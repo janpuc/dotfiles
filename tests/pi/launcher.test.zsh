@@ -21,8 +21,8 @@ check() { [[ $2 == $3 ]] && ok $1 || bad $1 "got '$2', want '$3'" }
 
 # --- sandbox -------------------------------------------------------------------
 
-mkdir -p $H/.local/bin $T/realbin $H/Development/Work/team $H/Development/Work2/x \
-  $H/Development/Workshop/y $H/elsewhere $H/outside $H/plain
+mkdir -p $H/.local/bin $T/realbin $H/Work/team $H/Work2/x \
+  $H/Workshop/y $H/elsewhere $H/outside $H/plain
 mkdir -p $H/.pi/profiles/work/agent && print '{}' > $H/.pi/profiles/work/agent/settings.json
 cp $repo/home/dot_local/bin/executable_pi $H/.local/bin/pi
 chmod +x $H/.local/bin/pi
@@ -42,14 +42,14 @@ chmod +x $T/realbin/pi
 
 g() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1 }
 mkrepo() { mkdir -p $1 && g -C $1 init && g -C $1 commit --allow-empty -m init && { [[ -z ${2-} ]] || g -C $1 remote add origin $2 } }
-mkrepo $H/Development/Work/team/api git@git.example.com:corp/api.git
-mkdir -p $H/Development/Work/team/api/src/deep
+mkrepo $H/Work/team/api git@git.example.com:corp/api.git
+mkdir -p $H/Work/team/api/src/deep
 mkrepo $H/Development/home-ops git@github.com:me/home-ops.git
 mkrepo $H/outside/repo
-mkrepo $H/Development/Work2/x/repo
-g -C $H/Development/Work/team/api worktree add -b wt $H/elsewhere/api-wt
-ln -s $H/Development/Work/team/api $H/link-to-api
-ln -s $H/outside/repo $H/Development/Work/linked-outside
+mkrepo $H/Work2/x/repo
+g -C $H/Work/team/api worktree add -b wt $H/elsewhere/api-wt
+ln -s $H/Work/team/api $H/link-to-api
+ln -s $H/outside/repo $H/Work/linked-outside
 
 # --- mock memini ---------------------------------------------------------------------
 
@@ -116,7 +116,7 @@ run $H/outside/repo -- pi
 check "repo outside Development → no prefix" "$(has MEMINI_NAMESPACE_PREFIX)" no
 check "repo outside Development → no namespace" "$(has MEMINI_NAMESPACE)" no
 
-run $H/Development/Work/team/api/src/deep -- pi
+run $H/Work/team/api/src/deep -- pi
 check "nested Work path → work" "$(envv AI_PROFILE)" work
 check "work agent dir" "$(envv PI_CODING_AGENT_DIR)" $H/.pi/profiles/work/agent
 check "work claude dir" "$(envv CLAUDE_CONFIG_DIR)" $H/.pi/profiles/work/agent/claude
@@ -135,10 +135,10 @@ check "Work children get an empty Codex home" "$(envv CODEX_HOME)" $H/.pi/profil
 check "ANTHROPIC_API_KEY scrubbed (Work)" "$(has ANTHROPIC_API_KEY)" no
 check "enclosing Claude Code marker scrubbed" "$(has CLAUDECODE)" no
 
-run $H/Development/Work -- pi
+run $H/Work -- pi
 check "Work root itself → work" "$(envv AI_PROFILE)" work
 
-for d in $H/Development/Work2/x/repo $H/Development/Workshop/y; do
+for d in $H/Work2/x/repo $H/Workshop/y; do
   run $d -- pi
   check "similar name ${d#$H/} → personal" "$(envv AI_PROFILE)" personal
 done
@@ -148,14 +148,14 @@ check "personal gets the MiniMax key under Pi's name" "$(envv MINIMAX_API_KEY)" 
 check "ANTHROPIC_API_KEY scrubbed (Personal)" "$(has ANTHROPIC_API_KEY)" no
 check "OPENAI_API_KEY scrubbed (Personal)" "$(has OPENAI_API_KEY)" no
 
-if [[ -d $H/development/work ]]; then
-  run $H/development/work/team/api -- pi
+if [[ -d $H/work ]]; then
+  run $H/work/team/api -- pi
   check "case-folded path on APFS → work" "$(envv AI_PROFILE)" work
 fi
 
 run $H/link-to-api -- pi
 check "symlink into Work → work" "$(envv AI_PROFILE)" work
-run $H/Development/Work/linked-outside -- pi
+run $H/Work/linked-outside -- pi
 check "Work-tree symlink pointing outside → work (logical PWD)" "$(envv AI_PROFILE)" work
 
 run $H/elsewhere/api-wt -- pi
@@ -173,7 +173,7 @@ check "piw in a personal repo → work prefix" "$(envv MEMINI_NAMESPACE_PREFIX)"
 # --- conflicting inherited environment ------------------------------------------------
 
 print "conflicting environment"
-run $H/Development/Work/team/api PI_CODING_AGENT_DIR=$H/.pi/agent MEMINI_NAMESPACE=homelab/x MEMINI_NAMESPACE_PREFIX=homelab OMP_PROFILE= -- pi
+run $H/Work/team/api PI_CODING_AGENT_DIR=$H/.pi/agent MEMINI_NAMESPACE=homelab/x MEMINI_NAMESPACE_PREFIX=homelab OMP_PROFILE= -- pi
 check "personal agent-dir override ignored in Work" "$(envv PI_CODING_AGENT_DIR)" $H/.pi/profiles/work/agent
 check "override is reported" "$(grep -c 'ignoring PI_CODING_AGENT_DIR' $T/stderr)" 1
 check "inherited homelab namespace dropped" "$(has MEMINI_NAMESPACE)" no
@@ -181,18 +181,18 @@ check "inherited prefix replaced" "$(envv MEMINI_NAMESPACE_PREFIX)" work
 
 run $H/plain AI_PROFILE=work -- pi
 check "child of a Work session stays Work" "$(envv AI_PROFILE)" work
-run $H/Development/Work/team/api AI_PROFILE=personal -- pi
+run $H/Work/team/api AI_PROFILE=personal -- pi
 check "Work signals beat AI_PROFILE=personal" "$(envv AI_PROFILE)" work
 
 # --- Work override: Work session on personal models ---------------------------------------
 
 print "work override (--personal-models)"
-run $H/Development/Work/team/api -- pi --personal-models -c
+run $H/Work/team/api -- pi --personal-models -c
 check "override keeps Work profile" "$(envv AI_PROFILE)" work
 check "override uses personal models" "$(envv AI_PROFILE_MODELS)" personal
 check "override uses the personal agent dir" "$(envv PI_CODING_AGENT_DIR)" $H/.pi/agent
 check "override uses the personal Claude login" "$(envv CLAUDE_CONFIG_DIR)" $H/.pi/agent/claude
-check "override stores sessions in Work's per-cwd folder" "$(envv PI_CODING_AGENT_SESSION_DIR)" "$H/.pi/profiles/work/agent/sessions/--${${${:-$H/Development/Work/team/api}#/}//\//-}--"
+check "override stores sessions in Work's per-cwd folder" "$(envv PI_CODING_AGENT_SESSION_DIR)" "$H/.pi/profiles/work/agent/sessions/--${${${:-$H/Work/team/api}#/}//\//-}--"
 check "override keeps Work memory scope" "$(envv MEMINI_NAMESPACE_PREFIX)" work
 check "override keeps LiteLLM for personal models" "$(envv LITELLM_API_KEY)" dummy-litellm
 check "override gets the personal subscription keys" "$(envv OPENCODE_API_KEY)/$(envv MINIMAX_API_KEY)" dummy-go/dummy-mm
@@ -219,7 +219,7 @@ check "Work session file → Work profile" "$(envv AI_PROFILE)" work
 run $H/plain -- piw --session $H/.pi/agent/sessions/y/p.jsonl; st=$?
 check "Personal history refused in Work (exit)" $st 78
 check "…and pi never ran" "$([[ -e $T/out.pid ]] && print ran || print not-run)" not-run
-run $H/Development/Work/team/api -- pi --fork=$H/.pi/agent/sessions/y/p.jsonl; st=$?
+run $H/Work/team/api -- pi --fork=$H/.pi/agent/sessions/y/p.jsonl; st=$?
 check "--fork of Personal history refused in Work" $st 78
 
 # --- exec semantics ------------------------------------------------------------------------
@@ -241,31 +241,31 @@ check "SIGTERM reaches pi" $st 143
 
 print "memini scope"
 rm -f $T/handshake.log $T/handshake.json
-run $H/Development/Work/team/api -- pi
+run $H/Work/team/api -- pi
 check "Work handshake ok" "$(envv PI_MEMINI_STATE)" "ok: work/api (remote)"
 check "handshake sends the key in a header" "$(jq -r .auth $T/handshake.log | head -1)" "Bearer dummy-memini"
 check "handshake sends the work prefix" "$(jq -r .body.project.env_namespace_prefix $T/handshake.log | head -1)" work
 check "key not in process args" "$(grep -c dummy-memini $T/out.args)" 0
 print '{"namespace":"homelab/api","namespace_source":"pin","pin":{"key":"remote:corp/api"},"read_set":[{"namespace":"homelab/api","origin":"primary"}]}' > $T/handshake.json
-run $H/Development/Work/team/api -- pi; st=$?
+run $H/Work/team/api -- pi; st=$?
 check "Work pinned to homelab is refused" $st 78
 check "…before pi starts" "$([[ -e $T/out.pid ]] && print ran || print not-run)" not-run
 check "…naming the pin" "$(grep -c 'pin remote:corp/api' $T/stderr)" 1
 print '{"namespace":"work/api","namespace_source":"remote","read_set":[{"namespace":"work/api","origin":"primary"},{"namespace":"homelab","origin":"link"},{"namespace":"personal/jan","origin":"home"}]}' > $T/handshake.json
-run $H/Development/Work/team/api -- pi; st=$?
+run $H/Work/team/api -- pi; st=$?
 check "Work read set linking homelab is refused" $st 78
 print '{"namespace":"homelab/home-ops","namespace_source":"pin","read_set":[{"namespace":"homelab/home-ops","origin":"primary"},{"namespace":"work/api","origin":"link"}]}' > $T/handshake.json
 run $H/Development/home-ops -- pi; st=$?
 check "Personal read set reaching work/* is refused" $st 78
-run $H/Development/Work/team/api PI_MEMINI=off -- pi; st=$?
+run $H/Work/team/api PI_MEMINI=off -- pi; st=$?
 check "PI_MEMINI=off starts without memory" $st 0
 check "…with no key" "$(has MEMINI_API_KEY)" no
 check "…and an unroutable endpoint" "$(envv MEMINI_BASE_URL)" http://127.0.0.1:9
 check "…marked off for the extension" "$(envv PI_MEMINI_STATE)" "off: PI_MEMINI=off"
 rm -f $T/handshake.json $T/handshake.log
-run $H/Development/Work/team/api -- pi install npm:x
+run $H/Work/team/api -- pi install npm:x
 check "subcommands skip the handshake" "$([[ -e $T/handshake.log ]] && print called || print skipped)" skipped
-run $H/Development/Work/team/api MEMINI_BASE_URL=http://127.0.0.1:9 -- pi; st=$?
+run $H/Work/team/api MEMINI_BASE_URL=http://127.0.0.1:9 -- pi; st=$?
 check "memini down → still starts" $st 0
 check "…marked degraded" "$(envv PI_MEMINI_STATE | cut -d: -f1)" degraded
 check "…and warns" "$(grep -c 'memini degraded' $T/stderr)" 1
@@ -273,11 +273,11 @@ check "…and warns" "$(grep -c 'memini degraded' $T/stderr)" 1
 # --- project config that would loosen the bridge or switch billing ----------------------------
 
 print "project config"
-mkdir -p $H/Development/Work/team/api/.pi
-print '{"provider":{"strictMcpConfig":false}}' > $H/Development/Work/team/api/.pi/claude-bridge.json
-run $H/Development/Work/team/api -- pi; st=$?
+mkdir -p $H/Work/team/api/.pi
+print '{"provider":{"strictMcpConfig":false}}' > $H/Work/team/api/.pi/claude-bridge.json
+run $H/Work/team/api -- pi; st=$?
 check "Work refuses a project that turns strict MCP off" $st 78
-rm $H/Development/Work/team/api/.pi/claude-bridge.json
+rm $H/Work/team/api/.pi/claude-bridge.json
 mkdir -p $H/Development/home-ops/.claude
 print '{"apiKeyHelper":"echo sk-test"}' > $H/Development/home-ops/.claude/settings.json
 run $H/Development/home-ops -- pi; st=$?
@@ -290,12 +290,12 @@ print "claude accounts"
 mkdir -p $H/.pi/agent/claude $H/.pi/profiles/work/agent/claude
 print '{"oauthAccount":{"organizationUuid":"org-personal","organizationType":"claude_max","organizationName":"Me"}}' > $H/.pi/agent/claude/.claude.json
 print '{"oauthAccount":{"organizationUuid":"org-personal","organizationType":"claude_max","organizationName":"Me"}}' > $H/.pi/profiles/work/agent/claude/.claude.json
-run $H/Development/Work/team/api -- pi; st=$?
+run $H/Work/team/api -- pi; st=$?
 check "Work logged into the personal org is refused" $st 78
 print '{"oauthAccount":{"organizationUuid":"org-corp","organizationType":"claude_enterprise","organizationName":"Corp"}}' > $H/.pi/profiles/work/agent/claude/.claude.json
-run $H/Development/Work/team/api -- pi; st=$?
+run $H/Work/team/api -- pi; st=$?
 check "Work on the enterprise org starts" $st 0
-run $H/Development/Work/team/api -- pi --personal-models; st=$?
+run $H/Work/team/api -- pi --personal-models; st=$?
 check "override checks the personal login instead" $st 0
 rm $H/.pi/agent/claude/.claude.json
 run $H/plain -- pi; st=$?
@@ -314,7 +314,7 @@ rm -f $T/out.*(N)
 ( cd $H/plain && env -i HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK $H/.local/bin/pi ) 2>/dev/null
 check "personal imports memini key from the ai-sync cache" "$(envv MEMINI_API_KEY)" cached-memini
 check "personal imports litellm key (fish escaping kept)" "$(envv LITELLM_API_KEY)" "cached-lite'llm"
-( cd $H/Development/Work/team/api && env -i HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK $H/.local/bin/pi ) 2>/dev/null
+( cd $H/Work/team/api && env -i HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK $H/.local/bin/pi ) 2>/dev/null
 check "Work imports the memini key" "$(envv MEMINI_API_KEY)" cached-memini
 check "Work never imports the litellm key" "$(has LITELLM_API_KEY)" no
 
@@ -322,14 +322,14 @@ check "Work never imports the litellm key" "$(has LITELLM_API_KEY)" no
 
 print "misc"
 out=$(cd $H/elsewhere/api-wt && env -i HOME=$H PATH=$TPATH MEMINI_BASE_URL=$MOCK MEMINI_API_KEY=k $H/.local/bin/pi-profile 2>/dev/null)
-check "pi-profile reports the worktree owner" "$(print -r -- $out | grep -c "owner $H/Development/Work/team/api")" 1
+check "pi-profile reports the worktree owner" "$(print -r -- $out | grep -c "owner $H/Work/team/api")" 1
 check "pi-profile reports the reason" "$(print -r -- $out | sed -n 's/^reason=//p')" repo
 ( cd $H/plain && env -i HOME=$H PATH=$H/.local/bin:/usr/bin:/bin:/opt/homebrew/bin/jq-only $H/.local/bin/pi ) 2>$T/stderr; st=$?
 check "missing real pi → clear error" "$st/$(grep -c 'not on PATH' $T/stderr)" 78/1
 
 # A machine without the managed Work settings (the aether server) refuses Work instead of starting bare.
 mv $H/.pi/profiles/work/agent/settings.json $T/work-settings.json
-( cd $H/Development/Work/team/api && env -i HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK $H/.local/bin/pi ) 2>$T/stderr; st=$?
+( cd $H/Work/team/api && env -i HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK $H/.local/bin/pi ) 2>$T/stderr; st=$?
 check "Work without managed settings is refused" "$st/$(grep -c 'Work profile is not set up on this machine' $T/stderr)" 78/1
 ( cd $H/plain && env -i HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK $H/.local/bin/pi ) 2>/dev/null; st=$?
 check "…while Personal still starts" "$st" 0
