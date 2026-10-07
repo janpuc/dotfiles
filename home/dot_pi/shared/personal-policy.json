@@ -1,5 +1,5 @@
 {
-  "//": "Personal Pi tool policy (Claude Code rule syntax, read by extensions/profile/permissions.ts). Unlike Work, anything no rule covers runs. ask: Pi asks first (also in T3, so on the phone); 'allow for this session' covers the same command prefix until Pi exits. Headless runs (subagents, the advisor, pi -p) cannot ask, so an ask there is refused. deny: never runs. Bash rules match each simple command of a compound one; Read/Edit rules match paths.",
+  "//": "Personal Pi tool policy (Claude Code rule syntax, read by extensions/profile/permissions.ts). Unlike Work, anything no rule covers runs. ask: Pi asks first (also in T3, so on the phone); 'allow for this session' covers the same command prefix until Pi exits. Headless runs (subagents, the advisor, pi -p) cannot ask, so an ask there is refused. deny: never runs. home-ops' `just kube|talos|bootstrap` recipes change the cluster or print decrypted secrets (render-config pipes through op inject), so they ask like the commands they wrap. Bash rules match each simple command of a compound one; Read/Edit rules match paths.",
   "deny": [
     "Read(~/.local/state/ai/**)",
     "Read(~/.config/op/**)",
@@ -62,6 +62,12 @@
     "Bash(op:*)",
     "Bash(rm -rf:*)",
     "Bash(rm -fr:*)",
-    "Edit(~/Development/janpuc/home-ops/**)"
+    "Bash(kubectl view-secret:*)",
+    "Bash(kubectl *get secret*)",
+    "Bash(just kube:*)",
+    "Bash(just talos:*)",
+    "Bash(just bootstrap:*)",
+    "Edit(~/Development/home-ops/**)",
+    "Edit(~/Development/*/home-ops/**)"
   ]
 }

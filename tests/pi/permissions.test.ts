@@ -153,6 +153,11 @@ test("personal: publishing, cluster changes, sudo and forced deletes ask", () =>
 	])
 		assert.equal(p("bash", { command }), "ask", command);
 	assert.equal(p("edit", { path: `${H}/Development/janpuc/home-ops/kubernetes/a.yaml` }), "ask", "home-ops is read-only unless asked");
+	assert.equal(p("edit", { path: `${H}/Development/home-ops/kubernetes/a.yaml` }), "ask", "the laptop checkout");
+	for (const command of ["just kube apply-ks ai litellm", "just kube sync hr", "just talos render-config k8s-0", "just talos upgrade-node k8s-1", "kubectl view-secret -n ai litellm", "kubectl -n ai get secret litellm -o yaml", "kubectl get secrets -A"])
+		assert.equal(p("bash", { command }), "ask", command);
+	for (const command of ["just -l", "kubectl get pods -A", "flate build ks --namespace ai --output yaml litellm", "kubectl -n ai get kustomization litellm"])
+		assert.equal(p("bash", { command }), "allow", command);
 });
 
 test("personal: credential stores are never read, by tools or by shell", () => {

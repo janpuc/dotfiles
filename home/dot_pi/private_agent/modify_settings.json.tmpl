@@ -8,6 +8,7 @@
 # pinned and installed per profile into ~/.pi/agent/npm by Pi itself (and
 # pre-fetched by run_onchange_after_configure-pi.sh). pi-web-access (web_search, fetch_content,
 # GitHub clones) is Personal only; it needs no keys (Exa, or OpenAI search through the ChatGPT login).
+# Skills in ~/.pi/shared/skills (homelab workflows) are Personal only too.
 #
 # maxRetries is 4 rather than 3 so a three-step fallback chain still gets a
 # transient retry. The local BC250 alias has a 24k window, so its compaction
@@ -27,6 +28,7 @@ managed='{
   },
   "packages": ["npm:pi-claude-bridge@0.9.1", "npm:@eleboucher/pi-memini@0.7.34", "npm:pi-web-access@0.37.0"],
   "extensions": ["~/.pi/shared/extensions/profile", "~/.pi/shared/extensions/subagent"],
-  "prompts": ["~/.pi/shared/prompts"]
+  "prompts": ["~/.pi/shared/prompts"],
+  "skills": ["~/.pi/shared/skills"]
 }'
 {{ template "pi-merge-json" }}
