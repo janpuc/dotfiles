@@ -376,7 +376,7 @@ mksock $T/run/pi/p1-1.sock; print "{\"pid\":$live,\"cwd\":\"$H/Development/app\"
 mksock $T/run/pi/p2-2.sock; print '{"pid":999999,"cwd":"/x","profile":"personal","started":"2026-10-07T18:05:00Z"}' > $T/run/pi/p2-2.json
 attach() { rm -f $T/out.*(N); env -i HOME=$H PATH=$T/dtachbin:$TPATH FAKE_PI_OUT=$T/out XDG_RUNTIME_DIR=$T/run $H/.local/bin/pi-attach "$@" 2>&1 }
 out=$(attach --list)
-check "pi-attach --list shows the live session" "$(print -r -- $out)" "[1] p1-1  ~/Development/app  personal  since 18:04"
+check "pi-attach --list shows the live session (local time)" "$(print -r -- $out)" "[1] p1-1  ~/Development/app  personal  since $(date -r 1791396240 +%H:%M 2>/dev/null || date -d @1791396240 +%H:%M)"
 check "…and forgets the one whose Pi has exited" "$( [[ -e $T/run/pi/p2-2.json ]] && print kept || print removed)" removed
 attach >/dev/null
 check "pi-attach with one session attaches to it" "$(sed -n 1,2p $T/out.dtach 2>/dev/null | tr '\n' ' ')" "-a $T/run/pi/p1-1.sock "

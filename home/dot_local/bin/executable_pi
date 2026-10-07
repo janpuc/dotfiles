@@ -408,7 +408,7 @@ attach_main() {
     if [[ -n $pid ]] && ! kill -0 $pid 2>/dev/null; then rm -f $meta $sock; continue; fi
     (( ++i ))
     ids+=($id) pids+=(${pid:-0}) socks+=($sock)
-    rows+=("[$i] $id  $( [[ -r $meta ]] && jq -r --arg home $HOME '"\(.cwd | sub("^" + $home; "~"))  \(.profile)\(if .name then "  " + .name else "" end)  since \(.started[11:16])"' $meta 2>/dev/null)")
+    rows+=("[$i] $id  $( [[ -r $meta ]] && jq -r --arg home $HOME '"\(.cwd | sub("^" + $home; "~"))  \(.profile)\(if .name then "  " + .name else "" end)  since \(.started | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | strflocaltime("%H:%M"))"' $meta 2>/dev/null)")
   done
   case $mode in
     summary) (( i )) && print -r -- "$i Pi session(s) still running here: pi-attach to get back (pi-attach --list)."; return 0 ;;

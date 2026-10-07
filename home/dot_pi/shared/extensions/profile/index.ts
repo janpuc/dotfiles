@@ -650,10 +650,14 @@ export default function profileExtension(pi: ExtensionAPI) {
 				locks.held.set(sessionFile, me);
 				releaseAll(sessionFile);
 			} else {
-				// Stop rather than stay open on a session another process is writing.
-				exitMessage = inUseMessage(sessionFile, got.owner, got.reason);
-				sessionBlock = exitMessage;
-				say(ctx, exitMessage, "error");
+				// Stop rather than stay open on a session another process is writing. Without a UI
+				// (pi -p, T3's RPC) the blocked request reports it; the TUI shows it, then repeats
+				// it on the terminal after leaving the alternate screen.
+				sessionBlock = inUseMessage(sessionFile, got.owner, got.reason);
+				if (ctx.hasUI) {
+					exitMessage = sessionBlock;
+					say(ctx, sessionBlock, "error");
+				}
 				setTimeout(() => ctx.shutdown(), ctx.hasUI ? 1500 : 0);
 				return;
 			}
