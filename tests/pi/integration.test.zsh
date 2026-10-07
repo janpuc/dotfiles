@@ -173,6 +173,14 @@ check "…offering the tiers as choices" "$(jq -c 'select(.model == "decisions:g
 gw '{"decisions": {"status": 503}, "mock/router": {"reply": "{\"tier\":\"fast\"}"}}'
 pi_in $H/plain PI_OPENAI_API_KEY=dummy-openai -- -p "PI-SMOKE what does ls -la do in one sentence" --model personal/auto; st=$?
 check "a failing Decisions call falls back to the chat router" "$st/$(requests)" "0/decisions:gpt-6-luna,mock/router,opencode-go/deepseek-v4.1-flash"
+# memini adds its recall as a custom message after the prompt, which the router also sees as a
+# user message. Auto must judge what the user typed, not the recall.
+cat > $SB/recall.ts <<'EOF'
+export default (pi: any) => pi.on("before_agent_start", () => ({ message: { customType: "fake-recall", content: "<recall>rename a file</recall>", display: false } }));
+EOF
+gw '{"decisions": {"status": 503}, "mock/router": {"reply": "{\"tier\":\"fast\"}"}}'
+pi_in $H/plain PI_OPENAI_API_KEY=dummy-openai -- -p "PI-SMOKE design the multi-machine setup" --model personal/auto -e $SB/recall.ts; st=$?
+check "auto judges the typed prompt, not an injected recall" "$st/$(jq -r 'select(.message) | .message' $SB/gateway.log)" "0/PI-SMOKE design the multi-machine setup"
 
 # --- Work ---------------------------------------------------------------------------------------
 

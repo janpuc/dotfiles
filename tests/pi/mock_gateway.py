@@ -42,6 +42,7 @@ class Handler(BaseHTTPRequestHandler):
                 "model": "decisions:" + body.get("model", "?"),
                 "auth": bool(self.headers.get("Authorization")),
                 "marker": "PI-SMOKE" in json.dumps(body.get("input", "")),
+                "message": str(body.get("input", "")).partition("New user message:\n")[2][:80],
                 "choices": [c.get("value") for c in q.get("choices", [])],
             }) + "\n")
         status = rule.get("status", 200 if "answer" in rule else 500)

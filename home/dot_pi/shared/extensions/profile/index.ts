@@ -359,6 +359,17 @@ export default function profileExtension(pi: ExtensionAPI) {
 		}
 		return "";
 	};
+	// The prompt the user typed. Extensions such as memini add custom messages after it, and those
+	// reach the router as user messages too, so the session branch (where they stay `custom_message`
+	// entries) is asked first.
+	const typedText = (ctx: any, messages: readonly any[]): string => {
+		const branch: any[] = ctx.sessionManager?.getBranch?.() ?? [];
+		for (let i = branch.length - 1; i >= 0; i--) {
+			const e = branch[i];
+			if (e?.type === "message" && e.message?.role === "user") return lastUserText([e.message]);
+		}
+		return lastUserText(messages);
+	};
 	const lastAssistantText = (messages: readonly any[]): string => {
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const m = messages[i];
@@ -382,7 +393,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 				if (request.reason === "user") {
 					reloadUsage();
 					kickRefresh(stalePools());
-					const text = lastUserText(request.messages);
+					const text = typedText(ctx, request.messages);
 					const c = auto.classifier;
 					const classifier = registry.find(c.provider, c.model);
 					let proposed: { tier: string; why: string } | undefined;
