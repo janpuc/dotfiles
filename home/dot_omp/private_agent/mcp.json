@@ -1,6 +1,5 @@
 {
   "$schema": "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json",
   "//": "The Claude-compatible memini marketplace plugin supplies its skills and commands, but its MCP config uses Claude Code's unsupported headersHelper field. Disable that server; @eleboucher/pi-memini supplies native memory tools and lifecycle integration through omp's Pi extension compatibility layer.",
-  "//atlassian-slack": "The org authorised the Atlassian (Jira) and Slack MCP servers for native Claude Code ONLY, not for other harnesses. omp translates Claude Code's MCP config (~/.claude.json, ~/.claude/mcp.json, project .claude/.mcp.json) and would otherwise connect to them the moment they are added there. `disabledServers` is the highest-precedence denylist and hides a server by name from EVERY source, so these two entries keep omp out regardless of what Claude Code holds. Names must match what Claude Code registers (`claude mcp add atlassian ...` -> `atlassian`); after adding them there, run `/mcp list` in omp and confirm neither appears — a namespaced plugin name such as `atlassian:atlassian` would need its own entry.",
-  "disabledServers": ["memini:memini", "atlassian", "slack"]
+  "disabledServers": ["memini:memini"]
 }
