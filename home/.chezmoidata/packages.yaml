@@ -115,6 +115,7 @@ packages:
     apt:
       - ca-certificates
       - curl
+      - dtach  # interactive Pi survives a dropped SSH connection (pi-attach)
       - fish
       - git
       - libatomic1  # the T3 binary links it

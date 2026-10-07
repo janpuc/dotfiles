@@ -8,6 +8,13 @@
 #   piw          Work, from anywhere
 #   pi-profile   print what `pi`/`piw` would do here, or run a profile's
 #                one-time Claude login: `pi-profile [--work] [login|auth]`
+#   pi-attach    reattach to an interactive Pi that kept running after its
+#                terminal went away (Linux with dtach, i.e. the aether server)
+#
+# Where dtach is installed (aether), an interactive Pi runs under it, so an SSH
+# drop or a closed laptop only ends the dtach client: the run carries on and
+# `pi-attach` brings it back. PI_DETACH=off opts out; print/RPC modes and
+# subcommands are never wrapped.
 #
 # Work override, when the enterprise seat runs short: `pi --personal-models`
 # (or `piw --personal-models`, e.g. with `-c` to continue the same session)
@@ -353,7 +360,81 @@ find_real_pi() {
 }
 
 
+# --- detachable terminal Pi (aether) --------------------------------------------------
+
+detach_dir() { print -r -- ${XDG_RUNTIME_DIR:-/tmp/pi-$UID}/pi }
+
+# Whether these pi arguments start the interactive TUI (not print/RPC/JSON, help or a subcommand).
+interactive_args() {
+  case ${1-} in install|remove|uninstall|update|list|config|auth|mcp) return 1 ;; esac
+  local a
+  for a in "$@"; do
+    case $a in
+      --) return 0 ;;
+      -p|--print|--mode|--mode=*|-h|--help|-v|--version|--export|--export=*|--list-models|--list-models=*) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# exec the real pi under dtach when that makes sense; returns otherwise.
+maybe_detach() {
+  [[ ${PI_DETACH-} == off || -z ${commands[dtach]-} ]] && return 0
+  [[ -t 0 && -t 1 ]] || return 0
+  interactive_args "$@" || return 0
+  # Already the child of a dtach master (a pi started from inside a detached one).
+  [[ -n ${PI_DETACH_ID-} && $(ps -o comm= -p $PPID 2>/dev/null) == dtach ]] && return 0
+  local dir=$(detach_dir) id=p${EPOCHSECONDS:-$(date +%s)}-$$
+  mkdir -p -m 700 $dir 2>/dev/null && [[ -O $dir ]] || return 0
+  export PI_DETACH_ID=$id PI_DETACH_DIR=$dir
+  # -E: no detach key, so every key reaches Pi; -z: Ctrl+Z too. Closing the terminal detaches.
+  exec dtach -c $dir/$id.sock -E -z -r winch $real "$@"
+}
+
+attach_main() {
+  local dir=$(detach_dir) want= mode=attach meta id pid sock i=0
+  case ${1-} in
+    --list) mode=list ;;
+    --summary) mode=summary ;;
+    -h|--help) print "usage: pi-attach [<number>|<id>|--list]   reattach to a Pi that is still running"; return 0 ;;
+    '') ;;
+    *) want=$1 ;;
+  esac
+  local -a ids pids socks rows
+  for sock in $dir/*.sock(N=); do
+    id=${sock:t:r} meta=$dir/$id.json pid=
+    [[ -r $meta ]] && pid=$(jq -r '.pid // empty' $meta 2>/dev/null)
+    # Pi has exited, and dtach serves only that one program: nothing is left to attach.
+    if [[ -n $pid ]] && ! kill -0 $pid 2>/dev/null; then rm -f $meta $sock; continue; fi
+    (( ++i ))
+    ids+=($id) pids+=(${pid:-0}) socks+=($sock)
+    rows+=("[$i] $id  $( [[ -r $meta ]] && jq -r --arg home $HOME '"\(.cwd | sub("^" + $home; "~"))  \(.profile)\(if .name then "  " + .name else "" end)  since \(.started[11:16])"' $meta 2>/dev/null)")
+  done
+  case $mode in
+    summary) (( i )) && print -r -- "$i Pi session(s) still running here: pi-attach to get back (pi-attach --list)."; return 0 ;;
+    list) (( i )) && print -rl -- $rows || print "No running Pi sessions to attach."; return 0 ;;
+  esac
+  local pick=0
+  if [[ -n $want ]]; then
+    if [[ $want == <-> ]] && (( want >= 1 && want <= i )); then pick=$want
+    else pick=${ids[(Ie)$want]}
+    fi
+    (( pick )) || { warn "no running Pi session '$want' (pi-attach --list)"; return 1 }
+  elif (( i == 1 )); then pick=1
+  elif (( i == 0 )); then print "No running Pi sessions to attach."; return 0
+  else print -rl -- $rows "Pick one: pi-attach <number>"; return 0
+  fi
+  # Once attached, Pi replays its terminal setup and repaints the whole screen (SIGUSR2).
+  (( pids[pick] )) && { sleep 0.4; kill -USR2 ${pids[pick]} 2>/dev/null } &!
+  exec dtach -a ${socks[pick]} -E -z -r winch
+}
+
 # --- main ---------------------------------------------------------------------------
+
+if [[ $invoked == pi-attach ]]; then
+  attach_main "$@"
+  exit
+fi
 
 explicit=0 override=0 sub=
 case $invoked in
@@ -469,4 +550,5 @@ fi
 
 real=$(find_real_pi) || refuse "the pi binary is not on PATH
   macOS: brew install pi-coding-agent   elsewhere: npm install -g @earendil-works/pi-coding-agent"
+maybe_detach "$@"
 exec $real "$@"

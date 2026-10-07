@@ -335,5 +335,54 @@ check "Work without managed settings is refused" "$st/$(grep -c 'Work profile is
 check "…while Personal still starts" "$st" 0
 mv $T/work-settings.json $H/.pi/profiles/work/agent/settings.json
 
+# --- detachable terminal Pi (aether: dtach) ----------------------------------------------------
+
+print "detach"
+mkdir -p $T/dtachbin $T/run
+ln -sf pi $H/.local/bin/pi-attach
+# The fake dtach records how it was called and with which detach environment.
+cat > $T/dtachbin/dtach <<'EOF2'
+#!/bin/zsh
+print -rl -- "$@" > $FAKE_PI_OUT.dtach
+print -r -- "${PI_DETACH_ID-}|${PI_DETACH_DIR-}" > $FAKE_PI_OUT.dtachenv
+EOF2
+chmod +x $T/dtachbin/dtach
+# Run the launcher on a real pseudo-terminal (BSD and util-linux `script` differ).
+tty_run() {
+  local dir=$1; shift
+  rm -f $T/out.*(N)
+  local cmd="cd $dir && env -i HOME=$H PATH=$T/dtachbin:$TPATH TERM=dumb FAKE_PI_OUT=$T/out XDG_RUNTIME_DIR=$T/run MEMINI_BASE_URL=$MOCK MEMINI_API_KEY=k $*"
+  if [[ $(uname) == Darwin ]]; then script -q /dev/null zsh -c "$cmd" >/dev/null 2>&1 </dev/null
+  else script -qec "zsh -c '$cmd'" /dev/null >/dev/null 2>&1 </dev/null; fi
+}
+tty_run $H/plain $H/.local/bin/pi
+check "interactive Pi on a terminal runs under dtach" "$(sed -n 1p $T/out.dtach 2>/dev/null)/$(sed -n 3,7p $T/out.dtach 2>/dev/null | tr '\n' ' ')" "-c/-E -z -r winch $T/realbin/pi "
+check "…with a detach id and directory for pi-attach" "$(cut -d'|' -f2 $T/out.dtachenv 2>/dev/null)/$(cut -c1 $T/out.dtachenv 2>/dev/null)" "$T/run/pi/p"
+for args in "-p hello" "--mode rpc" "--version" "install npm:x" "--list-models"; do
+  tty_run $H/plain $H/.local/bin/pi $args
+  check "pi $args is never wrapped" "$( [[ -e $T/out.dtach ]] && print wrapped || print direct)" direct
+done
+tty_run $H/plain PI_DETACH=off $H/.local/bin/pi
+check "PI_DETACH=off opts out" "$( [[ -e $T/out.dtach ]] && print wrapped || print direct)" direct
+rm -f $T/out.*(N)
+( cd $H/plain && env -i HOME=$H PATH=$T/dtachbin:$TPATH FAKE_PI_OUT=$T/out XDG_RUNTIME_DIR=$T/run MEMINI_BASE_URL=$MOCK MEMINI_API_KEY=k $H/.local/bin/pi ) </dev/null >/dev/null 2>&1
+check "without a terminal it is not wrapped" "$( [[ -e $T/out.dtach ]] && print wrapped || print direct)" direct
+
+# pi-attach lists live sessions, forgets ones whose Pi is gone, and attaches.
+rm -rf $T/run/pi && mkdir -p -m 700 $T/run/pi
+mksock() { python3 -c 'import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' $1 }
+sleep 300 & live=$!
+mksock $T/run/pi/p1-1.sock; print "{\"pid\":$live,\"cwd\":\"$H/Development/app\",\"profile\":\"personal\",\"started\":\"2026-10-07T18:04:00Z\"}" > $T/run/pi/p1-1.json
+mksock $T/run/pi/p2-2.sock; print '{"pid":999999,"cwd":"/x","profile":"personal","started":"2026-10-07T18:05:00Z"}' > $T/run/pi/p2-2.json
+attach() { rm -f $T/out.*(N); env -i HOME=$H PATH=$T/dtachbin:$TPATH FAKE_PI_OUT=$T/out XDG_RUNTIME_DIR=$T/run $H/.local/bin/pi-attach "$@" 2>&1 }
+out=$(attach --list)
+check "pi-attach --list shows the live session" "$(print -r -- $out)" "[1] p1-1  ~/Development/app  personal  since 18:04"
+check "…and forgets the one whose Pi has exited" "$( [[ -e $T/run/pi/p2-2.json ]] && print kept || print removed)" removed
+attach >/dev/null
+check "pi-attach with one session attaches to it" "$(sed -n 1,2p $T/out.dtach 2>/dev/null | tr '\n' ' ')" "-a $T/run/pi/p1-1.sock "
+check "pi-attach --summary for the login shell" "$(attach --summary)" "1 Pi session(s) still running here: pi-attach to get back (pi-attach --list)."
+kill $live 2>/dev/null
+check "nothing running: --summary stays quiet" "$(attach --summary)" ""
+
 print "\n$passes passed, $failures failed"
 (( failures == 0 ))

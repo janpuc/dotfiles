@@ -116,6 +116,9 @@ source ~/.orbstack/shell/init2.fish 2>/dev/null || :
 # the launcher explicitly.
 fish_add_path --prepend "$HOME/.local/bin" "$HOME/.local/share/mise/shims"
 status is-interactive; and mise activate fish | source
+
+# A Pi that kept running after its terminal went away (dtach; see ~/.local/bin/pi).
+status is-login; and status is-interactive; and pi-attach --summary
 {{- end }}
 
 fish_config theme choose catppuccin-mocha

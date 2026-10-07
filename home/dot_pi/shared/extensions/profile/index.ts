@@ -59,6 +59,8 @@ import { renderBars, renderPanel, type PoolView } from "./usage-view.ts";
 import { stripAiTrailers } from "./commit-trailers.ts";
 import { renderFooter, type FooterState } from "./footer-view.ts";
 import { duration, notify, notifyAfterMs } from "./notify.ts";
+import { acquire, holder, inUseMessage, ownIdentity, release, type LockOwner } from "./session-lock.ts";
+import { detachInfo, removeMeta, repaint, writeMeta } from "./detach.ts";
 import { readCache, SOURCES, writeCache, type UsageCache } from "./usage-sources.ts";
 
 const HOME = homedir();
@@ -141,6 +143,30 @@ export default function profileExtension(pi: ExtensionAPI) {
 	let sessionBlock: string | undefined;
 	let stamped = false;
 	const blocked = () => processBlock ?? sessionBlock;
+
+	// --- one process per session file (session-lock.ts) ---------------------------------------
+
+	// Kept on globalThis so a /reload, which re-runs this module, keeps the locks this process
+	// already holds instead of dropping and re-taking them (someone else could get in between).
+	const locks: { held: Map<string, LockOwner>; hooked: boolean } = ((globalThis as any).__piProfileLocks ??= { held: new Map(), hooked: false });
+	const argv = process.argv.join(" ");
+	const lockMode: LockOwner["mode"] = /--mode(?:=|\s+)rpc\b/.test(argv) ? "rpc" : process.stdout.isTTY ? "tui" : "print";
+	const detach = detachInfo();
+	let exitMessage: string | undefined;
+	const releaseAll = (except?: string) => {
+		for (const [file, me] of locks.held) {
+			if (file === except) continue;
+			release(file, me);
+			locks.held.delete(file);
+		}
+	};
+	if (!locks.hooked) {
+		locks.hooked = true;
+		process.on("exit", () => {
+			releaseAll();
+			if (exitMessage) process.stderr.write(`${exitMessage}\n`);
+		});
+	}
 
 	if (process.env.AI_PROFILE && !declared) {
 		processBlock = `pi-profile: unknown AI_PROFILE=${process.env.AI_PROFILE}`;
@@ -546,6 +572,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 		if (!ctx?.hasUI) return;
 		ctx.ui.setFooter((tui: any, theme: any, data: any) => {
 			footerTui = tui;
+			(globalThis as any).__piProfileFooterTui = tui;
 			const unsub = data.onBranchChange(() => tui.requestRender());
 			return {
 				dispose() {
@@ -615,6 +642,28 @@ export default function profileExtension(pi: ExtensionAPI) {
 		if (!guardInstalled && models === "work")
 			say(ctx, "pi-profile: request guard unavailable in this Pi version; Work relies on credential isolation and model checks", "warning");
 		sessionBlock = undefined;
+		const sessionFile: string | undefined = ctx.sessionManager.getSessionFile();
+		if (sessionFile && !locks.held.has(sessionFile)) {
+			const me = ownIdentity(lockMode, detach?.id);
+			const got = acquire(sessionFile, me);
+			if (got.ok) {
+				locks.held.set(sessionFile, me);
+				releaseAll(sessionFile);
+			} else {
+				// Stop rather than stay open on a session another process is writing.
+				exitMessage = inUseMessage(sessionFile, got.owner, got.reason);
+				sessionBlock = exitMessage;
+				say(ctx, exitMessage, "error");
+				setTimeout(() => ctx.shutdown(), ctx.hasUI ? 1500 : 0);
+				return;
+			}
+		}
+		if (detach)
+			try {
+				writeMeta(detach, { pid: process.pid, cwd: ctx.cwd, profile, session: sessionFile, name: ctx.sessionManager.getSessionName?.(), started: new Date().toISOString() });
+			} catch {
+				// pi-attach then lists it without details
+			}
 		const stamp = ctx.sessionManager
 			.getEntries()
 			.find((e: any) => e.type === "custom" && e.customType === STAMP) as { data?: { profile?: string } } | undefined;
@@ -642,6 +691,28 @@ export default function profileExtension(pi: ExtensionAPI) {
 			ctx.ui.notify("Work session on PERSONAL models (--personal-models): personal subscriptions/LiteLLM are billed; sessions and memory stay Work.", "warning");
 		else if (ctx.hasUI && !memState.startsWith("ok")) ctx.ui.notify(`memini ${memState}`, memoryOff ? "info" : "warning");
 	});
+
+	// Do not leave the current session for one another process has open.
+	pi.on("session_before_switch", (event: any, ctx: any) => {
+		const target: string | undefined = event.targetSessionFile;
+		if (!target || locks.held.has(target)) return undefined;
+		const owner = holder(target);
+		if (!owner) return undefined;
+		say(ctx, inUseMessage(target, owner, "held").replace(", so this one stops here", ""), "error");
+		return { cancel: true };
+	});
+	pi.on("session_shutdown", (event: any) => {
+		// A switch keeps the old lock until session_start has taken the new one; /reload keeps it.
+		if (event.reason === "quit") {
+			releaseAll();
+			if (detach) removeMeta(detach);
+		}
+	});
+	// pi-attach sends SIGUSR2 once a new terminal is attached: replay the terminal setup, repaint.
+	if (detach && !(globalThis as any).__piProfileRepaint) {
+		(globalThis as any).__piProfileRepaint = true;
+		process.on("SIGUSR2", () => repaint((globalThis as any).__piProfileFooterTui));
+	}
 
 	// Stamp on the first real turn rather than at startup, so opening Pi does not create a session.
 	pi.on("before_agent_start", () => {
