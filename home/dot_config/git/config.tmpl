@@ -11,8 +11,10 @@
 	co = "checkout"
 	d = "diff"
 	dc = "diff --cached"
+{{- if eq .chezmoi.os "darwin" }}
 	dlog = "!f() { GIT_EXTERNAL_DIFF=difft git log -p --ext-diff $@ }; f"
 	dshow = "!f() { GIT_EXTERNAL_DIFF=difft git show --ext-diff $@ }; f"
+{{- end }}
 	fucked = "reset --hard"
 	graph = "log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit"
 	p = "push"
@@ -28,33 +30,44 @@
 	ui = false
 
 [commit]
+{{- if eq .chezmoi.os "darwin" }}
 	gpgSign = true
 	gpgsign = true
+{{- else }}
+	gpgSign = false
+	gpgsign = false
+{{- end }}
 
 [core]
 	autocrlf = "input"
 	editor = "nano"
 	eol = "lf"
+{{- if eq .chezmoi.os "darwin" }}
 	pager = "bat"
+{{- end }}
 
 [credential "https://gist.github.com"]
 	helper = "gh auth git-credential"
 
 [credential "https://github.com"]
 	helper = "gh auth git-credential"
+{{- if eq .chezmoi.os "darwin" }}
 
 [diff]
 	external = "difft --display side-by-side-show-both"
+{{- end }}
 
 [fetch]
 	prune = true
 	pruneTags = true
+{{- if eq .chezmoi.os "darwin" }}
 
 [gpg]
 	format = "ssh"
 
 [gpg "ssh"]
 	program = "/Applications/1Password.app/Contents/MacOS/op-ssh-sign"
+{{- end }}
 
 [init]
 	defaultBranch = "main"
@@ -70,11 +83,18 @@
 	autoStash = true
 
 [tag]
+{{- if eq .chezmoi.os "darwin" }}
 	forceSignAnnotated = true
 	gpgSign = true
 	gpgsign = true
+{{- else }}
+	gpgSign = false
+	gpgsign = false
+{{- end }}
 
 [user]
 	email = {{ .email | quote }}
 	name = "janpuc"
+{{- if eq .chezmoi.os "darwin" }}
 	signingKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxcKV1Iao/IzHzbHUGaUKocgDR6WG3w5SA64U6cd8Nk"
+{{- end }}

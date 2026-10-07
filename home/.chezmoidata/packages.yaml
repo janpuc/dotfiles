@@ -109,3 +109,13 @@ packages:
         brews: []
         casks: []
         vscode: []
+  # The aether server (Ubuntu): only what mise cannot provide. Everything else is in
+  # dot_config/mise/config.toml.
+  linux:
+    apt:
+      - ca-certificates
+      - curl
+      - fish
+      - git
+      - libatomic1  # the T3 binary links it
+      - zsh

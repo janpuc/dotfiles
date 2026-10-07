@@ -1,0 +1,8 @@
+{{- if eq .chezmoi.os "linux" -}}
+#!/bin/sh
+# apt packages for the aether server (packages.yaml → packages.linux.apt). Re-runs when the list changes.
+# {{ .packages.linux.apt | toJson | sha256sum }}
+set -eu
+sudo apt-get update -qq
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends {{ .packages.linux.apt | join " " }}
+{{- end }}

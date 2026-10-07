@@ -1,0 +1,13 @@
+{
+  "providerInstances": {
+    "pi": {
+      "driver": "pi",
+      "displayName": "Pi",
+      "enabled": true,
+      "config": {
+        "enabled": true,
+        "binaryPath": {{ joinPath .chezmoi.homeDir ".local/bin/pi" | toJson }}
+      }
+    }
+  }
+}

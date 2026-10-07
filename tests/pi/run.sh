@@ -2,7 +2,7 @@
 #
 # Offline checks for the Pi setup (no real credentials, no network except npm
 # for --typecheck):
-#   syntax       zsh/fish syntax, JSON validity, chezmoi templates render
+#   syntax       zsh/fish syntax, JSON validity, chezmoi templates render (incl. the T3 seed)
 #   policy       node --test on the routing/fallback/memory policy and the Work org-policy mirror
 #   launcher     pi/piw/pi-profile behaviour in a throwaway HOME
 #   integration  real Pi + extension + installed packages against a mock gateway
@@ -33,6 +33,8 @@ syntax() {
   for t in $src/dot_pi/**/modify_*.tmpl $src/.chezmoiscripts/run_onchange_after_configure-pi.sh.tmpl; do
     (cd $src && chezmoi execute-template < $t) > $out && zsh -n $out || { rm -f $out; return 1 }
   done
+  # The T3 seed for the aether server is valid JSON with the Pi provider enabled.
+  (cd $src && chezmoi execute-template < dot_t3/userdata/create_settings.json.tmpl) | jq -e '.providerInstances.pi.driver == "pi" and .providerInstances.pi.config.enabled' >/dev/null || return 1
   # A first-time apply renders valid JSON with the managed keys.
   for t in $src/dot_pi/**/modify_*.tmpl; do
     (cd $src && chezmoi execute-template < $t) > $out && zsh $out < /dev/null | jq -e 'type == "object"' >/dev/null || { rm -f $out; return 1 }

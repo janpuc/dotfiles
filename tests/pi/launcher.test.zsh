@@ -23,6 +23,7 @@ check() { [[ $2 == $3 ]] && ok $1 || bad $1 "got '$2', want '$3'" }
 
 mkdir -p $H/.local/bin $T/realbin $H/Development/Work/team $H/Development/Work2/x \
   $H/Development/Workshop/y $H/elsewhere $H/outside $H/plain
+mkdir -p $H/.pi/profiles/work/agent && print '{}' > $H/.pi/profiles/work/agent/settings.json
 cp $repo/home/dot_local/bin/executable_pi $H/.local/bin/pi
 chmod +x $H/.local/bin/pi
 ln -s pi $H/.local/bin/piw
@@ -325,6 +326,14 @@ check "pi-profile reports the worktree owner" "$(print -r -- $out | grep -c "own
 check "pi-profile reports the reason" "$(print -r -- $out | sed -n 's/^reason=//p')" repo
 ( cd $H/plain && env -i HOME=$H PATH=$H/.local/bin:/usr/bin:/bin:/opt/homebrew/bin/jq-only $H/.local/bin/pi ) 2>$T/stderr; st=$?
 check "missing real pi → clear error" "$st/$(grep -c 'not on PATH' $T/stderr)" 78/1
+
+# A machine without the managed Work settings (the aether server) refuses Work instead of starting bare.
+mv $H/.pi/profiles/work/agent/settings.json $T/work-settings.json
+( cd $H/Development/Work/team/api && env -i HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK $H/.local/bin/pi ) 2>$T/stderr; st=$?
+check "Work without managed settings is refused" "$st/$(grep -c 'Work profile is not set up on this machine' $T/stderr)" 78/1
+( cd $H/plain && env -i HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK $H/.local/bin/pi ) 2>/dev/null; st=$?
+check "…while Personal still starts" "$st" 0
+mv $T/work-settings.json $H/.pi/profiles/work/agent/settings.json
 
 print "\n$passes passed, $failures failed"
 (( failures == 0 ))

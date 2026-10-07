@@ -397,6 +397,12 @@ if (( override )); then
 fi
 apply_environment
 
+# Work runs under the managed settings (provider allowlist, tool policy). A machine that does not
+# deploy them, such as the aether server, must not start a bare Pi in a Work tree instead.
+if [[ $invoked != pi-profile && $models == work && ! -f $work_dir/settings.json ]]; then
+  refuse "the Work profile is not set up on this machine ($work_dir/settings.json is missing), so Work sessions are not available here"
+fi
+
 if [[ $invoked == pi-profile ]]; then
   case $sub in
     login)

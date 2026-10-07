@@ -15,6 +15,9 @@
 
 set -eufo pipefail
 
+# On the aether server Pi is a mise tool, reachable through the shims directory.
+path=($HOME/.local/share/mise/shims $path)
+
 real_pi() {
   local d f launcher=${${:-$HOME/.local/bin/pi}:A}
   for d in $path; do

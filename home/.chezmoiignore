@@ -1,0 +1,41 @@
+{{- /*
+  What each kind of machine manages. Paths are targets, relative to $HOME.
+
+  Linux is the aether server, which only runs Pi and T3 Code, so it takes an allowlist: a file
+  added for the laptop later stays off the server until it is listed here. Work never goes to
+  aether (the Work Pi profile, AWS, omp); the Pi launcher falls back to Personal without it.
+*/ -}}
+{{ if eq .chezmoi.os "linux" -}}
+**
+!.chezmoiscripts
+!.chezmoiscripts/*-linux-*.sh
+!.chezmoiscripts/configure-pi.sh
+!.config
+!.config/git
+!.config/git/**
+!.config/mise
+!.config/mise/**
+!.config/systemd
+!.config/systemd/**
+!.config/fish
+!.config/fish/functions
+!.config/fish/functions/ai-sync.fish
+!.local
+!.local/bin
+!.local/bin/**
+!.pi
+!.pi/agent
+!.pi/agent/**
+!.pi/shared
+!.pi/shared/**
+!.t3
+!.t3/**
+{{- else -}}
+.chezmoiscripts/*-linux-*.sh
+.config/mise
+.config/mise/**
+.config/systemd
+.config/systemd/**
+.t3
+.t3/**
+{{- end }}
