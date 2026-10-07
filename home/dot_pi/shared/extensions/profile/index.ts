@@ -164,6 +164,8 @@ export default function profileExtension(pi: ExtensionAPI) {
 		locks.hooked = true;
 		process.on("exit", () => {
 			releaseAll();
+			const d = detachInfo();
+			if (d) removeMeta(d);
 			if (exitMessage) process.stderr.write(`${exitMessage}\n`);
 		});
 	}

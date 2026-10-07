@@ -401,6 +401,12 @@ attach_main() {
     *) want=$1 ;;
   esac
   local -a ids pids socks rows
+  # Details left by a Pi that was killed (no socket, process gone).
+  for meta in $dir/*.json(N); do
+    [[ -S ${meta:r}.sock ]] && continue
+    pid=$(jq -r '.pid // empty' $meta 2>/dev/null)
+    [[ -n $pid ]] && kill -0 $pid 2>/dev/null || rm -f $meta
+  done
   for sock in $dir/*.sock(N=); do
     id=${sock:t:r} meta=$dir/$id.json pid=
     [[ -r $meta ]] && pid=$(jq -r '.pid // empty' $meta 2>/dev/null)

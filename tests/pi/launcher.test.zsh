@@ -382,7 +382,9 @@ attach >/dev/null
 check "pi-attach with one session attaches to it" "$(sed -n 1,2p $T/out.dtach 2>/dev/null | tr '\n' ' ')" "-a $T/run/pi/p1-1.sock "
 check "pi-attach --summary for the login shell" "$(attach --summary)" "1 Pi session(s) still running here: pi-attach to get back (pi-attach --list)."
 kill $live 2>/dev/null
+print '{"pid":999999}' > $T/run/pi/p3-3.json
 check "nothing running: --summary stays quiet" "$(attach --summary)" ""
+check "…and details left by a killed Pi are cleared" "$(ls $T/run/pi)" ""
 
 print "\n$passes passed, $failures failed"
 (( failures == 0 ))
