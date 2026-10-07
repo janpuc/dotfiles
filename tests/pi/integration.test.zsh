@@ -270,6 +270,18 @@ script '[{"tool":"bash","args":{"command":"echo personal-runs"}}]'
 pi_in $H/plain -- -p "PI-SMOKE go" --model litellm/mock/tools
 contains "Personal has no org policy" "$(out)" "RESULT: personal-runs"
 
+print "commit attribution"
+repo=$H/plain/commits
+git init -q $repo
+script "$(jq -cn --arg c 'git -c user.name=t -c user.email=t@example.com -c commit.gpgSign=false commit -q --allow-empty -m "fix: x" -m "Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>" && echo committed' '[{tool: "bash", args: {command: $c}}]')"
+pi_in $repo -- -p "PI-SMOKE commit" --model litellm/mock/tools
+contains "an AI co-author trailer is stripped from git commit" "$(out)" "RESULT: committed"
+check "…and the commit has no trailer" "$(git -C $repo log -1 --format=%B | grep -c -i co-authored)" 0
+script "$(jq -cn --arg c $'git -c user.name=t -c user.email=t@example.com -c commit.gpgSign=false commit -q --allow-empty -m $\'fix: y\\n\\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>\'' '[{tool: "bash", args: {command: $c}}]')"
+pi_in $repo -- -p "PI-SMOKE commit" --model litellm/mock/tools
+contains "…one it cannot strip is blocked with the reason" "$(out)" "Commits must not credit an AI model or agent"
+check "…and nothing was committed" "$(git -C $repo log --format=%s | grep -c 'fix: y')" 0
+
 # --- advisor and subagents ----------------------------------------------------------------------------
 
 print "advisor and subagents"

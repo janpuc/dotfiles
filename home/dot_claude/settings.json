@@ -25,5 +25,10 @@
     }
   },
   "theme": "dark",
-  "agentPushNotifEnabled": true
+  "agentPushNotifEnabled": true,
+  "skipWorkflowUsageWarning": true,
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  }
 }

@@ -49,7 +49,7 @@ retry_js() {
   done
 }
 
-policy() { PI_AI_RETRY_JS=$(retry_js) node --test $here/policy.test.ts $here/permissions.test.ts $here/usage.test.ts }
+policy() { PI_AI_RETRY_JS=$(retry_js) node --test $here/policy.test.ts $here/permissions.test.ts $here/usage.test.ts $here/commit-trailers.test.ts }
 
 integration() {
   if ! whence -pa pi | grep -qv "$HOME/.local/bin/pi"; then print "skipped: pi not installed"; return 0; fi

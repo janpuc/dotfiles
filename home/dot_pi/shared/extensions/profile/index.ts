@@ -54,6 +54,7 @@ import { bashScope, decide, parseOrgPolicy, redactSearchOutput, type Approvals, 
 import { registerAdvisor } from "./advisor.ts";
 import { describe as describeUsage, limitedUntilFrom, pressure, shortTime } from "./usage.ts";
 import { renderBars, renderPanel, type PoolView } from "./usage-view.ts";
+import { stripAiTrailers } from "./commit-trailers.ts";
 import { readCache, SOURCES, writeCache, type UsageCache } from "./usage-sources.ts";
 
 const HOME = homedir();
@@ -561,6 +562,14 @@ export default function profileExtension(pi: ExtensionAPI) {
 		const input = event.input as Record<string, unknown>;
 		const why = blocked() ?? memoryToolBlock(profile, event.toolName, input, { home: process.env.MEMINI_HOME, memoryOff });
 		if (why) return { block: true, reason: why };
+		// No AI attribution in commits, whichever model is answering. Edited in place so the
+		// Work policy below judges the command that will actually run.
+		if (event.toolName === "bash" && typeof input?.command === "string") {
+			const fix = stripAiTrailers(input.command);
+			if (fix?.leftover)
+				return { block: true, reason: `Commits must not credit an AI model or agent. Remove "${fix.leftover}" from the commit message and commit again.` };
+			if (fix) input.command = fix.command;
+		}
 		if (profile !== "work") return undefined;
 		if (!orgPolicy) return /^memory_/.test(event.toolName) ? undefined : { block: true, reason: orgPolicyError! };
 

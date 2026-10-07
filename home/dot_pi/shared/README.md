@@ -113,6 +113,15 @@ account.
   the enterprise seat only — it is the most expensive model there; astra is refused, with the override as the hint.
   Advisors and order: `routing.json` → `advisors`.
 
+## Commit attribution
+
+Commits never credit an AI model, whichever one answered. `~/.pi/shared/context/AGENTS.md` (linked into both agent
+dirs) tells every model so, and the profile extension (`commit-trailers.ts`) strips `Co-authored-by:` lines naming a
+model and "Generated with …" footers from `git commit` commands before they run. A trailer it cannot remove cleanly
+(inside a one-line `$'…'` message) blocks the command with the reason, so the model commits again without it. People's
+co-author lines are kept. Native Claude Code has the same off via `attribution` in `~/.claude/settings.json`. Commits
+made outside Pi and Claude Code (other agents, other machines) are not covered.
+
 ## Isolation (what is and isn't enforced)
 
 - Separate agent dirs, `auth.json`, sessions, npm packages and Claude config/Keychain item per profile. Sessions are
