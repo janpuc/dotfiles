@@ -52,7 +52,7 @@ import {
 	type RouterState,
 	type RoutingConfig,
 } from "./policy.ts";
-import { bashScope, decide, parseOrgPolicy, redactSearchOutput, type Approvals, type OrgPolicy } from "./permissions.ts";
+import { bashScope, decide, parseOrgPolicy, parsePersonalPolicy, redactSearchOutput, type Approvals, type OrgPolicy } from "./permissions.ts";
 import { registerAdvisor } from "./advisor.ts";
 import { describe as describeUsage, limitedUntilFrom, pressure, shortTime } from "./usage.ts";
 import { renderBars, renderPanel, type PoolView } from "./usage-view.ts";
@@ -66,6 +66,7 @@ const WORK_DIR = join(HOME, ".pi", "profiles", "work", "agent");
 const WORK_ROOT = join(HOME, "Development", "Work");
 const ROUTING = join(HOME, ".pi", "shared", "routing.json");
 const EXT_DIR = join(HOME, ".pi", "shared", "extensions", "profile");
+const PERSONAL_POLICY = join(HOME, ".pi", "shared", "personal-policy.json");
 // Claude Code caches the enterprise's server-managed settings beside the Work login.
 const ORG_POLICY = join(WORK_DIR, "claude", "remote-settings.json");
 const STAMP = "pi-profile";
@@ -162,6 +163,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 
 	let orgPolicy: OrgPolicy | undefined;
 	let orgPolicyError: string | undefined;
+	let personalPolicyMissing: string | undefined;
 	if (profile === "work") {
 		try {
 			orgPolicy = parseOrgPolicy(JSON.parse(readFileSync(ORG_POLICY, "utf8")));
@@ -169,7 +171,19 @@ export default function profileExtension(pi: ExtensionAPI) {
 			// Fail closed: without the org's rules Work tools stay off.
 			orgPolicyError = `pi-profile: Work tools are off until your organisation's Claude policy can be read (${ORG_POLICY}: ${(e as Error).message}). Log the Work profile in once: pi-profile --work login`;
 		}
+	} else {
+		// Personal: the rules in ~/.pi/shared/personal-policy.json ask or refuse; everything else runs.
+		// A file that exists but cannot be read fails closed like Work, so a typo never silently
+		// drops the approvals; a missing file (an older deploy) runs without a policy, with a warning.
+		try {
+			orgPolicy = parsePersonalPolicy(JSON.parse(readFileSync(PERSONAL_POLICY, "utf8")));
+		} catch (e) {
+			if (existsSync(PERSONAL_POLICY))
+				orgPolicyError = `pi-profile: Personal tools are off until ${PERSONAL_POLICY} is fixed (${(e as Error).message})`;
+			else personalPolicyMissing = `pi-profile: no Personal tool policy (${PERSONAL_POLICY} is missing); every tool runs without asking. Run chezmoi apply.`;
+		}
 	}
+	const policyName = profile === "work" ? "Work policy" : "Personal policy";
 	// Session approvals ("allow for this session") reach subagents and the advisor, which run
 	// headless and cannot ask, through the environment they inherit.
 	const approvals: Approvals = (() => {
@@ -619,6 +633,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 		if (why) say(ctx, why, "error");
 		else if (cfgError) say(ctx, cfgError, "error");
 		else if (orgPolicyError) say(ctx, orgPolicyError, "warning");
+		else if (personalPolicyMissing) say(ctx, personalPolicyMissing, "warning");
 		else if (orgPolicy?.managedRulesOnly && models === "work")
 			say(ctx, "pi-profile: your organisation's Claude policy only honours managed permission rules, so Claude Code will refuse Pi's tools in Work.", "warning");
 		// The launcher already printed these on stderr; repeat them where the TUI can show them.
@@ -681,8 +696,10 @@ export default function profileExtension(pi: ExtensionAPI) {
 				return { block: true, reason: `Commits must not credit an AI model or agent. Remove "${fix.leftover}" from the commit message and commit again.` };
 			if (fix) input.command = fix.command;
 		}
-		if (profile !== "work") return undefined;
-		if (!orgPolicy) return /^memory_/.test(event.toolName) ? undefined : { block: true, reason: orgPolicyError! };
+		if (!orgPolicy) {
+			if (personalPolicyMissing) return undefined;
+			return /^memory_/.test(event.toolName) ? undefined : { block: true, reason: orgPolicyError! };
+		}
 
 		const d = decide(orgPolicy, event.toolName, input, { cwd: ctx.cwd, home: HOME, approvals });
 		if (d.verdict === "allow") return undefined;
@@ -697,7 +714,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 			: event.toolName === "edit" || event.toolName === "write" ? "Allow file edits for this session"
 			: `Allow ${event.toolName} for this session`;
 		const detail = isBash ? String(input?.command ?? "") : JSON.stringify(input ?? {}).slice(0, 300);
-		const choice = await ctx.ui.select(`Work policy: ${d.reason}\n\n${detail}`, ["Allow once", session, "Deny"]);
+		const choice = await ctx.ui.select(`${policyName}: ${d.reason}\n\n${detail}`, ["Allow once", session, "Deny"]);
 		if (choice === "Allow once") return undefined;
 		if (choice === session) {
 			if (isBash) approve("bash", scope);
@@ -705,11 +722,11 @@ export default function profileExtension(pi: ExtensionAPI) {
 			else approve("tools", event.toolName);
 			return undefined;
 		}
-		return { block: true, reason: "denied by you (Work policy approval)" };
+		return { block: true, reason: `denied by you (${policyName} approval)` };
 	});
 
 	pi.on("tool_result", (event, ctx) => {
-		if (profile !== "work" || !orgPolicy || !["grep", "find", "ls"].includes(event.toolName)) return undefined;
+		if (!orgPolicy || !["grep", "find", "ls"].includes(event.toolName)) return undefined;
 		let hidden = 0;
 		const content = event.content.map((c) => {
 			if (c.type !== "text") return c;
@@ -718,7 +735,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 			return { ...c, text: r.text };
 		});
 		if (!hidden) return undefined;
-		content.push({ type: "text", text: `[${hidden} result(s) hidden: your organisation's Claude policy denies reading them]` });
+		content.push({ type: "text", text: `[${hidden} result(s) hidden: ${orgPolicy!.label ?? "your organisation's Claude policy"} denies reading them]` });
 		return { content };
 	});
 
@@ -867,9 +884,9 @@ export default function profileExtension(pi: ExtensionAPI) {
 				`memini: ${memState}`,
 				`namespace env: prefix=${process.env.MEMINI_NAMESPACE_PREFIX ?? "-"} namespace=${process.env.MEMINI_NAMESPACE ?? "-"} home=${process.env.MEMINI_HOME ?? "-"}`,
 				blocked() ? `BLOCKED: ${blocked()}` : "requests: allowed",
-				...(profile === "work"
-					? [orgPolicy ? `org tool policy: ${orgPolicy.allow.length} allow, ${orgPolicy.deny.length} deny, ${orgPolicy.ask.length} ask rules; session approvals: ${JSON.stringify(approvals)}` : orgPolicyError!]
-					: []),
+				orgPolicy
+					? `${profile === "work" ? "org" : "personal"} tool policy: ${orgPolicy.allow.length} allow, ${orgPolicy.deny.length} deny, ${orgPolicy.ask.length} ask rules${orgPolicy.unlisted === "allow" ? " (anything else runs)" : ""}; session approvals: ${JSON.stringify(approvals)}`
+					: (orgPolicyError ?? personalPolicyMissing ?? "no tool policy"),
 				...(cfgError ? [cfgError] : []),
 				...Object.entries(cfg?.profiles[models].models ?? {}).map(
 					([id, spec]) => `${models}/${id}: ${spec.chain.map((t) => `${t.provider}/${t.model}:${t.thinking}`).join(" → ")}${spec.fallback === false ? " (no fallback)" : ""}`,

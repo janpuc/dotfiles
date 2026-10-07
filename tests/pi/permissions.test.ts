@@ -4,7 +4,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { bashScope, commandSegments, decide, parseOrgPolicy, redactSearchOutput, type Approvals } from "../../home/dot_pi/shared/extensions/profile/permissions.ts";
+import { readFileSync } from "node:fs";
+import { bashScope, commandSegments, decide, parseOrgPolicy, parsePersonalPolicy, redactSearchOutput, type Approvals } from "../../home/dot_pi/shared/extensions/profile/permissions.ts";
 
 const policy = parseOrgPolicy({
 	permissions: {
@@ -115,4 +116,64 @@ test("search output naming denied files is redacted", () => {
 	const find = redactSearchOutput(policy, "find", { pattern: "*.pem", path: "/etc" }, "ssl/cert.pem\nssl/readme", cwd, home);
 	assert.equal(find.text, "ssl/readme");
 	assert.equal(redactSearchOutput(policy, "read", {}, ".env:1: x", cwd, home).hidden, 0);
+});
+
+// --- Personal policy (the real ~/.pi/shared/personal-policy.json) --------------------------------
+
+const personal = parsePersonalPolicy(JSON.parse(readFileSync(new URL("../../home/dot_pi/shared/personal-policy.json", import.meta.url), "utf8")));
+const H = "/home/u";
+const p = (tool: string, input: Record<string, unknown>, cwd = `${H}/Development/janpuc/app`, approvals: Approvals = { bash: [], tools: [] }) =>
+	decide(personal, tool, input, { cwd, home: H, approvals }).verdict;
+
+test("personal: anything no rule covers runs", () => {
+	for (const command of ["npm test", "git status", "git commit -m x", "kubectl get pods -A", "flux get ks -A", "rm build.log", "talosctl get version"])
+		assert.equal(p("bash", { command }), "allow", command);
+	assert.equal(p("edit", { path: "src/a.ts" }), "allow");
+	assert.equal(p("write", { path: `${H}/Development/janpuc/app/new.ts` }), "allow");
+	assert.equal(p("some_extension_tool", {}), "allow");
+	assert.equal(p("read", { path: "README.md" }), "allow");
+});
+
+test("personal: publishing, cluster changes, sudo and forced deletes ask", () => {
+	for (const command of [
+		"git push",
+		"git push origin main",
+		"cd x && git push --force",
+		"kubectl apply -f a.yaml",
+		"kubectl -n ai delete pod x".replace("-n ai ", ""),
+		"flux reconcile ks app --with-source",
+		"talosctl upgrade --image x",
+		"helm upgrade x y",
+		"gh pr merge 12 --squash",
+		"sudo systemctl restart x",
+		"chezmoi apply",
+		"rm -rf node_modules",
+		"git reset --hard origin/main",
+		"op item get x",
+	])
+		assert.equal(p("bash", { command }), "ask", command);
+	assert.equal(p("edit", { path: `${H}/Development/janpuc/home-ops/kubernetes/a.yaml` }), "ask", "home-ops is read-only unless asked");
+});
+
+test("personal: credential stores are never read, by tools or by shell", () => {
+	for (const path of [`${H}/.local/state/ai/credentials.fish`, `${H}/.config/op/aether.env`, `${H}/.ssh/id_ed25519`, `${H}/.pi/agent/auth.json`, `${H}/.config/gh/hosts.yml`, ".env", "deep/dir/.env"])
+		assert.equal(p("read", { path }), "deny", path);
+	for (const command of ["cat ~/.local/state/ai/credentials.fish", "source $HOME/.config/op/aether.env", "cat ~/.ssh/id_ed25519"])
+		assert.equal(p("bash", { command }), "deny", command);
+	assert.equal(p("read", { path: `${H}/.ssh/id_ed25519.pub` }), "deny", "a .pub is under the same id_* rule; reading it is not needed");
+	assert.equal(p("edit", { path: `${H}/.ssh/config` }), "deny");
+});
+
+test("personal: session approvals cover an asked scope", () => {
+	assert.equal(p("bash", { command: "git push origin main" }, undefined, { bash: ["git push"], tools: [] }), "allow");
+	assert.equal(p("bash", { command: "kubectl apply -f a.yaml" }, undefined, { bash: ["git push"], tools: [] }), "ask");
+	assert.equal(p("edit", { path: `${H}/Development/janpuc/home-ops/a.yaml` }, undefined, { bash: [], tools: ["edit"] }), "allow");
+	// Work keeps Claude Code's semantics: an ask rule asks even after a session approval.
+	assert.equal(decide(policy, "bash", { command: "git rebase main" }, { cwd: "/w", home: "/h", approvals: { bash: ["git rebase"], tools: [] } }).verdict, "ask");
+});
+
+test("personal: search output naming credential files is redacted", () => {
+	const r = redactSearchOutput(personal, "grep", { path: "." }, "app/.env:1: TOKEN=x\nsrc/a.ts:3: ok", `${H}/Development/janpuc`, H);
+	assert.equal(r.hidden, 1);
+	assert.match(r.text, /src\/a.ts/);
 });

@@ -1,4 +1,6 @@
-// Mirror of the organisation's Claude Code permission policy for Work Pi sessions.
+// Mirror of the organisation's Claude Code permission policy for Work Pi sessions, and the same
+// engine for the Personal policy (~/.pi/shared/personal-policy.json): Claude Code rule syntax, but
+// anything no rule covers is allowed, so only the listed risky actions ask or are refused.
 //
 // pi-claude-bridge has Claude Code relay Pi's tools, so Claude Code's own checks never see
 // what those tools do, and the enterprise policy disables bypass mode. Pi therefore applies
@@ -14,6 +16,22 @@ export interface OrgPolicy {
 	ask: string[];
 	defaultMode?: string;
 	managedRulesOnly: boolean;
+	/** What happens to a command, edit or tool no rule covers: ask (Work, bypass mode off) or allow (Personal). */
+	unlisted?: "ask" | "allow";
+	/** How reasons name the policy. */
+	label?: string;
+}
+
+/** The Personal policy file: `{ "deny": [...], "ask": [...] }` in Claude Code rule syntax. */
+export function parsePersonalPolicy(raw: unknown): OrgPolicy {
+	const list = (v: unknown, key: string) => {
+		if (v === undefined) return [];
+		if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) throw new Error(`${key} must be a list of rules`);
+		return v as string[];
+	};
+	const p = raw as any;
+	if (!p || typeof p !== "object") throw new Error("not an object");
+	return { allow: [], deny: list(p.deny, "deny"), ask: list(p.ask, "ask"), managedRulesOnly: false, unlisted: "allow", label: "your Personal policy" };
 }
 
 export type Decision = { verdict: "allow" | "deny" | "ask"; rule?: string; reason: string };
@@ -182,6 +200,8 @@ export function decide(
 ): Decision {
 	const rules = (list: string[]) => list.map(parseRule).filter((r): r is Rule => !!r);
 	const deny = rules(policy.deny), ask = rules(policy.ask), allow = rules(policy.allow);
+	const label = policy.label ?? "your organisation's Claude policy";
+	const open = policy.unlisted === "allow";
 
 	if (UNGATED.test(tool)) return { verdict: "allow", reason: "no Claude Code counterpart" };
 
@@ -190,35 +210,38 @@ export function decide(
 		const segments = commandSegments(command);
 		for (const s of segments) {
 			const r = deny.find((d) => bashMatches(d, s));
-			if (r) return { verdict: "deny", rule: r.raw, reason: `\`${s}\` is denied by your organisation's Claude policy (${r.raw})` };
+			if (r) return { verdict: "deny", rule: r.raw, reason: `\`${s}\` is denied by ${label} (${r.raw})` };
 		}
+		const approved = (s: string) => ctx.approvals.bash.some((p) => s === p || s.startsWith(`${p} `)) || ctx.approvals.tools.includes("bash");
 		for (const s of segments) {
 			const r = ask.find((a) => bashMatches(a, s));
-			if (r) return { verdict: "ask", rule: r.raw, reason: `\`${s}\` needs approval under your organisation's Claude policy (${r.raw})` };
+			// Work mirrors Claude Code, where an ask rule asks every time; under the Personal policy
+			// "allow for this session" covers asked commands too, or it would never stop asking.
+			if (r && !(open && approved(s))) return { verdict: "ask", rule: r.raw, reason: `\`${s}\` needs approval under ${label} (${r.raw})` };
 		}
-		const covered = (s: string) =>
-			allow.some((a) => bashMatches(a, s)) || ctx.approvals.bash.some((p) => s === p || s.startsWith(`${p} `)) || ctx.approvals.tools.includes("bash");
-		const open = segments.filter((s) => !covered(s));
-		return open.length === 0 && segments.length > 0
+		const covered = (s: string) => allow.some((a) => bashMatches(a, s)) || approved(s);
+		if (open) return { verdict: "allow", reason: `no rule in ${label} covers it` };
+		const uncovered = segments.filter((s) => !covered(s));
+		return uncovered.length === 0 && segments.length > 0
 			? { verdict: "allow", reason: "allowed by policy or approved for this session" }
-			: { verdict: "ask", reason: `\`${open[0] ?? command}\` is not on your organisation's allow list` };
+			: { verdict: "ask", reason: `\`${uncovered[0] ?? command}\` is not on your organisation's allow list` };
 	}
 
 	if (READ_ONLY.has(tool) || EDITS.has(tool)) {
 		const path = targetPath(tool, input, ctx.cwd, ctx.home);
 		const claudeTools = EDITS.has(tool) ? ["Edit", "Write", "MultiEdit"] : ["Read"];
 		const r = deny.find((d) => pathMatches(d, claudeTools, path, ctx.cwd, ctx.home));
-		if (r) return { verdict: "deny", rule: r.raw, reason: `${path} is denied by your organisation's Claude policy (${r.raw})` };
+		if (r) return { verdict: "deny", rule: r.raw, reason: `${path} is denied by ${label} (${r.raw})` };
 		const a = ask.find((d) => pathMatches(d, claudeTools, path, ctx.cwd, ctx.home));
-		if (a) return { verdict: "ask", rule: a.raw, reason: `${path} needs approval under your organisation's Claude policy (${a.raw})` };
-		if (READ_ONLY.has(tool)) return { verdict: "allow", reason: "read-only tools need no approval" };
+		if (a && !(open && ctx.approvals.tools.includes(tool))) return { verdict: "ask", rule: a.raw, reason: `${path} needs approval under ${label} (${a.raw})` };
+		if (READ_ONLY.has(tool) || open) return { verdict: "allow", reason: READ_ONLY.has(tool) ? "read-only tools need no approval" : `no rule in ${label} covers it` };
 		if (allow.some((d) => pathMatches(d, claudeTools, path, ctx.cwd, ctx.home)) || ctx.approvals.tools.includes(tool))
 			return { verdict: "allow", reason: "allowed by policy or approved for this session" };
 		return { verdict: "ask", reason: `editing ${path} needs approval (your organisation's Claude policy has bypass mode off)` };
 	}
 
 	const named = deny.find((d) => d.spec === undefined && d.tool.toLowerCase() === tool.toLowerCase());
-	if (named) return { verdict: "deny", rule: named.raw, reason: `${tool} is denied by your organisation's Claude policy` };
-	if (ctx.approvals.tools.includes(tool)) return { verdict: "allow", reason: "approved for this session" };
+	if (named) return { verdict: "deny", rule: named.raw, reason: `${tool} is denied by ${label}` };
+	if (ctx.approvals.tools.includes(tool) || open) return { verdict: "allow", reason: open ? `no rule in ${label} covers it` : "approved for this session" };
 	return { verdict: "ask", reason: `${tool} has no Claude Code counterpart in your organisation's policy` };
 }
