@@ -148,7 +148,7 @@ readonly -a scrub_always=(
   PI_CODING_AGENT_SESSION_DIR
 )
 readonly -a scrub_work=(
-  LITELLM_API_KEY LITELLM_BASE_URL LITELLM_MASTER_KEY PI_OPENCODE_API_KEY PI_MINIMAX_API_KEY
+  LITELLM_API_KEY LITELLM_BASE_URL LITELLM_MASTER_KEY PI_OPENCODE_API_KEY PI_MINIMAX_API_KEY PI_OPENAI_API_KEY
   AI_GATEWAY_API_KEY ANT_LING_API_KEY AZURE_OPENAI_API_KEY AZURE_OPENAI_BASE_URL
   AZURE_OPENAI_RESOURCE_NAME AWS_BEARER_TOKEN_BEDROCK BASETEN_API_KEY CEREBRAS_API_KEY
   CLOUDFLARE_API_KEY CODEX_API_KEY COPILOT_GITHUB_TOKEN DEEPSEEK_API_KEY FIREWORKS_API_KEY
@@ -166,7 +166,7 @@ readonly -a scrub_work=(
 import_cached_credentials() {
   local cache=${XDG_STATE_HOME:-$HOME/.local/state}/ai/credentials.fish name
   local -a names=(MEMINI_API_KEY) missing=() pairs
-  [[ $models == personal ]] && names+=(LITELLM_API_KEY PI_OPENCODE_API_KEY PI_MINIMAX_API_KEY)
+  [[ $models == personal ]] && names+=(LITELLM_API_KEY PI_OPENCODE_API_KEY PI_MINIMAX_API_KEY PI_OPENAI_API_KEY)
   for name in $names; do [[ -z ${(P)name-} ]] && missing+=($name); done
   local fish=${commands[fish]:-/opt/homebrew/bin/fish}
   (( ${#missing} )) && [[ -r $cache && -x $fish ]] || return 0

@@ -46,7 +46,7 @@ answered last.
 
 | | Personal | Work (enterprise seat) |
 |---|---|---|
-| `auto` | MiniMax M3 picks `fast` / `daily` / `deep` per prompt (below) | — (deterministic) |
+| `auto` | OpenAI Decisions (MiniMax M3 as fallback) picks `fast` / `daily` / `deep` per prompt (below) | — (deterministic) |
 | `daily` | Opus 5.5 medium *(while the Claude week is on pace, ≤ 85%)* → Sonnet 5.5 medium → GPT-6.1 Sol medium → GLM-5.3 high *(Go ≤ 80%)* → MiniMax M3 medium | Sonnet 5.5 medium *(spend ≤ 95%)* → Haiku 4.5 |
 | `deep` | Opus 5.5 high → GPT-6.1 Sol xhigh → GLM-5.3 high → Qwen3.8 Max xhigh | Opus 5.5 high *(spend ≤ 90%)* → Sonnet 5.5 high |
 | `fast` | MiniMax M3 low → DeepSeek V4.1 Flash low → GPT-6 Luna low | Haiku 4.5 → Sonnet 5.5 low |
@@ -70,10 +70,14 @@ reports its limit or a request fails with one, the pool is skipped outright unti
 block: if every target is over budget the first usable one runs. Near a threshold the model in use keeps its place
 until 5 points over, and a higher-ranked target needs to be 5 under to take over.
 
-**auto.** For each new prompt (not short follow-ups like "yes"), MiniMax M3 sees the message, a snippet of the last
-answer and the conversation size, and returns `fast`, `daily` or `deep`; it judges how hard the thinking is, not how
-long the answer should be. Upgrades apply at once; in a conversation over ~30k tokens a downgrade is ignored to keep the
-prompt cache. If MiniMax is slow (8 s) or fails, the current tier stays (`daily` to start). It is a model call, so a
+**auto.** For each new prompt (not short follow-ups like "yes"), a classifier sees the message, a snippet of the last
+answer and the conversation size, and picks `fast`, `daily` or `deep`; it judges how hard the thinking is, not how
+long the answer should be. It is the OpenAI Decisions API (`gpt-6-luna`, one `choice` question over the tiers, $0.10
+per 1M input tokens, billed to an OpenAI API account) when `PI_OPENAI_API_KEY` is set (via `ai-sync`; Personal only,
+never exported as `OPENAI_API_KEY`). It returns a probability per tier: below 50% confidence the stronger of the two
+likeliest tiers wins, and the footer shows the percentage as the reason. Without the key, or when Decisions fails or
+takes over 4 s, MiniMax M3 answers instead. Upgrades apply at once; in a conversation over ~30k tokens a downgrade is
+ignored to keep the prompt cache. If both classifiers fail, the current tier stays (`daily` to start). It is a model call, so a
 borderline prompt can occasionally land a tier low — pick `deep` explicitly when it matters.
 
 **Failures.** Bounded and in-profile, same billing class only. Transient errors retry the same target once. Plan

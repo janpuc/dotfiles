@@ -34,6 +34,11 @@ export interface AutoSpec {
 	tiers: string[];
 	default: string;
 	classifier: { provider: string; model: string; timeoutMs?: number };
+	/**
+	 * OpenAI Decisions API (`POST /v1/decisions`), asked first when its key (PI_OPENAI_API_KEY) is
+	 * set; `classifier` stays the fallback. Personal only: it is billed to an OpenAI API account.
+	 */
+	decisions?: { model: string; baseUrl?: string; timeoutMs?: number; minConfidence?: number };
 }
 
 export interface ProviderSpec {
@@ -136,6 +141,10 @@ export function loadRouting(raw: unknown): RoutingConfig {
 			const c = auto.classifier;
 			if (!c?.provider || !c?.model) errors.push(`${where}.classifier needs provider and model`);
 			else if (Array.isArray(allowed) && !allowed.includes(c.provider)) errors.push(`${where}.classifier: provider ${c.provider} not allowed in ${profile}`);
+			if (auto.decisions) {
+				if (profile === "work") errors.push(`${where}.decisions is not allowed in work (it bills a personal OpenAI API account)`);
+				if (!auto.decisions.model) errors.push(`${where}.decisions needs a model`);
+			}
 		}
 	}
 	for (const [profile, spec] of Object.entries(cfg.advisors ?? {}) as [Profile, AdvisorSpec][]) {
@@ -497,13 +506,57 @@ export function memoryToolBlock(
 
 // --- auto (classifier-picked tier) ----------------------------------------------------------------
 
+/** What each tier is for; shared by the chat classifier's prompt and the Decisions choices. */
+export const TIER_GUIDE: Record<string, string> = {
+	fast: "trivial or mechanical work: quick answers and lookups, renames, formatting, simple shell or git, small single-file edits with a clear spec.",
+	daily: "normal engineering: implementing features, debugging with clear symptoms, refactors across a few files, writing tests, code review.",
+	deep: "genuinely hard work: architecture or design decisions, subtle or intermittent bugs, concurrency, security, performance analysis, large cross-cutting changes, or a problem earlier attempts failed to fix.",
+};
+
+const TIER_JUDGING = `Judge how hard the thinking and the work are, not how long the requested answer is: a one-line answer to a hard diagnostic or design question is still deep, and a long but mechanical edit is fast.`;
+
 export const AUTO_CLASSIFIER_PROMPT = `You route a coding agent's next turn to a model tier. Reply with JSON only: {"tier":"<tier>","why":"<at most 8 words>"}.
 Tiers:
-- fast: trivial or mechanical work: quick answers and lookups, renames, formatting, simple shell or git, small single-file edits with a clear spec.
-- daily: normal engineering: implementing features, debugging with clear symptoms, refactors across a few files, writing tests, code review.
-- deep: genuinely hard work: architecture or design decisions, subtle or intermittent bugs, concurrency, security, performance analysis, large cross-cutting changes, or a problem earlier attempts failed to fix.
-Judge how hard the thinking and the work are, not how long the requested answer is: a one-line answer to a hard diagnostic or design question is still deep, and a long but mechanical edit is fast.
+${Object.entries(TIER_GUIDE).map(([t, d]) => `- ${t}: ${d}`).join("\n")}
+${TIER_JUDGING}
 Short follow-ups ("yes", "go on", "do it", "thanks") keep the current tier. When unsure between two tiers, pick the stronger one.`;
+
+/** Body of a Decisions API request asking which tier the turn needs (one `choice` question). */
+export function decisionsRequest(model: string, tiers: string[], input: string): object {
+	return {
+		model,
+		input,
+		questions: [
+			{
+				type: "choice",
+				name: "tier",
+				instructions: `Which model tier should handle the coding agent's next turn, given the new user message and the conversation so far? ${TIER_JUDGING}`,
+				choices: tiers.map((t) => ({ value: t, description: TIER_GUIDE[t] ?? `the ${t} tier` })),
+			},
+		],
+	};
+}
+
+/**
+ * The tier from a Decisions answer. When the model is unsure (confidence below `minConfidence`)
+ * the stronger of the two likeliest tiers wins, as the chat classifier is told to do. Undefined
+ * for a refusal or an answer outside `tiers`.
+ */
+export function parseDecision(body: any, tiers: string[], minConfidence = 0.5): { tier: string; why: string } | undefined {
+	const a = (body?.answers ?? []).find((x: any) => x?.name === "tier");
+	if (a?.type !== "choice" || !tiers.includes(a.choice)) return undefined;
+	const probs: { value: string; probability: number }[] = (a.probabilities ?? []).filter((p: any) => tiers.includes(p?.value) && typeof p.probability === "number");
+	const p = (tier: string) => probs.find((x) => x.value === tier)?.probability;
+	const pct = (n: number | undefined) => (n === undefined ? "" : `${Math.round(n * 100)}%`);
+	if (typeof a.confidence === "number" && a.confidence < minConfidence) {
+		const [first, second] = [...probs].sort((x, y) => y.probability - x.probability);
+		if (first && second) {
+			const tier = tiers.indexOf(second.value) > tiers.indexOf(first.value) ? second.value : first.value;
+			return { tier, why: `unsure ${first.value} ${pct(first.probability)} / ${second.value} ${pct(second.probability)}` };
+		}
+	}
+	return { tier: a.choice, why: pct(p(a.choice) ?? a.confidence) };
+}
 
 /** Prompts too small to be worth a classifier call: they continue the current tier. */
 export function isShortFollowUp(text: string): boolean {

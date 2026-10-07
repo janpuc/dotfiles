@@ -91,7 +91,7 @@ run() {
       LITELLM_API_KEY=dummy-litellm LITELLM_BASE_URL=https://litellm.example \
       ANTHROPIC_API_KEY=dummy-anthropic OPENAI_API_KEY=dummy-openai \
       OPENROUTER_API_KEY=dummy-openrouter AWS_PROFILE=work-aws CLAUDECODE=1 \
-      PI_OPENCODE_API_KEY=dummy-go PI_MINIMAX_API_KEY=dummy-mm \
+      PI_OPENCODE_API_KEY=dummy-go PI_MINIMAX_API_KEY=dummy-mm PI_OPENAI_API_KEY=dummy-decisions \
       $extra "$@" ) 2>$T/stderr
 }
 envv() { sed -n "s/^$1=//p" $T/out.env 2>/dev/null }
@@ -127,6 +127,7 @@ check "Work drops LITELLM_BASE_URL" "$(has LITELLM_BASE_URL)" no
 check "Work drops OPENROUTER_API_KEY" "$(has OPENROUTER_API_KEY)" no
 check "Work gets no OpenCode Go key" "$(has OPENCODE_API_KEY)/$(has PI_OPENCODE_API_KEY)" no/no
 check "Work gets no MiniMax key" "$(has MINIMAX_API_KEY)/$(has PI_MINIMAX_API_KEY)" no/no
+check "Work gets no OpenAI Decisions key" "$(has PI_OPENAI_API_KEY)/$(has OPENAI_API_KEY)" no/no
 check "Work keeps AWS_PROFILE for work tooling" "$(envv AWS_PROFILE)" work-aws
 check "Work children use the work omp vault" "$(envv OMP_PROFILE)" work
 check "Work children get an empty Codex home" "$(envv CODEX_HOME)" $H/.pi/profiles/work/agent/codex

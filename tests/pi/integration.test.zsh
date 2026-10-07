@@ -55,7 +55,8 @@ jq --arg gw $GW --argjson extra "[$(mock opencode-go/deepseek-v4.1-flash false),
 jq '.profiles.personal.models.fast.chain = [
       {provider: "litellm", model: "opencode-go/deepseek-v4.1-flash", thinking: "low", usage: "opencode-go"},
       {provider: "litellm", model: "minimax/MiniMax-M3", thinking: "low", usage: "minimax"}]
-    | .profiles.personal.auto.classifier = {provider: "litellm", model: "mock/router", timeoutMs: 8000}' \
+    | .profiles.personal.auto.classifier = {provider: "litellm", model: "mock/router", timeoutMs: 8000}
+    | .profiles.personal.auto.decisions.baseUrl = $gw' --arg gw $GW \
   $src/dot_pi/shared/routing.json > $SB/routing.json
 cp $SB/routing.json $H/.pi/shared/routing.json
 ln -s ../shared/agents $H/.pi/agent/agents
@@ -164,6 +165,14 @@ contains "…whose Claude primary is then tried" "$(out)" "Not logged in"
 gw '{"mock/router": {"reply": "{\"tier\":\"deep\"}"}}'
 pi_in $H/plain -- -p "yes" --model personal/auto; st=$?
 check "a short follow-up skips the router" "$(requests | grep -c mock/router)" 0
+# With an OpenAI API key the Decisions API is asked first; the chat router is the fallback.
+gw '{"decisions": {"answer": {"type": "choice", "name": "tier", "choice": "fast", "probabilities": [{"value": "fast", "probability": 0.9}, {"value": "daily", "probability": 0.08}, {"value": "deep", "probability": 0.02}], "confidence": 0.88}}, "mock/router": {"reply": "{\"tier\":\"deep\"}"}}'
+pi_in $H/plain PI_OPENAI_API_KEY=dummy-openai -- -p "PI-SMOKE what does ls -la do in one sentence" --model personal/auto; st=$?
+check "with a key, auto asks Decisions (not the router) and runs its tier" "$st/$(requests)" "0/decisions:gpt-6-luna,opencode-go/deepseek-v4.1-flash"
+check "…offering the tiers as choices" "$(jq -c 'select(.model == "decisions:gpt-6-luna") | .choices' $SB/gateway.log)" '["fast","daily","deep"]'
+gw '{"decisions": {"status": 503}, "mock/router": {"reply": "{\"tier\":\"fast\"}"}}'
+pi_in $H/plain PI_OPENAI_API_KEY=dummy-openai -- -p "PI-SMOKE what does ls -la do in one sentence" --model personal/auto; st=$?
+check "a failing Decisions call falls back to the chat router" "$st/$(requests)" "0/decisions:gpt-6-luna,mock/router,opencode-go/deepseek-v4.1-flash"
 
 # --- Work ---------------------------------------------------------------------------------------
 

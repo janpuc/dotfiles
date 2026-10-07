@@ -9,12 +9,14 @@ import {
 	classifyError,
 	conversationFacts,
 	decideTier,
+	decisionsRequest,
 	failureHint,
 	fallbackMarker,
 	isShortFollowUp,
 	loadRouting,
 	memoryToolBlock,
 	nextFallback,
+	parseDecision,
 	parseTier,
 	RouteError,
 	type ModelInfo,
@@ -92,6 +94,9 @@ test("loadRouting rejects configs that would weaken Work or mix billing", () => 
 	const routerInWork = clone();
 	routerInWork.profiles.work.auto = { name: "Auto", tiers: ["daily"], default: "daily", classifier: { provider: "minimax", model: "MiniMax-M3" } };
 	assert.throws(() => loadRouting(routerInWork), /classifier: provider minimax not allowed in work/);
+	const decisionsInWork = clone();
+	decisionsInWork.profiles.work.auto = { name: "Auto", tiers: ["daily"], default: "daily", classifier: { provider: "claude-bridge", model: "claude-haiku-4-5" }, decisions: { model: "gpt-6-luna" } };
+	assert.throws(() => loadRouting(decisionsInWork), /decisions is not allowed in work/);
 	const badBudget = clone();
 	badBudget.profiles.personal.models.daily.chain[0].maxUsed = 140;
 	assert.throws(() => loadRouting(badBudget), /maxUsed must be 1-100/);
@@ -288,6 +293,23 @@ test("auto: the classifier's answer is parsed defensively", () => {
 	assert.deepEqual(parseTier('Sure! {"tier": "FAST", "why": "rename"}', tiers), { tier: "fast", why: "rename" });
 	assert.deepEqual(parseTier("I would say daily.", tiers), { tier: "daily", why: "" });
 	assert.equal(parseTier('{"tier":"ultra"}', tiers), undefined);
+});
+
+test("auto: the Decisions API gets the tiers as choices and its answer becomes a tier", () => {
+	const tiers = ["fast", "daily", "deep"];
+	const req: any = decisionsRequest("gpt-6-luna", tiers, "New user message:\nrename foo");
+	assert.equal(req.model, "gpt-6-luna");
+	assert.equal(req.questions[0].type, "choice");
+	assert.deepEqual(req.questions[0].choices.map((c: any) => c.value), tiers);
+	assert.match(req.questions[0].choices[2].description, /architecture/);
+	const answer = (choice: string, probs: number[], confidence: number) => ({
+		answers: [{ type: "choice", name: "tier", choice, confidence, probabilities: tiers.map((value, i) => ({ value, probability: probs[i] })) }],
+	});
+	assert.deepEqual(parseDecision(answer("fast", [0.9, 0.08, 0.02], 0.88), tiers), { tier: "fast", why: "90%" });
+	assert.deepEqual(parseDecision(answer("daily", [0.05, 0.48, 0.47], 0.3), tiers), { tier: "deep", why: "unsure daily 48% / deep 47%" }, "unsure: the stronger of the top two");
+	assert.equal(parseDecision({ answers: [{ type: "refusal", name: "tier" }] }, tiers), undefined);
+	assert.equal(parseDecision(answer("ultra", [0, 0, 0], 1), tiers), undefined);
+	assert.equal(parseDecision({}, tiers), undefined);
 });
 
 test("auto: short follow-ups skip the classifier, long chats are not moved down a tier", () => {

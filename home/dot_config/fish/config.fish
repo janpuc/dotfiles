@@ -37,7 +37,7 @@ end
 # AI_PROFILE=work) must not get the personal gateway or subscription keys back
 # from the lines above.
 if test "$AI_PROFILE" = work
-    set -e LITELLM_BASE_URL LITELLM_API_KEY PI_OPENCODE_API_KEY PI_MINIMAX_API_KEY
+    set -e LITELLM_BASE_URL LITELLM_API_KEY PI_OPENCODE_API_KEY PI_MINIMAX_API_KEY PI_OPENAI_API_KEY
 end
 
 ## Abbrs

@@ -30,6 +30,28 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    def decisions(self, body):
+        """OpenAI Decisions API: gateway.json {"decisions": {"answer": {...}} | {"status": N}}."""
+        try:
+            rule = json.loads(open(os.path.join(DIR, "gateway.json")).read()).get("decisions", {})
+        except (OSError, ValueError):
+            rule = {}
+        with open(os.path.join(DIR, "gateway.log"), "a") as f:
+            q = (body.get("questions") or [{}])[0]
+            f.write(json.dumps({
+                "model": "decisions:" + body.get("model", "?"),
+                "auth": bool(self.headers.get("Authorization")),
+                "marker": "PI-SMOKE" in json.dumps(body.get("input", "")),
+                "choices": [c.get("value") for c in q.get("choices", [])],
+            }) + "\n")
+        status = rule.get("status", 200 if "answer" in rule else 500)
+        payload = json.dumps({"answers": [rule["answer"]]} if status == 200 else {"error": {"message": "mock"}}).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
     def do_GET(self):
         self.send_response(404)
         self.end_headers()
@@ -37,6 +59,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         global rules_seen
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        if self.path.rstrip("/").endswith("/decisions"):
+            return self.decisions(body)
         model = body.get("model", "?")
         try:
             raw = open(os.path.join(DIR, "gateway.json")).read()

@@ -41,6 +41,8 @@ import {
 	DEFAULT_USAGE,
 	decideTier,
 	isShortFollowUp,
+	parseDecision,
+	decisionsRequest,
 	parseTier,
 	poolOf,
 	usagePolicy,
@@ -384,21 +386,38 @@ export default function profileExtension(pi: ExtensionAPI) {
 					const c = auto.classifier;
 					const classifier = registry.find(c.provider, c.model);
 					let proposed: { tier: string; why: string } | undefined;
-					if (text && !isShortFollowUp(text) && classifier && registry.hasConfiguredAuth(classifier) && !pressureOf(c)?.exhausted) {
+					if (text && !isShortFollowUp(text)) {
 						const prompt =
 							`Current tier: ${tier ?? auto.default}\nConversation: ${request.messages.length} messages, ~${facts.estimatedTokens} tokens${facts.hasImages ? ", contains images" : ""}.\n` +
 							(lastAssistantText(request.messages) ? `Last assistant reply (start): ${lastAssistantText(request.messages)}\n` : "") +
 							`New user message:\n${text.slice(0, 3000)}`;
-						try {
-							const signal = AbortSignal.any([AbortSignal.timeout(c.timeoutMs ?? 8000), ...(request.signal ? [request.signal] : [])]);
-							const res: any = await registry.complete(
-								classifier,
-								{ systemPrompt: AUTO_CLASSIFIER_PROMPT, messages: [{ role: "user", content: prompt, timestamp: Date.now() }] } as any,
-								{ maxTokens: 200, signal } as any,
-							);
-							proposed = parseTier((res?.content ?? []).filter((b: any) => b?.type === "text").map((b: any) => b.text).join(" "), auto.tiers);
-						} catch {
-							// classifier down or slow: keep the current tier
+						const within = (ms: number) => AbortSignal.any([AbortSignal.timeout(ms), ...(request.signal ? [request.signal] : [])]);
+						const d = auto.decisions;
+						const key = process.env.PI_OPENAI_API_KEY;
+						if (d && key) {
+							try {
+								const res = await fetch(`${(d.baseUrl ?? "https://api.openai.com/v1").replace(/\/$/, "")}/decisions`, {
+									method: "POST",
+									headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+									body: JSON.stringify(decisionsRequest(d.model, auto.tiers, prompt)),
+									signal: within(d.timeoutMs ?? 4000),
+								});
+								if (res.ok) proposed = parseDecision(await res.json(), auto.tiers, d.minConfidence);
+							} catch {
+								// Decisions down or slow: ask the chat classifier instead
+							}
+						}
+						if (!proposed && classifier && registry.hasConfiguredAuth(classifier) && !pressureOf(c)?.exhausted) {
+							try {
+								const res: any = await registry.complete(
+									classifier,
+									{ systemPrompt: AUTO_CLASSIFIER_PROMPT, messages: [{ role: "user", content: prompt, timestamp: Date.now() }] } as any,
+									{ maxTokens: 200, signal: within(c.timeoutMs ?? 8000) } as any,
+								);
+								proposed = parseTier((res?.content ?? []).filter((b: any) => b?.type === "text").map((b: any) => b.text).join(" "), auto.tiers);
+							} catch {
+								// classifier down or slow: keep the current tier
+							}
 						}
 					}
 					const next = decideTier(tier, proposed?.tier, auto.tiers, auto.default, facts.estimatedTokens);
