@@ -26,7 +26,7 @@ import { Type } from "typebox";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, sep } from "node:path";
+import { basename, join, sep } from "node:path";
 import {
 	chooseRoute,
 	classifyError,
@@ -58,6 +58,7 @@ import { describe as describeUsage, limitedUntilFrom, pressure, shortTime } from
 import { renderBars, renderPanel, type PoolView } from "./usage-view.ts";
 import { stripAiTrailers } from "./commit-trailers.ts";
 import { renderFooter, type FooterState } from "./footer-view.ts";
+import { duration, notify, notifyAfterMs } from "./notify.ts";
 import { readCache, SOURCES, writeCache, type UsageCache } from "./usage-sources.ts";
 
 const HOME = homedir();
@@ -714,6 +715,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 			: event.toolName === "edit" || event.toolName === "write" ? "Allow file edits for this session"
 			: `Allow ${event.toolName} for this session`;
 		const detail = isBash ? String(input?.command ?? "") : JSON.stringify(input ?? {}).slice(0, 300);
+		notify(`Pi · ${basename(ctx.cwd)}`, `${policyName}: approval needed`);
 		const choice = await ctx.ui.select(`${policyName}: ${d.reason}\n\n${detail}`, ["Allow once", session, "Deny"]);
 		if (choice === "Allow once") return undefined;
 		if (choice === session) {
@@ -737,6 +739,19 @@ export default function profileExtension(pi: ExtensionAPI) {
 		if (!hidden) return undefined;
 		content.push({ type: "text", text: `[${hidden} result(s) hidden: ${orgPolicy!.label ?? "your organisation's Claude policy"} denies reading them]` });
 		return { content };
+	});
+
+	// --- notifications ------------------------------------------------------------------------
+
+	// A run that took long enough for you to look away ends with a terminal notification.
+	let runStarted = 0;
+	pi.on("agent_start", () => {
+		if (!runStarted) runStarted = Date.now();
+	});
+	pi.on("agent_settled", (_event, ctx) => {
+		const took = runStarted ? Date.now() - runStarted : 0;
+		runStarted = 0;
+		if (took >= notifyAfterMs()) notify(`Pi · ${basename(ctx.cwd)}`, `Done in ${duration(took)}, ready for input`);
 	});
 
 	// --- fallback for failures Pi does not retry ---------------------------------------------

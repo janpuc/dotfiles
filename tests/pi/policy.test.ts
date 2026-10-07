@@ -427,3 +427,18 @@ test("memory tools stay inside the profile's scope", () => {
 	assert.match(memoryToolBlock("personal", "memory_recall", {}, { ...home, memoryOff: "PI_MEMINI=off" })!, /memory is off/);
 	assert.equal(memoryToolBlock("work", "read", { namespace: "homelab/x" }, home), undefined);
 });
+
+// --- notifications -------------------------------------------------------------------------------
+
+import { duration, notificationSequence, notifyAfterMs } from "../../home/dot_pi/shared/extensions/profile/notify.ts";
+
+test("notifications: OSC 777 by default, OSC 99 in Kitty, text cannot break the sequence", () => {
+	assert.equal(notificationSequence("Pi · app", "Done in 1m 02s", {}), "\x1b]777;notify;Pi · app;Done in 1m 02s\x07");
+	assert.match(notificationSequence("Pi", "x", { KITTY_WINDOW_ID: "1" }), /^\x1b\]99;/);
+	assert.equal(notificationSequence("a;b", "c\x07d\x1b", {}), "\x1b]777;notify;a b;c d \x07");
+	assert.equal(duration(42_000), "42s");
+	assert.equal(duration(62_000), "1m 02s");
+	assert.equal(notifyAfterMs({}), 30_000);
+	assert.equal(notifyAfterMs({ PI_NOTIFY_AFTER: "0" }), 0);
+	assert.equal(notifyAfterMs({ PI_NOTIFY_AFTER: "x" }), 30_000);
+});
