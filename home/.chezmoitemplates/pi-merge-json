@@ -1,0 +1,22 @@
+# Shared body of the Pi modify_ scripts: merge the JSON in $managed into the
+# file chezmoi pipes in on stdin and print the result. Keys Pi or the bridge
+# write at runtime (lastChangelogVersion, startupNoticeShown, /settings choices,
+# packages added with `pi install`) survive every apply; managed keys win.
+# Resource lists (packages, extensions, prompts, skills, themes) are unions,
+# managed entries first; a managed npm package replaces any other pinned
+# version of the same package.
+current=$(cat)
+[[ -n ${current//[[:space:]]/} ]] || current='{}'
+print -r -- $current | jq --argjson managed "$managed" '
+  def pkg: (if type == "object" then .source else . end) | tostring | sub("^npm:"; "")
+    | if startswith("@") then (split("/") | .[0] + "/" + (.[1] | split("@")[0])) else split("@")[0] end;
+  . as $cur
+  | ($cur * ($managed | del(.packages, .extensions, .prompts, .skills, .themes)))
+  | if $managed.packages then
+      .packages = $managed.packages + [($cur.packages // [])[]
+        | select(pkg as $p | [$managed.packages[] | pkg] | index($p) | not)]
+    else . end
+  | reduce ("extensions", "prompts", "skills", "themes") as $k (.;
+      if $managed[$k] then
+        .[$k] = $managed[$k] + [($cur[$k] // [])[] | select(. as $e | $managed[$k] | index($e) | not)]
+      else . end)'

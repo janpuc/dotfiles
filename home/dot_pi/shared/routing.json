@@ -1,0 +1,263 @@
+{
+  "//": "Virtual models for both Pi profiles, read by ~/.pi/shared/extensions/profile. Each is listed under its profile's provider id (personal/daily, work/fast, ...). On a new prompt the router takes the first target that is usable and inside its usage budget; tool loops and compaction stay on the model that answered last. A failure falls back down the chain within the same billing class. Reasoning behind every choice: ~/.pi/shared/README.md.",
+  "//providers": "billing: what a request spends. usage: the subscription pool it draws on (tracked in <agent-dir>/usage.json by usage-sources.ts). failsOverInternally: the provider already retried and failed over (LiteLLM), so a failure there skips its other targets.",
+  "providers": {
+    "claude-bridge": {
+      "billing": "subscription",
+      "usage": "claude"
+    },
+    "openai": {
+      "billing": "subscription",
+      "usage": "chatgpt"
+    },
+    "opencode-go": {
+      "billing": "subscription",
+      "usage": "opencode-go"
+    },
+    "minimax": {
+      "billing": "subscription",
+      "usage": "minimax"
+    },
+    "litellm": {
+      "billing": "local",
+      "failsOverInternally": true
+    }
+  },
+  "//usage": "Pools are re-read every refreshMinutes and ignored once older than staleMinutes (unknown = no preference). At exhaustedPercent, or when the plan reports its limit, a pool is skipped outright. Otherwise a target is skipped on a new prompt when its pool is at or over maxUsed (default defaultMaxUsed), or, with paced, when a window is more than paceSlack points ahead of its elapsed time. If every target is over budget the first usable one still runs; budgets steer, they never block.",
+  "usage": {
+    "refreshMinutes": 5,
+    "staleMinutes": 30,
+    "exhaustedPercent": 97,
+    "defaultMaxUsed": 90,
+    "paceSlack": 10
+  },
+  "//tuning": "transientRetriesPerModel: retries of the same target after an overloaded/5xx/network error before moving down the chain. stickyFallbackMinutes: how long later prompts stay on a failure fallback before trying the primary again.",
+  "transientRetriesPerModel": 1,
+  "stickyFallbackMinutes": 20,
+  "profiles": {
+    "personal": {
+      "allowedProviders": null,
+      "models": {
+        "daily": {
+          "name": "Daily",
+          "level": "medium",
+          "//": "Opus while the Claude week is on pace, then Sonnet (≈ Opus on TB4 at about half the plan usage), then GPT-6.1 Sol, GLM-5.3 (best open model; text only) and MiniMax M3 (images) as the pools fill.",
+          "chain": [
+            {
+              "provider": "claude-bridge",
+              "model": "claude-opus-5-5",
+              "thinking": "medium",
+              "maxUsed": 85,
+              "paced": true
+            },
+            {
+              "provider": "claude-bridge",
+              "model": "claude-sonnet-5-5",
+              "thinking": "medium"
+            },
+            {
+              "provider": "openai",
+              "model": "gpt-6.1-sol",
+              "thinking": "medium"
+            },
+            {
+              "provider": "opencode-go",
+              "model": "glm-5.3",
+              "thinking": "high",
+              "maxUsed": 80
+            },
+            {
+              "provider": "minimax",
+              "model": "MiniMax-M3",
+              "thinking": "medium"
+            }
+          ]
+        },
+        "deep": {
+          "name": "Deep",
+          "level": "high",
+          "//": "Strongest available at high effort: Opus 5.5, GPT-6.1 Sol (≈ 90% of Astra on TB4 at a fifth of the Codex credits), GLM-5.3, then Qwen3.8 Max for prompts with images.",
+          "chain": [
+            {
+              "provider": "claude-bridge",
+              "model": "claude-opus-5-5",
+              "thinking": "high"
+            },
+            {
+              "provider": "openai",
+              "model": "gpt-6.1-sol",
+              "thinking": "xhigh"
+            },
+            {
+              "provider": "opencode-go",
+              "model": "glm-5.3",
+              "thinking": "high",
+              "maxUsed": 80
+            },
+            {
+              "provider": "opencode-go",
+              "model": "qwen3.8-max",
+              "thinking": "xhigh",
+              "maxUsed": 80
+            }
+          ]
+        },
+        "fast": {
+          "name": "Fast",
+          "level": "low",
+          "//": "MiniMax M3 first (near-unlimited plan, images), then DeepSeek V4.1 Flash (fastest; spends the shared Go pool), then GPT-6 Luna (≈1% of Sol's Codex credits).",
+          "chain": [
+            {
+              "provider": "minimax",
+              "model": "MiniMax-M3",
+              "thinking": "low"
+            },
+            {
+              "provider": "opencode-go",
+              "model": "deepseek-v4.1-flash",
+              "thinking": "low"
+            },
+            {
+              "provider": "openai",
+              "model": "gpt-6-luna",
+              "thinking": "low"
+            }
+          ]
+        },
+        "local": {
+          "name": "Local (BC250)",
+          "level": "medium",
+          "//": "LiteLLM's local-only alias: no gateway fallbacks and none here either, not even on context overflow (Pi compacts instead).",
+          "fallback": false,
+          "chain": [
+            {
+              "provider": "litellm",
+              "model": "bc250-local/qwen3.6-35b-a3b",
+              "thinking": "medium"
+            }
+          ],
+          "unavailableHint": "The BC250 may be offline; use personal/qwen (LiteLLM falls back to MiniMax M3) or another model."
+        },
+        "qwen": {
+          "name": "Qwen (BC250, MiniMax M3 when off)",
+          "level": "medium",
+          "//": "LiteLLM's bc250 alias: the local Qwen while the BC250 is up, MiniMax M3 (through the gateway) while it is not. Pi adds no fallback of its own.",
+          "fallback": false,
+          "chain": [
+            {
+              "provider": "litellm",
+              "model": "bc250/qwen3.6-35b-a3b",
+              "thinking": "medium"
+            }
+          ]
+        }
+      },
+      "//auto": "personal/auto (the startup default): MiniMax M3 reads each new prompt and picks fast, daily or deep; that tier's chain then picks the model by usage. Short follow-ups skip the call, a long conversation is not moved down a tier (prompt cache), and a slow or failed classifier keeps the current tier.",
+      "auto": {
+        "name": "Auto",
+        "tiers": [
+          "fast",
+          "daily",
+          "deep"
+        ],
+        "default": "daily",
+        "classifier": {
+          "provider": "minimax",
+          "model": "MiniMax-M3",
+          "timeoutMs": 8000
+        }
+      }
+    },
+    "work": {
+      "//": "Enterprise Claude seat only, through pi-claude-bridge logged into ~/.pi/profiles/work/agent/claude. The seat is spend-metered with a small monthly allowance, so Sonnet does daily work and Opus is kept for deep work; budgets step down as the month's spend grows.",
+      "allowedProviders": [
+        "claude-bridge"
+      ],
+      "models": {
+        "daily": {
+          "name": "Daily",
+          "level": "medium",
+          "chain": [
+            {
+              "provider": "claude-bridge",
+              "model": "claude-sonnet-5-5",
+              "thinking": "medium",
+              "maxUsed": 95
+            },
+            {
+              "provider": "claude-bridge",
+              "model": "claude-haiku-4-5",
+              "thinking": "off"
+            }
+          ]
+        },
+        "deep": {
+          "name": "Deep",
+          "level": "high",
+          "chain": [
+            {
+              "provider": "claude-bridge",
+              "model": "claude-opus-5-5",
+              "thinking": "high",
+              "maxUsed": 90
+            },
+            {
+              "provider": "claude-bridge",
+              "model": "claude-sonnet-5-5",
+              "thinking": "high"
+            }
+          ]
+        },
+        "fast": {
+          "name": "Fast",
+          "level": "low",
+          "chain": [
+            {
+              "provider": "claude-bridge",
+              "model": "claude-haiku-4-5",
+              "thinking": "off"
+            },
+            {
+              "provider": "claude-bridge",
+              "model": "claude-sonnet-5-5",
+              "thinking": "low"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "//advisors": "On-demand second opinions through the `advisor` tool; never selectable as chat models. Each consultation runs as a separate pi process with read-only tools and memory capture off. With no advisor named, the first in `order` whose pool is not exhausted or over 90% is used.",
+  "advisors": {
+    "personal": {
+      "order": [
+        "astra",
+        "fable"
+      ],
+      "models": {
+        "astra": {
+          "provider": "openai",
+          "model": "gpt-6-astra",
+          "thinking": "high"
+        },
+        "fable": {
+          "provider": "claude-bridge",
+          "model": "claude-fable-5-1",
+          "thinking": "xhigh"
+        }
+      }
+    },
+    "work": {
+      "order": [
+        "fable"
+      ],
+      "models": {
+        "fable": {
+          "provider": "claude-bridge",
+          "model": "claude-fable-5-1",
+          "thinking": "high"
+        }
+      }
+    }
+  }
+}

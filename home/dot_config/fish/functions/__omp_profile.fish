@@ -12,7 +12,10 @@ function __omp_profile --on-variable PWD --description "Keep omp on the work pro
     #
     # OMP_PROFILE wins over PI_PROFILE even when set to an empty string, so the
     # personal case must ERASE it, not blank it.
-    if test "$PWD" = "$work_root"; or string match -q -- "$work_root/*" "$PWD"
+    #
+    # Shells spawned by a Work Pi session (AI_PROFILE=work) stay on the work
+    # vault wherever they cd to.
+    if test "$AI_PROFILE" = work; or test "$PWD" = "$work_root"; or string match -q -- "$work_root/*" "$PWD"
         set -gx OMP_PROFILE work
     else
         set -e OMP_PROFILE

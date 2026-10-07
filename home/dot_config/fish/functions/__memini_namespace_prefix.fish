@@ -7,6 +7,12 @@ function __memini_namespace_prefix --on-variable PWD --description "Keep memini 
     # for home-ops / miroir / dotfiles keep winning where they exist; this is
     # what stops a NEW repo landing in a flat, orphaned namespace that inherits
     # nothing.
+    #
+    # Shells spawned by a Work Pi session (AI_PROFILE=work) keep the work
+    # namespace the pi launcher chose, even after cd-ing out of the tree.
+    if test "$AI_PROFILE" = work
+        return
+    end
     if test "$PWD" = "$work_root"; or string match -q -- "$work_root/*" "$PWD"
         set -gx MEMINI_NAMESPACE_PREFIX work
         set -e MEMINI_NAMESPACE

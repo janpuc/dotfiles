@@ -1,0 +1,12 @@
+#!/usr/bin/env zsh
+# pi-claude-bridge, Work profile. Same isolation as Personal: strict MCP config
+# (no ~/.claude.json, .mcp.json or plugin servers — the removed Atlassian and
+# Slack integrations cannot come back through it), claude.ai connectors off,
+# no AskClaude/subagents, no Claude auto-memory. The launcher refuses a project
+# .pi/claude-bridge.json that would loosen any of this.
+set -euo pipefail
+managed='{
+  "provider": { "strictMcpConfig": true, "autoMemoryEnabled": false },
+  "askClaude": { "enabled": false }
+}'
+{{ template "pi-merge-json" }}

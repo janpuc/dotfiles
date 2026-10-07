@@ -33,6 +33,13 @@ if test -r "$XDG_STATE_HOME/ai/credentials.fish"
     source "$XDG_STATE_HOME/ai/credentials.fish"
 end
 
+# A shell started inside a Work Pi session (the pi launcher exports
+# AI_PROFILE=work) must not get the personal gateway or subscription keys back
+# from the lines above.
+if test "$AI_PROFILE" = work
+    set -e LITELLM_BASE_URL LITELLM_API_KEY PI_OPENCODE_API_KEY PI_MINIMAX_API_KEY
+end
+
 ## Abbrs
 
 abbr --add g git
@@ -70,6 +77,8 @@ alias assume="source (brew --prefix)/bin/assume.fish"
 ### Explicit work-profile omp session from outside ~/Development/Work
 ### (inside it, __omp_profile exports OMP_PROFILE=work on its own).
 alias ompw="omp --profile work"
+
+### pi / piw / pi-profile: see functions/pi.fish and ~/.local/bin/pi.
 
 alias claudex='CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-sol \
 CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1 \

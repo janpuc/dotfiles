@@ -1,0 +1,31 @@
+#!/usr/bin/env zsh
+# Personal Pi profile (~/.pi/agent, the default agent dir; `pi` outside the
+# Work tree). Managed keys only — see .chezmoitemplates/pi-merge-json.
+#
+# auto is the startup default (MiniMax picks fast/daily/deep per prompt);
+# Ctrl+P cycles auto/daily/deep/fast. Virtual models, chains and usage
+# budgets live in ~/.pi/shared/routing.json. Packages are
+# pinned and installed per profile into ~/.pi/agent/npm by Pi itself (and
+# pre-fetched by run_onchange_after_configure-pi.sh).
+#
+# maxRetries is 4 rather than 3 so a three-step fallback chain still gets a
+# transient retry. The local BC250 alias has a 24k window, so its compaction
+# reserve is scaled down to leave room for the conversation.
+set -euo pipefail
+managed='{
+  "defaultProvider": "personal",
+  "defaultModel": "auto",
+  "defaultThinkingLevel": "medium",
+  "enabledModels": ["personal/auto", "personal/daily", "personal/deep", "personal/fast"],
+  "retry": { "enabled": true, "maxRetries": 4 },
+  "compaction": {
+    "modelOverrides": {
+      "litellm/bc250-local/qwen3.6-35b-a3b": { "reserveTokens": 4096, "keepRecentTokens": 6000 },
+      "litellm/bc250/qwen3.6-35b-a3b": { "reserveTokens": 4096, "keepRecentTokens": 6000 }
+    }
+  },
+  "packages": ["npm:pi-claude-bridge@0.9.1", "npm:@eleboucher/pi-memini@0.7.34"],
+  "extensions": ["~/.pi/shared/extensions/profile", "~/.pi/shared/extensions/subagent"],
+  "prompts": ["~/.pi/shared/prompts"]
+}'
+{{ template "pi-merge-json" }}

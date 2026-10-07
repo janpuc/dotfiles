@@ -1,0 +1,12 @@
+#!/usr/bin/env zsh
+# pi-claude-bridge, Personal profile. Claude Code runs with only the bridge's
+# in-process tool server (strict MCP config; the bridge also disables claude.ai
+# connectors), no Claude auto-memory (pi-memini owns memory) and no AskClaude
+# (which would give Claude its native tools and subagents). plan=max matches
+# the personal Max subscription and only widens Opus 4.6 to 1M context.
+set -euo pipefail
+managed='{
+  "provider": { "plan": "max", "strictMcpConfig": true, "autoMemoryEnabled": false },
+  "askClaude": { "enabled": false }
+}'
+{{ template "pi-merge-json" }}

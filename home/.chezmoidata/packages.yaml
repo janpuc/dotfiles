@@ -37,6 +37,7 @@ packages:
         - mise
         - ncdu
         - can1357/tap/omp
+        - pi-coding-agent
         - saml2aws
         - showwin/speedtest/speedtest
         - spicetify-cli

@@ -1,0 +1,38 @@
+#!/usr/bin/env zsh
+#
+# Install the npm packages each Pi profile pins in its settings.json
+# (pi-claude-bridge, @eleboucher/pi-memini) into that profile's own npm dir.
+# Pi installs missing pinned packages on first launch anyway; doing it here
+# keeps that launch fast and surfaces failures at apply time. `pi update
+# --extensions` skips pinned versions by design, hence `pi install`, which is
+# idempotent. Runs again when a profile's managed settings change:
+#   personal {{ include "dot_pi/private_agent/modify_settings.json.tmpl" | sha256sum }}
+#   work     {{ include "dot_pi/private_profiles/private_work/private_agent/modify_settings.json.tmpl" | sha256sum }}
+#
+# Host-agnostic: Pi comes from Homebrew on macOS (packages.yaml) and from
+# `npm install -g @earendil-works/pi-coding-agent` elsewhere. auth.json,
+# sessions and the rest of each profile's runtime state are never touched.
+
+set -eufo pipefail
+
+real_pi() {
+  local d f launcher=${${:-$HOME/.local/bin/pi}:A}
+  for d in $path; do
+    f=$d/pi
+    [[ -f $f && -x $f && ${f:A} != $launcher ]] && { print -r -- $f; return }
+  done
+  return 1
+}
+
+if ! pi_bin=$(real_pi); then
+  print "Pi is not installed; skipping package setup (macOS: brew install pi-coding-agent; elsewhere: npm install -g @earendil-works/pi-coding-agent)"
+  exit 0
+fi
+
+for profile dir in personal $HOME/.pi/agent work $HOME/.pi/profiles/work/agent; do
+  [[ -f $dir/settings.json ]] || continue
+  for src in ${(f)"$(jq -r '.packages[]? | if type == "object" then .source else . end | select(startswith("npm:"))' $dir/settings.json)"}; do
+    print "pi ($profile): $src"
+    AI_PROFILE=$profile PI_CODING_AGENT_DIR=$dir $pi_bin install $src
+  done
+done
