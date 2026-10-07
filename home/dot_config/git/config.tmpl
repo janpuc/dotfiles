@@ -75,6 +75,6 @@
 	gpgsign = true
 
 [user]
-	email = "janpuc@proton.me"
+	email = {{ .email | quote }}
 	name = "janpuc"
 	signingKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxcKV1Iao/IzHzbHUGaUKocgDR6WG3w5SA64U6cd8Nk"
