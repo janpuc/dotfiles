@@ -38,8 +38,8 @@
     "material-icon-theme": true,
     "oxc": true
   },
-  // Same self-hosted gateway `opencode` (home/dot_config/opencode/opencode.jsonc) and `claudel`
-  // (home/dot_claudel/settings.json) already use. The provider id "litellm" is load-bearing:
+  // Same self-hosted gateway `opencode` (home/dot_config/opencode/opencode.jsonc) already uses.
+  // The provider id "litellm" is load-bearing:
   // Zed derives the API key env var as UPPER_SNAKE(id) + "_API_KEY", i.e. LITELLM_API_KEY,
   // which `ai-sync` already writes to $XDG_STATE_HOME/ai/credentials.fish and config.fish
   // sources into every shell — no new secret plumbing needed. This only works if Zed inherits
@@ -86,9 +86,9 @@
   },
   // Real Claude (Opus/Sonnet/Haiku) via subscription login — a separate ACP thread in the Agent
   // Panel, not the inline assistant configured above. `env: {}` is deliberate: it must NOT
-  // inherit ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN — those belong to `claudel` and would
-  // silently redirect this agent at a MiniMax model wearing an Anthropic costume instead of
-  // real Claude. First use: open a Claude Agent thread and run `/login`.
+  // inherit ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN — if any shell exports them they would
+  // silently redirect this agent at a non-Anthropic model instead of real Claude.
+  // First use: open a Claude Agent thread and run `/login`.
   // Mirrors Zed's own bundled ACP registry entry (id "claude-acp" in
   // ~/Library/Application Support/Zed/external_agents/registry/registry.json) as a manual
   // custom agent so it's reproducible via chezmoi without the in-app "Install from Registry"

@@ -1,8 +1,8 @@
 # omp (oh-my-pi) — https://github.com/can1357/oh-my-pi
 #
 # Counterpart to the same self-hosted gateway `opencode`
-# (home/dot_config/opencode/opencode.jsonc), `claudel` (home/dot_claudel/settings.json)
-# and Zed (home/dot_config/zed/settings.json) already use.
+# (home/dot_config/opencode/opencode.jsonc) and Zed (home/dot_config/zed/settings.json)
+# already use.
 #
 # Unlike those three, NO model catalogue is enumerated here: omp fetches
 # /v1/models from the gateway itself and caches it in ~/.omp/agent/models.db
