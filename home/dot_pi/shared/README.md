@@ -202,6 +202,11 @@ policy prompt waiting for an answer: OSC 777 (Ghostty, iTerm2, WezTerm; it passe
 notify the laptop) or OSC 99 (Kitty). Only on a terminal; T3 notifies on its own. `PI_NOTIFY_AFTER=<seconds>` changes
 the threshold, `PI_NOTIFY=off` turns them off.
 
+Since 1.1 Pi also reports its state itself with OSC 7501 (working, blocked on a dialog, done, error; no prompts or
+output), but only to a terminal that answers the support query. Ghostty's app and herdr do not use it yet (Ghostty merged
+it into libghostty-vt for 1.4, and the app ignores the reports), so the notifications above stay. Once your terminal
+acts on 7501, drop `notify.ts` to avoid a double alert. A run you cancel no longer sends "done".
+
 ## Commit attribution
 
 Commits never credit an AI model, whichever one answered. `~/.pi/shared/context/AGENTS.md` (linked into both agent

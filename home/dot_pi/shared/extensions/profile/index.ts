@@ -825,9 +825,11 @@ export default function profileExtension(pi: ExtensionAPI) {
 	pi.on("agent_start", () => {
 		if (!runStarted) runStarted = Date.now();
 	});
-	pi.on("agent_settled", (_event, ctx) => {
+	pi.on("agent_settled", (event, ctx) => {
 		const took = runStarted ? Date.now() - runStarted : 0;
 		runStarted = 0;
+		// Pi >= 1.1 says when you cancelled the run yourself; older Pi leaves `aborted` unset.
+		if ((event as { aborted?: boolean }).aborted) return;
 		if (took >= notifyAfterMs()) notify(`Pi · ${basename(ctx.cwd)}`, `Done in ${duration(took)}, ready for input`);
 	});
 
