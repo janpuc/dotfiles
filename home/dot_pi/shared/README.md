@@ -151,7 +151,7 @@ a narrow terminal the right-hand parts shorten first, then the left is cut.
 
 `unii` opens the one chat that never ends: [pi-optchat](https://github.com/janpuc/pi-optchat) (a fork of
 jonaslsaa/pi-optchat, on its revised-recipe PRs #96-#98) logs every message in `~/.optchat/profiles/unii` and
-summarizes the log into a binary tree of 512-byte lines, with Claude Haiku 5.5 (xhigh) through OpenCode Go. Each
+summarizes the log into a binary tree of 512-byte lines, with Claude Haiku 5.5 (medium) through OpenCode Go. Each
 message starts a fresh context: the system prompt, a 64-128 KB view of lines covering the whole chat, then the
 message. The agent zooms into a line to read what it was made from, down to the message.
 
