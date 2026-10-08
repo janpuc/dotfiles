@@ -386,5 +386,52 @@ print '{"pid":999999}' > $T/run/pi/p3-3.json
 check "nothing running: --summary stays quiet" "$(attach --summary)" ""
 check "…and details left by a killed Pi are cleared" "$(ls $T/run/pi)" ""
 
+# --- unii: the one chat that never ends ------------------------------------------------------
+
+print "unii"
+ln -sf pi $H/.local/bin/unii
+ext=$H/.pi/agent/git/github.com/janpuc/pi-optchat
+args() { tr '\n' ' ' < $T/out.args 2>/dev/null }
+run $H/Work/team/api UNII_HOST=local -- unii
+check "refused without pi-optchat installed" "$(grep -c 'pi-optchat is not installed' $T/stderr)/$( [[ -e $T/out.args ]] && print ran || print none)" 1/none
+mkdir -p $ext
+run $H/Work/team/api UNII_HOST=local -- unii
+check "unii is Personal even from a Work tree" "$(envv AI_PROFILE)" personal
+check "…and always runs from HOME" "$(envv PWD)" $H
+check "…with its own memini namespace" "$(envv MEMINI_NAMESPACE)/$(has MEMINI_NAMESPACE_PREFIX)" homelab/unii/no
+check "…optchat, its profile and session store, Claude by default, continued" "$(args)" \
+  "-e $ext --optchat-profile unii --session-dir $H/.pi/agent/sessions/unii --model claude-bridge/claude-opus-5-5 --thinking medium -c "
+check "…and the session store exists" "$( [[ -d $H/.pi/agent/sessions/unii ]] && print yes || print no)" yes
+run $H/plain UNII_HOST=local -- unii --model openai/gpt-6.1-sol -r
+check "own --model and session choice win" "$(args)" \
+  "-e $ext --optchat-profile unii --session-dir $H/.pi/agent/sessions/unii --thinking medium --model openai/gpt-6.1-sol -r "
+run $H/plain UNII_HOST=local AI_PROFILE=work -- unii
+check "refused from inside a Work session" "$(grep -c 'unii is Personal' $T/stderr)/$( [[ -e $T/out.args ]] && print ran || print none)" 1/none
+# Elsewhere the chat opens on its host over SSH, arguments quoted for the remote shell.
+cat > $T/realbin/ssh <<'EOF2'
+#!/bin/zsh
+print -rl -- "$@" > $FAKE_PI_OUT.ssh
+EOF2
+chmod +x $T/realbin/ssh
+run $H/plain UNII_HOST=me@chat -- unii -p 'what next?'
+check "UNII_HOST hops over SSH" "$(tr '\n' '|' < $T/out.ssh 2>/dev/null)" "-t|me@chat|.local/bin/unii|-p|'what next?'|"
+check "…and runs nothing here" "$( [[ -e $T/out.args ]] && print ran || print none)" none
+if [[ $OSTYPE == darwin* ]]; then
+  run $H/plain -- unii
+  check "on the laptop the chat is on aether" "$(sed -n 2p $T/out.ssh 2>/dev/null)" ubuntu@aether
+fi
+# Under dtach the chat has the fixed id unii, and a second unii joins it.
+rm -rf $T/run/pi
+tty_run $H/plain UNII_HOST=local $H/.local/bin/unii
+check "unii runs under dtach as unii" "$(sed -n 2p $T/out.dtach 2>/dev/null)" $T/run/pi/unii.sock
+mkdir -p -m 700 $T/run/pi
+sleep 300 & live=$!
+mksock $T/run/pi/unii.sock; print "{\"pid\":$live,\"cwd\":\"$H\",\"profile\":\"personal\",\"started\":\"2026-10-08T07:00:00Z\"}" > $T/run/pi/unii.json
+tty_run $H/plain UNII_HOST=local $H/.local/bin/unii
+check "a second unii attaches to the running chat" "$(sed -n 1,2p $T/out.dtach 2>/dev/null | tr '\n' ' ')" "-a $T/run/pi/unii.sock "
+tty_run $H/plain UNII_HOST=local $H/.local/bin/unii -p hello
+check "…but a print run is not an attach" "$( [[ -e $T/out.dtach ]] && print dtach || print direct)" direct
+kill $live 2>/dev/null
+
 print "\n$passes passed, $failures failed"
 (( failures == 0 ))

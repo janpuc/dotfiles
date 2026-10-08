@@ -5,7 +5,8 @@
 # replaced by tests/pi/mock_gateway.py; the bridge has no Claude login there, so
 # its requests fail the way a missing login does. Memory is off (PI_MEMINI=off);
 # memini is covered by smoke.zsh. Needs `pi` installed and the packages present
-# in ~/.pi/agent/npm and ~/.pi/profiles/work/agent/npm (chezmoi apply does both).
+# in ~/.pi/agent/npm (git forks: ~/.pi/agent/git) and ~/.pi/profiles/work/agent/npm
+# (chezmoi apply does all of them).
 
 emulate -L zsh
 setopt no_unset pipe_fail
@@ -62,6 +63,8 @@ cp $SB/routing.json $H/.pi/shared/routing.json
 ln -s ../shared/agents $H/.pi/agent/agents
 ln -s ../../../shared/agents $H/.pi/profiles/work/agent/agents
 cp -R $HOME/.pi/agent/npm $H/.pi/agent/npm
+# Forks pinned as git: packages (pi-claude-bridge, pi-optchat) install into the agent's git dir.
+[[ -d $HOME/.pi/agent/git ]] && cp -R $HOME/.pi/agent/git $H/.pi/agent/git
 cp -R $HOME/.pi/profiles/work/agent/npm $H/.pi/profiles/work/agent/npm
 mkdir -p $H/Work/repo && git -C $H/Work/repo init -q
 # Projects trusted up front so print mode never waits on a trust prompt.

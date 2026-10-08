@@ -3,6 +3,7 @@
 # Offline checks for the Pi setup (no real credentials, no network except npm
 # for --typecheck):
 #   syntax       zsh/fish syntax, JSON validity, chezmoi templates render (incl. the T3 seed)
+#   merge        the Personal settings merge keeps one bridge (the git fork) and optchat's filter
 #   policy       node --test on the routing/fallback/memory policy and the Work org-policy mirror
 #   launcher     pi/piw/pi-profile behaviour in a throwaway HOME
 #   integration  real Pi + extension + installed packages against a mock gateway
@@ -47,6 +48,25 @@ syntax() {
   print "ok"
 }
 
+# The Personal settings merge: a pinned git fork replaces the npm release of the same package,
+# a filtered entry keeps its filter, and packages added by hand survive.
+merge() {
+  local out=$(mktemp) got
+  (cd $src && chezmoi execute-template < dot_pi/private_agent/modify_settings.json.tmpl) > $out || { rm -f $out; return 1 }
+  got=$(print -r -- '{"packages": ["npm:pi-claude-bridge@0.9.1", "npm:@eleboucher/pi-memini@0.7.30", "npm:pi-extra@1.0.0",
+    {"source": "git:github.com/janpuc/pi-optchat@0000000"}], "lastChangelogVersion": "1.1.0"}' | zsh $out | jq -c '{
+      bridge: [.packages[] | strings | select(test("pi-claude-bridge"))],
+      memini: [.packages[] | strings | select(test("pi-memini"))],
+      optchat: [.packages[] | objects | select(.source | test("pi-optchat")) | .extensions],
+      extra: ([.packages[] | strings | select(. == "npm:pi-extra@1.0.0")] | length),
+      kept: .lastChangelogVersion }')
+  rm -f $out
+  print -r -- $got | jq -e '(.bridge | length == 1 and (.[0] | startswith("git:github.com/janpuc/pi-claude-bridge@")))
+    and .memini == ["npm:@eleboucher/pi-memini@0.7.34"] and .optchat == [[]] and .extra == 1 and .kept == "1.1.0"' >/dev/null ||
+    { print -r -- "unexpected merge: $got"; return 1 }
+  print "ok"
+}
+
 retry_js() {
   local root
   for root in "$(brew --prefix pi-coding-agent 2>/dev/null)/libexec/lib/node_modules" "$(npm root -g 2>/dev/null)"; do
@@ -59,7 +79,9 @@ policy() { PI_AI_RETRY_JS=$(retry_js) node --test $here/policy.test.ts $here/per
 
 integration() {
   if ! whence -pa pi | grep -qv "$HOME/.local/bin/pi"; then print "skipped: pi not installed"; return 0; fi
-  if [[ ! -d $HOME/.pi/agent/npm || ! -d $HOME/.pi/profiles/work/agent/npm ]]; then print "skipped: profile packages not installed (chezmoi apply)"; return 0; fi
+  if [[ ! -d $HOME/.pi/agent/npm || ! -d $HOME/.pi/profiles/work/agent/npm || ! -d $HOME/.pi/agent/git/github.com/janpuc/pi-claude-bridge ]]; then
+    print "skipped: profile packages not installed (chezmoi apply)"; return 0
+  fi
   zsh $here/integration.test.zsh
 }
 
@@ -79,6 +101,7 @@ typecheck_ext() {
 }
 
 step syntax syntax
+step merge merge
 step policy policy
 step launcher zsh $here/launcher.test.zsh
 step integration integration

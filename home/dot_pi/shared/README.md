@@ -15,6 +15,7 @@ Sources live in the dotfiles repo: `home/dot_local/bin/executable_pi` (launcher)
 | `pi -c` / `pi -r` / `pi --session <file>` | continue / pick / open a session — only within the launch's profile |
 | `pi-profile [--work] [--personal-models]` | show what a launch here would do: profile, reason, dirs, memory namespace, memini handshake |
 | `pi-attach [<n>\|<id>\|--list]` | aether: get back to an interactive Pi that kept running after its terminal went away (below) |
+| `unii` | Personal: the one chat that never ends, on aether from any machine (Unii, below) |
 
 Every launch recomputes the profile from the canonical directory and git common dir; nothing depends on fish's
 PWD hooks. A process started from a Work session stays Work. The launcher `exec`s the real `pi`, so arguments, exit
@@ -145,6 +146,33 @@ a narrow terminal the right-hand parts shorten first, then the left is cut.
   is under 90% is used, and an advisor whose pool is used up is refused with the alternative. Work: `fable` (high) on
   the enterprise seat only — it is the most expensive model there; astra is refused, with the override as the hint.
   Advisors and order: `routing.json` → `advisors`.
+
+## Unii: one chat that never ends
+
+`unii` opens the one chat that never ends: [pi-optchat](https://github.com/janpuc/pi-optchat) (a fork of
+jonaslsaa/pi-optchat, on its revised-recipe PRs #96-#98) logs every message in `~/.optchat/profiles/unii` and
+summarizes the log into a binary tree of 512-byte lines, with Claude Haiku 5.5 (xhigh) through OpenCode Go. Each
+message starts a fresh context: the system prompt, a 64-128 KB view of lines covering the whole chat, then the
+message. The agent zooms into a line to read what it was made from, down to the message.
+
+- **Where:** on aether. From the laptop `unii` opens the same chat there over SSH; on aether it runs under dtach
+  with the id `unii`, so a second `unii` (or `pi-attach unii`) joins the running one. optchat lets one process
+  own a chat. `UNII_HOST=local unii` runs a separate chat on this machine instead.
+- **How:** Personal, always from `$HOME`, in its own session store (`~/.pi/agent/sessions/unii`, continued with
+  `-c` unless you pick a session) and memini namespace `homelab/unii`. It runs on
+  `claude-bridge/claude-opus-5-5` at medium thinking unless `--model`/`--thinking` say otherwise.
+- **Claude's cache:** Claude Code places 3 of Anthropic's 4 cache marks itself. optchat marks the view's last
+  whole 4-line block (1h), and the bridge fork ([janpuc/pi-claude-bridge](https://github.com/janpuc/pi-claude-bridge),
+  0.9.2 plus that) carries the mark into Claude Code, so the next turn reads the view from the cache. On a
+  2,000-message test chat a turn read 37.8k tokens and wrote 2.0k, against 15.2k and 28.3k without the mark.
+  Through a virtual model (`auto`, `daily`) the view is not marked, and a tier change misses the cache anyway.
+- **memini:** recall for each message and capture of each turn work as everywhere else. The session briefing,
+  which a fresh context would drop after the first turn, follows the view in every turn. The profile's
+  `AGENTS.md` tells the agent which memory is which.
+- **Settings:** `/optchat settings`, `/optchat model` (compactor), `/optchat agents model` (subagents: Opus 5.5,
+  high), `/optchat activity` (summaries catching up). chezmoi creates `config.json` and `AGENTS.md` once; after
+  that they belong to optchat.
+- **Not a backup:** the profile folder is a local git repo with no remote.
 
 ## Tool policy (Personal)
 

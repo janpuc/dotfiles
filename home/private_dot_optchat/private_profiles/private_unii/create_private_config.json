@@ -1,0 +1,4 @@
+{
+  "compactor": { "provider": "opencode-go", "model": "claude-haiku-5-5", "thinking": "xhigh" },
+  "subagent": { "provider": "claude-bridge", "model": "claude-opus-5-5", "thinking": "high" }
+}

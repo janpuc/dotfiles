@@ -5,8 +5,10 @@
 # auto is the startup default (MiniMax picks fast/daily/deep per prompt);
 # Ctrl+P cycles auto/daily/deep/fast. Virtual models, chains and usage
 # budgets live in ~/.pi/shared/routing.json. Packages are
-# pinned and installed per profile into ~/.pi/agent/npm by Pi itself (and
-# pre-fetched by run_onchange_after_configure-pi.sh). pi-web-access (web_search, fetch_content,
+# pinned and installed per profile into ~/.pi/agent/npm (git: ~/.pi/agent/git) by Pi itself
+# (and pre-fetched by run_onchange_after_configure-pi.sh). pi-claude-bridge is the janpuc fork
+# (0.9.2 plus cache marks on user text, for unii's view); pi-optchat is installed but loaded only
+# by `unii` (`extensions: []` here). pi-web-access (web_search, fetch_content,
 # GitHub clones) is Personal only; it needs no keys (Exa, or OpenAI search through the ChatGPT login).
 # Skills in ~/.pi/shared/skills (homelab workflows) are Personal only too.
 #
@@ -26,7 +28,12 @@ managed='{
       "litellm/bc250/qwen3.6-35b-a3b": { "reserveTokens": 4096, "keepRecentTokens": 6000 }
     }
   },
-  "packages": ["npm:pi-claude-bridge@0.9.1", "npm:@eleboucher/pi-memini@0.7.34", "npm:pi-web-access@0.37.0"],
+  "packages": [
+    "git:github.com/janpuc/pi-claude-bridge@4364066b26e846b49b9d2ac5a47a1e1fe6283df5",
+    "npm:@eleboucher/pi-memini@0.7.34",
+    "npm:pi-web-access@0.37.0",
+    { "source": "git:github.com/janpuc/pi-optchat@ed1e9e2e68c1667f3a806202783af302ca739610", "extensions": [] }
+  ],
   "extensions": ["~/.pi/shared/extensions/profile", "~/.pi/shared/extensions/subagent"],
   "prompts": ["~/.pi/shared/prompts"],
   "skills": ["~/.pi/shared/skills"]

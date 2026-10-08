@@ -22,6 +22,7 @@ sessions there.
 | `home/.system/aether-keepalive*` | holds 25% of RAM (no CPU), so Oracle never sees the instance as idle: it reclaims only when CPU p95, network and memory are all under 20% for 7 days |
 | `home/dot_config/fish/config.fish.tmpl` | the laptop's fish setup with mise; at login it says when Pi sessions are still running |
 | `dtach` (apt) + `pi-attach` | interactive Pi survives a dropped SSH connection; see `home/dot_pi/shared/README.md`, Sessions |
+| `unii` + `home/private_dot_optchat/` | the one chat that never ends (pi-optchat) lives here; the laptop's `unii` opens it over SSH; see `home/dot_pi/shared/README.md`, Unii |
 
 ## What lives on the server only
 

@@ -3,13 +3,15 @@
 # write at runtime (lastChangelogVersion, startupNoticeShown, /settings choices,
 # packages added with `pi install`) survive every apply; managed keys win.
 # Resource lists (packages, extensions, prompts, skills, themes) are unions,
-# managed entries first; a managed npm package replaces any other pinned
-# version of the same package.
+# managed entries first; a managed package replaces any other pinned version
+# of the same package, an npm release and a git fork of it (same repo name) alike.
 current=$(cat)
 [[ -n ${current//[[:space:]]/} ]] || current='{}'
 print -r -- $current | jq --argjson managed "$managed" '
-  def pkg: (if type == "object" then .source else . end) | tostring | sub("^npm:"; "")
-    | if startswith("@") then (split("/") | .[0] + "/" + (.[1] | split("@")[0])) else split("@")[0] end;
+  def pkg: (if type == "object" then .source else . end) | tostring
+    | if startswith("git:") then sub("^git:"; "") | split("@")[0] | split("/") | last | sub("\\.git$"; "")
+      else sub("^npm:"; "")
+        | if startswith("@") then (split("/") | .[0] + "/" + (.[1] | split("@")[0])) else split("@")[0] end end;
   . as $cur
   | ($cur * ($managed | del(.packages, .extensions, .prompts, .skills, .themes)))
   | if $managed.packages then

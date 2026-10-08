@@ -41,6 +41,8 @@
 !.pi/agent/**
 !.pi/shared
 !.pi/shared/**
+!.optchat
+!.optchat/**
 !.t3
 !.t3/**
 {{- else -}}

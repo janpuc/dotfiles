@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 #
-# Install the npm packages each Pi profile pins in its settings.json
-# (pi-claude-bridge, @eleboucher/pi-memini) into that profile's own npm dir.
+# Install the packages each Pi profile pins in its settings.json (npm: into
+# that profile's npm dir, git: forks pinned to a commit into its git dir).
 # Pi installs missing pinned packages on first launch anyway; doing it here
 # keeps that launch fast and surfaces failures at apply time. `pi update
 # --extensions` skips pinned versions by design, hence `pi install`, which is
@@ -34,7 +34,7 @@ fi
 
 for profile dir in personal $HOME/.pi/agent work $HOME/.pi/profiles/work/agent; do
   [[ -f $dir/settings.json ]] || continue
-  for src in ${(f)"$(jq -r '.packages[]? | if type == "object" then .source else . end | select(startswith("npm:"))' $dir/settings.json)"}; do
+  for src in ${(f)"$(jq -r '.packages[]? | if type == "object" then .source else . end | select(startswith("npm:") or startswith("git:"))' $dir/settings.json)"}; do
     print "pi ($profile): $src"
     AI_PROFILE=$profile PI_CODING_AGENT_DIR=$dir $pi_bin install $src
   done
