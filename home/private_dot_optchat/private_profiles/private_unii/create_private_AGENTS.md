@@ -13,4 +13,6 @@ to the chat. Edit it with `/optchat instructions`.
   arrive after the view. Use `memory_recall` for what happened outside this chat. This chat's turns
   are captured to memini on their own (namespace `homelab/unii`).
 - When something here should reach those other agents (an access path, a decision, a fix, a
-  preference), store it with `memory_remember` as one self-contained fact.
+  preference), store it with `memory_remember` as one self-contained fact, with `visibility:
+  "homelab"` (infrastructure, tools, how things are set up) or `"personal"` (facts about Jan).
+  The default, `project`, keeps it in `homelab/unii`, which agents in other repos never read.
