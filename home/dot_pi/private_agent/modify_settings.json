@@ -1,17 +1,64 @@
 #!/bin/sh
-# Pi's packages. Pi writes the rest of settings.json itself (last model, changelog,
-# device id); those keys and any package added with `pi install` survive. A managed
-# package replaces an installed one of the same name, whatever its version.
+# Pi's settings. Pi writes the rest of settings.json itself (changelog, device id); those keys
+# and any package added with `pi install` survive. A managed package replaces an installed one
+# of the same name, whatever its version; retired packages are removed.
+#
+# Subagents (pi-subagents) pick their model per call; `subagents.modelScope` keeps them on the
+# subscriptions meant for workers: no Opus, no OpenCode Zen. Children load only the bridge and
+# pi-web-access, so memini and the rest stay in the main session; each agent's tool list still
+# decides what it can call. The bridge has to load inside a child to serve claude-bridge models.
 set -eu
-managed='[
-  "npm:pi-claude-bridge@0.9.2",
-  "npm:@eleboucher/pi-memini@0.7.34",
-  "npm:pi-subagent-manager@0.19.0",
-  "git:github.com/janpuc/pi-usage@v0.1.0",
-  "git:github.com/janpuc/pi-title-spinner@v0.1.0"
-]'
+managed='{
+  "defaultProvider": "claude-bridge",
+  "defaultModel": "claude-opus-5-5",
+  "enabledModels": ["claude-bridge/claude-opus-5-5", "claude-bridge/claude-sonnet-5-5"],
+  "packages": [
+    "npm:pi-claude-bridge@0.9.2",
+    "npm:@eleboucher/pi-memini@0.7.34",
+    "npm:pi-subagents@0.76.1",
+    "npm:pi-web-access@0.37.0",
+    "git:github.com/janpuc/pi-usage@v0.1.0",
+    "git:github.com/janpuc/pi-title-spinner@v0.1.0",
+    "./local/bc250-quiet-hours.ts"
+  ],
+  "subagents": {
+    "modelScope": {
+      "enforce": true,
+      "strict": true,
+      "allow": [
+        "minimax/*",
+        "opencode-go/*",
+        "openai/gpt-6*",
+        "openai/gpt-5.6-*",
+        "claude-bridge/claude-sonnet-5-5",
+        "claude-bridge/claude-fable-5-1",
+        "litellm/bc250*"
+      ]
+    },
+    "agentOverrides": {
+      "scout": { "model": "minimax/MiniMax-M3" },
+      "researcher": { "model": "minimax/MiniMax-M3" },
+      "worker": { "model": "opencode-go/kimi-k3" },
+      "reviewer": { "model": "openai/gpt-6.1-sol" },
+      "oracle": { "model": "openai/gpt-6-astra" },
+      "delegate": { "disabled": true },
+      "evidence-auditor": { "disabled": true },
+      "claude-code": { "disabled": true },
+      "claude-code-writer": { "disabled": true },
+      "codex-exec": { "disabled": true },
+      "codex-exec-writer": { "disabled": true },
+      "cursor-agent": { "disabled": true },
+      "cursor-agent-writer": { "disabled": true }
+    }
+  }
+}'
+retired='["pi-subagent-manager", "./local/claude-bridge-subagents.ts"]'
+npm="$HOME/.pi/agent/npm/node_modules"
 input=$(cat)
-printf '%s' "${input:-"{}"}" | jq --argjson m "$managed" '
+printf '%s' "${input:-"{}"}" | jq --argjson m "$managed" --argjson r "$retired" \
+  --arg bridge "$npm/pi-claude-bridge/src/index.ts" --arg web "$npm/pi-web-access/dist/index.js" '
   def id: (if type == "object" then .source else . end) | sub("^(npm|git):"; "") | sub("@[^@/]*$"; "");
-  ($m | map(id)) as $ids
-  | .packages = $m + [(.packages // [])[] | select(id as $i | $ids | index($i) | not)]'
+  ($m.packages | map(id)) as $ids
+  | . * ($m | del(.packages))
+  | .subagents.defaultExtensions = [$bridge, $web]
+  | .packages = $m.packages + [(.packages // [])[] | select(id as $i | ($ids + $r) | index($i) | not)]'

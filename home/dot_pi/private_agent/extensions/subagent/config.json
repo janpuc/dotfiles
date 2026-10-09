@@ -1,0 +1,26 @@
+{
+  "toolActivation": "eager",
+  "toolDescriptionMode": "compact",
+  "disabledFeatures": [
+    "agent-management",
+    "watchdog",
+    "panes",
+    "missions",
+    "lane-management",
+    "spawn-budget-grants",
+    "preflight",
+    "lane-metadata",
+    "gates",
+    "usage-budgets",
+    "tool-budgets",
+    "control-overrides",
+    "extension-bindings",
+    "external-machines",
+    "workflow-scripts"
+  ],
+  "missions": { "enabled": false },
+  "maxSubagentDepth": 1,
+  "maxActiveAsyncRunsPerSession": 2,
+  "globalConcurrencyLimit": 2,
+  "parallel": { "maxTasks": 4, "concurrency": 2 }
+}

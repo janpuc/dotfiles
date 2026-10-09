@@ -1,0 +1,30 @@
+{
+  "providers": {
+    "litellm": {
+      "name": "LiteLLM (litellm.janpuc.com)",
+      "baseUrl": "https://litellm.janpuc.com/v1",
+      "api": "openai-completions",
+      "apiKey": "$LITELLM_API_KEY",
+      "models": [
+        {
+          "id": "bc250/qwen3.6-35b-a3b",
+          "name": "Qwen3.6 35B A3B (BC250, MiniMax M3 when off)",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 131072,
+          "maxTokens": 16384,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "bc250-local/qwen3.6-35b-a3b",
+          "name": "Qwen3.6 35B A3B (BC250, local only)",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 131072,
+          "maxTokens": 16384,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}
