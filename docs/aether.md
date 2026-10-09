@@ -37,9 +37,9 @@ Never in this public repository:
 - `/home/pocket/.config/pi-pocket/secrets.env` (0600, owned by pocket): Pi Pocket's model
   keys, written by `ai-sync` from 1Password and loaded into the service by pocket's mise
   config. Run `fish -c ai-sync` again after a key rotation; it restarts the service.
-- `/home/pocket/.pi-pocket/`: Pi Pocket's database, push keys and sign-ins. The owner
-  sign-in link is `https://aether.<tailnet>.ts.net/login?token=<ownerToken>`, with the token
-  from `sudo jq -r .ownerToken /home/pocket/.pi-pocket/config.json`.
+- `/home/pocket/.pi-pocket/`: Pi Pocket's database, push keys and sign-ins. Print the owner
+  sign-in link from the Mac with
+  `aether sudo cat /home/pocket/.pi-pocket/config.json | jq -r '"https://aether.tail17d532.ts.net/login?token=" + (.ownerToken|@uri)'`.
 
 Run `fish -c ai-sync` manually when GitHub authentication needs refreshing. Linux no longer
 fetches or sources `~/.local/state/ai/credentials.fish`.
