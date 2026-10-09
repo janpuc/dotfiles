@@ -92,7 +92,29 @@ test("one approval covers its identity and retries; anything wider, or a new ses
 	assert.equal(verdict(gate, "kubectl --server=https://other apply -f x"), "approve");
 	const credentialResult = await ask(["git push https://user:pa@ss@host/repo.git main"]);
 	assert.doesNotMatch(choices.at(-1)! + credentialResult.content[0].text, /user|pa@|ss@/);
-	await assert.rejects(ask([`git push https://host/${"x".repeat(301)} main`]), /shown completely/);
+	// Long values are cut into lines rather than refused; the dialog shows every bound byte.
+	await ask([`git push https://host/${"x".repeat(301)} main`]);
+	assert.match(choices.at(-1)!.replace(/\n +/g, ""), new RegExp(`https://host/x{301}`));
+	const files = Array.from({ length: 30 }, (_, i) => `/home/u/.pi/shared/extensions/subagent/module-${i}.ts`);
+	await ask([`chezmoi apply --exclude scripts ${files.join(" ")}`]);
+	for (const f of files) assert.match(choices.at(-1)!, new RegExp(`^ +${f}$`, "m"));
+	assert.match(choices.at(-1)!, /^ +options=\[--exclude scripts\]$/m);
+	for (const wider of [`chezmoi apply ${files.join(" ")}`, `chezmoi destroy --exclude scripts ${files.join(" ")}`]) assert.equal(verdict(gate, wider), "approve", wider.slice(0, 30));
+	assert.equal(verdict(gate, `chezmoi apply --exclude scripts ${files.join(" ")}`), "run");
+	await assert.rejects(ask([`chezmoi apply ${Array.from({ length: 70 }, (_, i) => `/f${i}`).join(" ")}`]), /split it/);
+	// Argument boundaries are part of the approval and visible: '/a /b' is one target, not two.
+	await ask(["chezmoi apply '/tmp/a /tmp/b'"]);
+	assert.match(choices.at(-1)!, /targets=\["\/tmp\/a \/tmp\/b"\]|^ +"\/tmp\/a \/tmp\/b"$/m);
+	assert.equal(verdict(gate, "chezmoi apply /tmp/a /tmp/b"), "approve");
+	// Control, zero-width and bidi characters are escaped in the dialog, never stripped or rendered.
+	await ask(["chezmoi apply '/tmp/x\u202e\u200by\nz'", "git push https://host/a\u0007b main"]);
+	assert.match(choices.at(-1)!, /\\u202e\\u200by\\nz/);
+	assert.doesNotMatch(choices.at(-1)!, /[\u0000-\u0009\u000b-\u001f\u200b\u202e]/);
+	assert.match(choices.at(-1)!, /\\u0007/);
+	// A literal escape text and the character it names never look alike.
+	await ask(["chezmoi apply x\u200by"]); const real = choices.at(-1)!;
+	await ask(["chezmoi apply '\"x\\u200by\"'"]);
+	assert.notEqual(choices.at(-1)!.split("\n")[1], real.split("\n")[1]);
 	assert.match((await ask(["npm test"])).content[0].text, /No approval needed/);
 	await assert.rejects(ask(["cat .env"]), /secret-once/);
 	await assert.rejects(tools.get("request_approval").execute("t", { commands: ["gh pr create"], purpose: "", consequences: "", reversibility: "" }, undefined, undefined, { ...ctx, cwd: "/nonexistent" }), /could not be resolved/);

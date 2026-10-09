@@ -281,7 +281,14 @@ test("options before the verb, cluster identity and image pushes", () => {
 	assert.deepEqual(helm.target, { verb: "upgrade", context: "home", namespace: "media", server: "" }); assert.equal(helm.unresolved, undefined);
 	assert.deepEqual(classifyBash("flux reconcile ks apps", ctx)[0].unresolved, ["cluster"]);
 	assert.deepEqual(classifyBash("talosctl -n 10.0.0.1 reboot", ctx)[0].target, { verb: "reboot", context: "", nodes: "10.0.0.1" });
-	assert.deepEqual(classifyBash("chezmoi -S src apply --exclude scripts ~/.zshrc", ctx)[0].target, { targets: "~/.zshrc" });
+	const chez = (c: string) => classifyBash(c, ctx)[0]?.target;
+	assert.deepEqual(chez("chezmoi -S src apply --exclude scripts ~/.zshrc"), { verb: "apply", options: '["-S","src","--exclude","scripts"]', targets: '["~/.zshrc"]' });
+	assert.deepEqual(chez("chezmoi destroy ~/.zshrc"), { verb: "destroy", options: "[]", targets: '["~/.zshrc"]' });
+	// Position, not value, decides what is an option: equal values and repeats stay apart.
+	assert.deepEqual(chez("chezmoi apply /tmp/X --source /tmp/X /tmp/X"), { verb: "apply", options: '["--source","/tmp/X"]', targets: '["/tmp/X","/tmp/X"]' });
+	assert.notDeepEqual(chez("chezmoi apply '/a /b'"), chez("chezmoi apply /a /b"));
+	assert.equal(chez("chezmoi init -- --apply"), undefined);
+	assert.deepEqual(chez("chezmoi init --apply janpuc"), { verb: "init", options: '["--apply"]', targets: '["janpuc"]' });
 	assert.deepEqual(ops("chezmoi --source src diff; helm -n x list; flux -n x get ks"), []);
 	for (const c of ["npm -w pkg publish", "docker --context x push img", "docker buildx build --push -t img .", "podman build --push ."]) assert.deepEqual(ops(c), ["pkg.publish"], c);
 	assert.deepEqual(ops("docker build -t img .; docker buildx build -t img ."), []);

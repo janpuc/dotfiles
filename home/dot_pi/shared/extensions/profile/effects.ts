@@ -507,8 +507,18 @@ function classifySimple(words: string[], ctx: ClassifyContext, segment: string, 
 			emit("external", "terraform.mutate", { verb: pos.slice(0, pos[0] === "state" ? 2 : 1).join(" "), dir: chdir ? pathOf(chdir, local) : local.cwd });
 	}
 	if (cmd === "chezmoi") {
-		const pos = positionals(args, ["-S", "--source", "-D", "--destination", "-c", "--config", "-W", "--working-tree", "--cache", "--persistent-state", "-o", "--output", "-x", "--exclude", "-i", "--include", "--override-data", "--override-data-file"]);
-		if (["apply", "update", "purge", "destroy"].includes(pos[0]) || (pos[0] === "init" && has(args, "--apply"))) emit("external", "chezmoi.apply", { targets: pos.slice(1).join(" ") });
+		// The verb and every option are part of what is approved (destroy is not apply; dropping
+		// --exclude scripts runs scripts). Words are split by position and kept as JSON arrays, so
+		// '/a /b' and /a /b stay different approvals.
+		const values = ["-S", "--source", "-D", "--destination", "-c", "--config", "-W", "--working-tree", "--cache", "--persistent-state", "-o", "--output", "-x", "--exclude", "-i", "--include", "--override-data", "--override-data-file"];
+		const pos: string[] = [], options: string[] = [], flags: string[] = [];
+		for (let i = 0, ended = false; i < args.length; i++) {
+			if (!ended && args[i] === "--") { ended = true; options.push(args[i]); }
+			else if (!ended && args[i].startsWith("-")) { flags.push(args[i]); options.push(args[i]); if (values.includes(args[i]) && i + 1 < args.length) options.push(args[++i]); }
+			else pos.push(args[i]);
+		}
+		if (["apply", "update", "purge", "destroy"].includes(pos[0]) || (pos[0] === "init" && has(flags, "--apply")))
+			emit("external", "chezmoi.apply", { verb: pos[0], options: JSON.stringify(options), targets: JSON.stringify(pos.slice(1)) });
 	}
 	if (cmd === "just" && /^(kube|talos|bootstrap)/.test(positionals(args, ["-f", "--justfile", "-d", "--working-directory"])[0] ?? "")) emit("external", "cluster.recipe", { recipe: positionals(args)[0] });
 	if (cmd === "ssh") emit("external", "net.ssh", { host: positionals(args, ["-p", "-l", "-i", "-F", "-o", "-J", "-L", "-R", "-D", "-S", "-b", "-c"])[0] ?? "" });

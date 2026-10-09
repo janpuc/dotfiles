@@ -30,7 +30,7 @@ const canonical = (p: string): string => {
 // Userinfo runs to the last "@" before the host, and may itself contain "@".
 const clean = (url: string) => url.replace(/\/\/[^/\s]*@/g, "//");
 // Model-authored text is displayed, never interpreted: no control sequences, bounded length.
-const plain = (s: unknown, max = 600) => String(s ?? "").replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g, "").slice(0, max);
+const plain = (s: unknown, max = 600) => String(s ?? "").replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, "").slice(0, max);
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: undefined });
 
 /** Fill in targets only execution reveals. Anything left "unknown" cannot be approved. */
@@ -74,6 +74,30 @@ export function identity(e: Effect): string {
 }
 const description = (e: Effect) => `${e.op} ${Object.entries(e.target).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(" ")}`;
 const describe = (e: Effect) => plain(description(e), 300);
+// The dialog shows exactly what an approval binds. Anything but printable ASCII is escaped, never
+// stripped; long values are cut into lines, not refused (a chezmoi apply lists one target per
+// line). Only a dialog taller than a screen is refused.
+const DIALOG_LINES = 60, WIDTH = 96;
+// Only a safe alphabet stays unquoted: no quotes, backslashes or brackets that could imitate an escape.
+const shown = (s: string) => /^[A-Za-z0-9_@%+=:,./~^-]+$/.test(s) ? s
+	: JSON.stringify(s).replace(/[^\x20-\x7e]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+const listOf = (v: string) => {
+	try { const a: unknown = JSON.parse(v); return Array.isArray(a) && a.every((x) => typeof x === "string") ? a as string[] : undefined; }
+	catch { return undefined; }
+};
+const display = (e: Effect) => {
+	const set = Object.entries(e.target).filter(([, v]) => v);
+	// List fields read as [a "b c"]: unquoted elements never contain spaces, so boundaries are clear.
+	const value = (k: string, v: string) => { const list = ["targets", "options"].includes(k) ? listOf(v) : undefined; return list ? `[${list.map(shown).join(" ")}]` : shown(v); };
+	const one = `  • ${e.op} ${set.map(([k, v]) => `${k}=${value(k, v)}`).join(" ")}`;
+	if (one.length <= WIDTH) return [one];
+	return [`  • ${e.op}`, ...set.flatMap(([k, v]) => {
+		const list = ["targets", "options"].includes(k) ? listOf(v) : undefined, s = value(k, v);
+		if (s.length <= WIDTH - 10) return [`      ${k}=${s}`];
+		return [`      ${k}:`, ...(list ? list.map((x) => `        ${shown(x)}`) : (s.match(/.{1,86}/g) ?? []).map((c) => `        ${c}`))];
+	})];
+};
+const rows = (lines: string[]) => lines.reduce((n, l) => n + Math.max(1, Math.ceil(l.length / WIDTH)), 0);
 
 export function createPersonalGate(opts: { home: string; worker: boolean; exec?: Exec; alert?: (title: string, body: string) => void }) {
 	const exec = opts.exec ?? run;
@@ -127,11 +151,15 @@ export function createPersonalGate(opts: { home: string; worker: boolean; exec?:
 				const unknown = effects.filter((e) => Object.values(e.target).includes("unknown"));
 				if (unknown.length) throw new Error(`The real target of ${unknown.map(describe).join("; ")} could not be resolved. Make it explicit (remote URL, cluster context) and ask again.`);
 				if (!effects.length) return text("No approval needed: these run as routine work.");
-				if (effects.some(e => description(e) !== describe(e))) throw new Error("Effect description cannot be shown completely; shorten the target and ask again.");
-				const facts = [...new Map(effects.map((e) => [identity(e), describe(e)])).values()];
-				const title = ["Approve these effects?", ...facts.map((f) => `  • ${f}`), "", "Agent's explanation (not verified):",
-					`  Purpose: ${plain(p.purpose)}`, `  Consequences: ${plain(p.consequences)}`, `  Reversibility: ${plain(p.reversibility)}`,
-					...(p.rollback ? [`  Rollback: ${plain(p.rollback)}`] : [])].join("\n");
+				const unique = [...new Map(effects.map((e) => [identity(e), e])).values()];
+				const facts = unique.map(describe);
+				const lines = ["Approve these effects?", ...unique.flatMap(display), "", "Agent's explanation (not verified):",
+					...["Purpose", "Consequences", "Reversibility", "Rollback"].flatMap((k) => {
+						const v = p[k.toLowerCase() as "purpose"];
+						return k === "Rollback" && !v ? [] : plain(v).split("\n").map((l, i) => i ? `    ${l}` : `  ${k}: ${l}`);
+					})];
+				if (rows(lines) > DIALOG_LINES) throw new Error(`This approval needs ${rows(lines)} lines, more than one screen; split it into smaller requests.`);
+				const title = lines.join("\n");
 				const once = "Approve once (repeats within 15 min)", session = "Approve for this session", asked = generation;
 				opts.alert?.("Pi: approval needed", facts[0]);
 				let choice: string | undefined;
