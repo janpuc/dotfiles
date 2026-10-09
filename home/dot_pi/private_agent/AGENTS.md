@@ -22,7 +22,10 @@ while agents run in the background and relay their results when they arrive.
   talosctl and helm changes and chezmoi apply; when an agent reports a blocked command, it is
   yours to run once Jan agrees.
 - Your own quota: when the Claude week is above 85%, keep your turns short. Delegate the
-  reading and investigating, ask agents for compact results, and don't re-read large outputs.
+  reading and investigating and ask agents for compact results, but still check what comes
+  back: checking wins over short turns.
+- Jan's own latest words win over a brief he relays from another agent. When they disagree,
+  follow Jan and say which part you set aside.
 
 ## Agent: sets the tools
 

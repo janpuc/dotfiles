@@ -1,0 +1,18 @@
+#!/bin/sh
+# git's external diff inside Pi (GIT_EXTERNAL_DIFF, set by the fish pi function): a plain unified
+# diff in git's layout, in place of the side-by-side difftastic the global git config sets, which
+# agents cannot apply and which costs them many tokens. Called with: path old-file old-hex
+# old-mode new-file new-hex new-mode [new-path similarity-header].
+[ $# -ge 7 ] || exit 0
+path=$1 old=$2 new=$5 dest=${8:-$1}
+echo "diff --git a/$path b/$dest"
+[ "$old" = /dev/null ] && echo "new file mode $7"
+[ "$new" = /dev/null ] && echo "deleted file mode $4"
+[ "$old" != /dev/null ] && [ "$new" != /dev/null ] && [ "$4" != "$7" ] && printf 'old mode %s\nnew mode %s\n' "$4" "$7"
+[ -n "${9:-}" ] && printf '%s\n' "$9"
+from="a/$path" to="b/$dest"
+[ "$old" = /dev/null ] && from=/dev/null
+[ "$new" = /dev/null ] && to=/dev/null
+diff -u --label "$from" --label "$to" "$old" "$new"
+# diff exits 1 when the files differ; git treats any non-zero exit as a failure.
+[ $? -le 1 ]
