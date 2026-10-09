@@ -6,9 +6,10 @@
 # Subagents (pi-subagents) pick their model per call; `subagents.modelScope` keeps them on the
 # subscriptions meant for workers: no Opus, no OpenCode Zen. The agent defaults, used when a
 # call names no model, are the cheapest that passed the eval; the advisor gets a fresh brief
-# because a long session overflows Astra's 272K window when forked. Children load only the bridge and
-# pi-web-access, so memini and the rest stay in the main session; each agent's tool list still
-# decides what it can call. The bridge has to load inside a child to serve claude-bridge models.
+# because a long session overflows Astra's 272K window when forked. Children load only the
+# bridge, pi-web-access and agent-guard (no push, GitHub writes or cluster changes), so memini
+# and the rest stay in the main session; each agent's tool list still decides what it can call.
+# The bridge has to load inside a child to serve claude-bridge models.
 set -eu
 managed='{
   "defaultProvider": "claude-bridge",
@@ -39,7 +40,12 @@ managed='{
       ]
     },
     "agentOverrides": {
-      "scout": { "model": "minimax/MiniMax-M3", "thinking": "medium" },
+      "scout": {
+        "model": "minimax/MiniMax-M3",
+        "thinking": "medium",
+        "description": "Fast recon in a repo, a cluster, GitHub or the web (bash, gh, kubectl, web fetch); returns compressed context for handoff",
+        "tools": ["read", "grep", "find", "ls", "bash", "write", "contact_supervisor", "web_search", "fetch_content", "get_search_content"]
+      },
       "researcher": { "model": "opencode-go/deepseek-v4.1-flash", "thinking": "medium" },
       "worker": { "model": "opencode-go/deepseek-v4.1-flash", "thinking": "medium" },
       "reviewer": { "model": "opencode-go/deepseek-v4.1-flash", "thinking": "high" },
@@ -59,9 +65,10 @@ retired='["pi-subagent-manager", "./local/claude-bridge-subagents.ts"]'
 npm="$HOME/.pi/agent/npm/node_modules"
 input=$(cat)
 printf '%s' "${input:-"{}"}" | jq --argjson m "$managed" --argjson r "$retired" \
-  --arg bridge "$npm/pi-claude-bridge/src/index.ts" --arg web "$npm/pi-web-access/dist/index.js" '
+  --arg bridge "$npm/pi-claude-bridge/src/index.ts" --arg web "$npm/pi-web-access/dist/index.js" \
+  --arg guard "$HOME/.pi/agent/local/agent-guard.ts" '
   def id: (if type == "object" then .source else . end) | sub("^(npm|git):"; "") | sub("@[^@/]*$"; "");
   ($m.packages | map(id)) as $ids
   | . * ($m | del(.packages))
-  | .subagents.defaultExtensions = [$bridge, $web]
+  | .subagents.defaultExtensions = [$bridge, $web, $guard]
   | .packages = $m.packages + [(.packages // [])[] | select(id as $i | ($ids + $r) | index($i) | not)]'

@@ -10,14 +10,25 @@ while agents run in the background and relay their results when they arrive.
 - Give each agent a self-contained task: the goal, the files or URLs, the constraints, what
   to return, and how done is checked (tests to run, a file and line, a source URL). Check
   what comes back before you relay it.
+- When one task's findings can change another's (alerts and pending upgrades, a bug and the PR
+  touching it), run them in sequence and put the first result in the second brief. If they ran
+  in parallel, cross-check both before relaying.
+- `tasks` and `chain` give every child the same model. For children that need different
+  models, make separate async calls.
+- Each result is saved automatically and its path is in the result; don't ask agents to write
+  a copy.
 - Agents never push, deploy, apply config or change shared systems. Those stay with you,
-  after Jan says yes.
+  after Jan says yes. A guard in every agent blocks git push, GitHub writes, kubectl, flux,
+  talosctl and helm changes and chezmoi apply; when an agent reports a blocked command, it is
+  yours to run once Jan agrees.
+- Your own quota: when the Claude week is above 85%, keep your turns short. Delegate the
+  reading and investigating, ask agents for compact results, and don't re-read large outputs.
 
 ## Agent: sets the tools
 
 | Agent | Use for | Tools |
 |---|---|---|
-| `scout` | finding things in a repo, extracting facts | read, grep, find, ls, bash, write |
+| `scout` | finding things in a repo, a cluster, GitHub or on the web; triage | read, grep, find, ls, bash, write, web search and fetch |
 | `researcher` | web and docs research with sources | web tools, read, write |
 | `worker` | implementation, edits, running checks | read, edit, write, bash, grep, find, ls |
 | `reviewer` | independent review of a diff, plan or design | read-only |
@@ -32,8 +43,8 @@ week unless nothing else fits.
 | Subscription | Size | Models |
 |---|---|---|
 | MiniMax | very large, slow | `minimax/MiniMax-M3`; `minimax/MiniMax-M2.7-highspeed` |
-| OpenCode Go | large; check its week | light: `opencode-go/deepseek-v4.1-flash`, `glm-5.3-flash`, `gpt-6-luna`, `mimo-v2.6-flash`, `claude-haiku-5-5`; standard: `kimi-k3`, `glm-5.3`, `muse-spark-1.3-contributor`, `qwen3.8-max`, `deepseek-v4-pro`, `kimi-k2.7-code` |
-| ChatGPT Plus | small, but Sol uses the fewest tokens per task | `openai/gpt-6.1-sol`; `openai/gpt-6-astra` (advisor only) |
+| OpenCode Go | dollar-metered: a 5-minute `kimi-k3:high` investigation took 2.5% of its week | light: `opencode-go/deepseek-v4.1-flash`, `glm-5.3-flash`, `gpt-6-luna`, `mimo-v2.6-flash`, `claude-haiku-5-5`; standard: `kimi-k3`, `glm-5.3`, `muse-spark-1.3-contributor`, `qwen3.8-max`, `deepseek-v4-pro`, `kimi-k2.7-code` |
+| ChatGPT Plus | Sol uses the fewest tokens: a 1-2 minute task took about 0.15% of the week; watch the 5-hour window | `openai/gpt-6.1-sol`; `openai/gpt-6-astra` (advisor only) |
 | Claude Max | largest, but it is your own quota | `claude-bridge/claude-sonnet-5-5` only when Jan asks; `claude-bridge/claude-fable-5-1` only when Jan names Fable; never Opus |
 | BC250, local | free, loud | `litellm/bc250/qwen3.6-35b-a3b` (MiniMax M3 when the board is off); `litellm/bc250-local/qwen3.6-35b-a3b` (board only). 128K context. Only 23:00-07:00 Europe/Warsaw unless Jan asks for it; a guard blocks it otherwise |
 
@@ -42,12 +53,12 @@ week unless nothing else fits.
 Size the task before the call. Take the first model in its row whose subscription has
 headroom; never start an easy or normal task on Sol, Astra or Fable.
 
-| Level | Task | Models |
-|---|---|---|
-| Easy | one clear job: a lookup, a web fact, a small specified change, a small review | `opencode-go/deepseek-v4.1-flash:low`; `minimax/MiniMax-M3:medium` for lookups and research when Jan is not waiting |
-| Normal | several files or steps with a clear goal | `opencode-go/deepseek-v4.1-flash:medium`, `opencode-go/muse-spark-1.3-contributor:medium`, `opencode-go/kimi-k3:medium` |
-| Hard | ambiguous or cross-cutting, or a lower level failed its check | `opencode-go/kimi-k3:high`, `opencode-go/glm-5.3:high`, `opencode-go/qwen3.8-max:high`, then `openai/gpt-6.1-sol:high` |
-| Advice | see Advisors | `oracle` on `openai/gpt-6-astra:high` |
+| Level | Task | Models | When OpenCode Go is above 85% |
+|---|---|---|---|
+| Easy | one clear job: a lookup, a web fact, a small specified change, a small review | `opencode-go/deepseek-v4.1-flash:low`; `minimax/MiniMax-M3:medium` for lookups and research when Jan is not waiting | `minimax/MiniMax-M3:medium` |
+| Normal | several files or steps with a clear goal | `opencode-go/deepseek-v4.1-flash:medium`, `opencode-go/muse-spark-1.3-contributor:medium`, `opencode-go/kimi-k3:medium` | `openai/gpt-6.1-sol:medium`; `minimax/MiniMax-M3:medium` when Jan is not waiting |
+| Hard | ambiguous, cross-cutting or a long investigation, or a lower level failed its check | `openai/gpt-6.1-sol:high` or `opencode-go/kimi-k3:high`, whichever subscription has more headroom; then `opencode-go/glm-5.3:high`, `opencode-go/qwen3.8-max:high` | `openai/gpt-6.1-sol:high`; `minimax/MiniMax-M3:high` when Jan is not waiting |
+| Advice | see Advisors | `oracle` on `openai/gpt-6-astra:high` | same |
 
 Reviews follow the same levels. Go to Sol for a review when the change touches security, data,
 credentials or shared systems, or when a lighter review missed something.
