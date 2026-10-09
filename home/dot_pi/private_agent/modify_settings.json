@@ -1,0 +1,17 @@
+#!/bin/sh
+# Pi's packages. Pi writes the rest of settings.json itself (last model, changelog,
+# device id); those keys and any package added with `pi install` survive. A managed
+# package replaces an installed one of the same name, whatever its version.
+set -eu
+managed='[
+  "npm:pi-claude-bridge@0.9.2",
+  "npm:@eleboucher/pi-memini@0.7.34",
+  "npm:pi-subagent-manager@0.19.0",
+  "git:github.com/janpuc/pi-usage@v0.1.0",
+  "git:github.com/janpuc/pi-title-spinner@v0.1.0"
+]'
+input=$(cat)
+printf '%s' "${input:-"{}"}" | jq --argjson m "$managed" '
+  def id: (if type == "object" then .source else . end) | sub("^(npm|git):"; "") | sub("@[^@/]*$"; "");
+  ($m | map(id)) as $ids
+  | .packages = $m + [(.packages // [])[] | select(id as $i | $ids | index($i) | not)]'

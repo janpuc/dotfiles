@@ -8,5 +8,7 @@
 
 ## Pi
 
-Work/Personal Pi setup, virtual models and memini: [home/dot_pi/shared/README.md](home/dot_pi/shared/README.md)
-(deployed to `~/.pi/shared/README.md`). Checks: `tests/pi/run.sh`.
+`~/.pi/agent`: packages pi-claude-bridge, pi-memini, pi-subagent-manager,
+[pi-usage](https://github.com/janpuc/pi-usage) and
+[pi-title-spinner](https://github.com/janpuc/pi-title-spinner). Pi installs them on first launch.
+The fish `pi` function gives the bridge its own Claude Code config, `~/.pi/agent/claude`.

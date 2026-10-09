@@ -79,8 +79,6 @@ alias assume="source (brew --prefix)/bin/assume.fish"
 {{- end }}
 
 {{- if eq .chezmoi.os "darwin" }}
-### pi / pi-profile: see functions/pi.fish and ~/.local/bin/pi.
-
 alias claudex='CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-sol \
 CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1 \
 CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=3 \

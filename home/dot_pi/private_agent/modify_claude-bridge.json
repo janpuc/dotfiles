@@ -1,0 +1,6 @@
+#!/bin/sh
+# pi-claude-bridge on the Max plan (Opus with 1M context). The bridge records its
+# own keys (startupNoticeShown) here; they survive.
+set -eu
+input=$(cat)
+printf '%s' "${input:-"{}"}" | jq '.provider.plan = "max"'
