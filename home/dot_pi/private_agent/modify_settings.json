@@ -21,6 +21,7 @@ managed='{
     "npm:pi-web-access@0.37.0",
     "git:github.com/janpuc/pi-usage@v0.1.0",
     "git:github.com/janpuc/pi-title-spinner@v0.1.0",
+    "git:github.com/janpuc/pi-footer@v0.1.0",
     "./local/bc250-quiet-hours.ts"
   ],
   "subagents": {

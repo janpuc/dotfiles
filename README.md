@@ -9,8 +9,9 @@
 ## Pi
 
 `~/.pi/agent`: packages pi-claude-bridge, pi-memini, pi-subagents, pi-web-access,
-[pi-usage](https://github.com/janpuc/pi-usage) and
-[pi-title-spinner](https://github.com/janpuc/pi-title-spinner). Pi installs them on first launch.
+[pi-usage](https://github.com/janpuc/pi-usage),
+[pi-title-spinner](https://github.com/janpuc/pi-title-spinner) and
+[pi-footer](https://github.com/janpuc/pi-footer). Pi installs them on first launch.
 The fish `pi` function gives the bridge its own Claude Code config, `~/.pi/agent/claude`, and
 hands Pi the OpenCode Go and MiniMax keys.
 
