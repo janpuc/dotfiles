@@ -35,7 +35,8 @@ Never in this public repository:
 - `~/.ssh/id_ed25519`: the server's private SSH signing key. Git uses the corresponding
   `~/.ssh/id_ed25519.pub`, registered on GitHub as `aether-sign`.
 - `/home/pocket/.config/pi-pocket/secrets.env` (0600, owned by pocket): Pi Pocket's model
-  keys, written by `ai-sync` from 1Password and loaded into the service by pocket's mise
+  keys (OpenCode Go, MiniMax, and the Claude API key with its monthly plan credit), written
+  by `ai-sync` from 1Password and loaded into the service by pocket's mise
   config. Run `fish -c ai-sync` again after a key rotation; it restarts the service.
 - `/home/pocket/.pi-pocket/`: Pi Pocket's database, push keys and sign-ins. Print the owner
   sign-in link from the Mac with
