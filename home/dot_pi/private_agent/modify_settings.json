@@ -4,7 +4,9 @@
 # of the same name, whatever its version; retired packages are removed.
 #
 # Subagents (pi-subagents) pick their model per call; `subagents.modelScope` keeps them on the
-# subscriptions meant for workers: no Opus, no OpenCode Zen. Children load only the bridge and
+# subscriptions meant for workers: no Opus, no OpenCode Zen. The agent defaults, used when a
+# call names no model, are the cheapest that passed the eval; the advisor gets a fresh brief
+# because a long session overflows Astra's 272K window when forked. Children load only the bridge and
 # pi-web-access, so memini and the rest stay in the main session; each agent's tool list still
 # decides what it can call. The bridge has to load inside a child to serve claude-bridge models.
 set -eu
@@ -36,11 +38,11 @@ managed='{
       ]
     },
     "agentOverrides": {
-      "scout": { "model": "minimax/MiniMax-M3" },
-      "researcher": { "model": "minimax/MiniMax-M3" },
-      "worker": { "model": "opencode-go/kimi-k3" },
-      "reviewer": { "model": "openai/gpt-6.1-sol" },
-      "oracle": { "model": "openai/gpt-6-astra" },
+      "scout": { "model": "minimax/MiniMax-M3", "thinking": "medium" },
+      "researcher": { "model": "opencode-go/deepseek-v4.1-flash", "thinking": "medium" },
+      "worker": { "model": "opencode-go/deepseek-v4.1-flash", "thinking": "medium" },
+      "reviewer": { "model": "opencode-go/deepseek-v4.1-flash", "thinking": "high" },
+      "oracle": { "model": "openai/gpt-6-astra", "thinking": "high", "defaultContext": "fresh" },
       "delegate": { "disabled": true },
       "evidence-auditor": { "disabled": true },
       "claude-code": { "disabled": true },
