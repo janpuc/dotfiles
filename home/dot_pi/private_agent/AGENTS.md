@@ -20,7 +20,8 @@ while agents run in the background and relay their results when they arrive.
 - Agents never push, deploy, apply config or change shared systems. Those stay with you,
   after Jan says yes. A guard in every agent blocks git push, GitHub writes, kubectl, flux,
   talosctl and helm changes and chezmoi apply; when an agent reports a blocked command, it is
-  yours to run once Jan agrees.
+  yours to run once Jan agrees. Check an exact command against the live state (names,
+  namespaces) before you put it to Jan.
 - Your own quota: when the Claude week is above 85%, keep your turns short. Delegate the
   reading and investigating and ask agents for compact results, but still check what comes
   back: checking wins over short turns.
@@ -47,7 +48,7 @@ week unless nothing else fits.
 |---|---|---|
 | MiniMax | very large, slow | `minimax/MiniMax-M3`; `minimax/MiniMax-M2.7-highspeed` |
 | OpenCode Go | dollar-metered: a 5-minute `kimi-k3:high` investigation took 2.5% of its week | light: `opencode-go/deepseek-v4.1-flash`, `glm-5.3-flash`, `gpt-6-luna`, `mimo-v2.6-flash`, `claude-haiku-5-5`; standard: `kimi-k3`, `glm-5.3`, `muse-spark-1.3-contributor`, `qwen3.8-max`, `deepseek-v4-pro`, `kimi-k2.7-code` |
-| ChatGPT Plus | Sol uses the fewest tokens: a 1-2 minute task took about 0.15% of the week; watch the 5-hour window | `openai/gpt-6.1-sol`; `openai/gpt-6-astra` (advisor only) |
+| ChatGPT Plus | Sol uses the fewest tokens: a 1-2 minute task took about 0.15% of the week, an 18-minute worker 1% (and 2% of the 5-hour window) | `openai/gpt-6.1-sol`; `openai/gpt-6-astra` (advisor only) |
 | Claude Max | largest, but it is your own quota | `claude-bridge/claude-sonnet-5-5` only when Jan asks; `claude-bridge/claude-fable-5-1` only when Jan names Fable; never Opus |
 | BC250, local | free, loud | `litellm/bc250/qwen3.6-35b-a3b` (MiniMax M3 when the board is off); `litellm/bc250-local/qwen3.6-35b-a3b` (board only). 128K context. Only 23:00-07:00 Europe/Warsaw unless Jan asks for it; a guard blocks it otherwise |
 
