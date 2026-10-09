@@ -21,4 +21,5 @@ usage, following `AGENTS.md`. `settings.json` limits subagents to the worker sub
 loud BC250 board (LiteLLM, `models.json`) to 23:00-07:00 unless asked for.
 
 `§ <request in plain words>` (fish) asks a small model once, with no session or memory, and
-answers with a fish command to confirm, edit or skip, or with a short answer from the web.
+answers with a fish command (Enter runs it, any other key drops it) or a short answer from the
+web. Only the commands it runs go into history.

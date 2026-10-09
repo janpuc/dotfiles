@@ -1,15 +1,16 @@
 function § --description "One shot: a fish command, or a short answer, for a request in plain words"
     # `§ list all pods in kube-system`, or `§` alone to type a request that has quotes in it.
     # Asks a small model once through Pi with no session, memory, extensions or shell tool. A
-    # command runs only after you confirm it; a question about the web gets a short answer and
-    # its source. ONESHOT_MODEL=provider/id:thinking overrides the model.
+    # command waits for one key: Enter runs it and puts it in history, any other key drops it;
+    # red means it changes things. A question about the web gets a short answer and its source.
+    # The request stays out of history (fish_should_add_to_history).
+    # ONESHOT_MODEL=provider/id:thinking overrides the model.
     set -l request (string join ' ' -- $argv)
     if test -z "$request"
-        read -P (set_color brblack)'? '(set_color normal) request; or return 1
+        read -P (set_color magenta)'§ '(set_color normal) request; or return 1
         test -n "$request"; or return 1
     end
 
-    set -l model (__oneshot_model)
     set -l prompt 'You answer one request from Jan in his terminal, once. There is no conversation and no follow-up.
 
 Either propose one shell command, or give a short answer. You cannot run commands yourself; Jan runs the command after reading it.
@@ -24,69 +25,119 @@ where changes is true when the command creates, modifies or deletes anything and
 
 Current directory: '(prompt_pwd -D 99)
 
-    isatty stderr; and printf '%s… %s%s' (set_color brblack) $model (set_color normal) >&2
+    # Pi runs in the background so a spinner can turn meanwhile.
+    set -l out (mktemp)
     set -l err (mktemp)
-    set -l out (OPENCODE_API_KEY=$PI_OPENCODE_API_KEY MINIMAX_API_KEY=$PI_MINIMAX_API_KEY command pi -p \
+    OPENCODE_API_KEY=$PI_OPENCODE_API_KEY MINIMAX_API_KEY=$PI_MINIMAX_API_KEY command pi -p \
         --no-session -ne -nc -ns -np --no-themes --offline \
         -e $HOME/.pi/agent/npm/node_modules/pi-web-access/dist/index.js --tools web_search,fetch_content \
-        --model $model --system-prompt "$prompt" "Request: $request" </dev/null 2>$err | string collect)
-    set -l pi_status $pipestatus[1]
-    isatty stderr; and printf '\r\e[K' >&2
+        --model (__oneshot_model) --system-prompt "$prompt" "Request: $request" </dev/null >$out 2>$err &
+    set -l pid $last_pid
+    disown $pid 2>/dev/null
+    __oneshot_spin $pid
+    set -l reply (string collect <$out)
+    set -l json (string match -r '(?s)\{.*\}' -- $reply)
 
-    set -l json (string match -r '(?s)\{.*\}' -- $out)
     if test -z "$json"; or not printf '%s' $json | jq -e . >/dev/null 2>&1
-        set_color red
-        echo "no usable answer from $model (pi exit $pi_status)" >&2
+        printf '  %s✗ no answer%s\n' (set_color red) (set_color normal) >&2
+        set_color brblack
+        test -n "$reply"; and printf '    %s\n' $reply >&2
+        string match -v -e 'No models match pattern' <$err | tail -n 3 | string replace -r '^' '    ' >&2
         set_color normal
-        test -n "$out"; and echo $out >&2
-        string match -v -e 'No models match pattern' <$err | tail -n 5 >&2
-        rm -f $err
+        rm -f $out $err
         return 1
     end
-    rm -f $err
+    rm -f $out $err
 
-    set -l answer (printf '%s' $json | jq -r '.answer // empty' | string collect)
+    set -l answer (printf '%s' $json | jq -r '.answer // empty')
     if test -n "$answer"
-        echo $answer
+        printf '  %s◆%s %s\n' (set_color magenta) (set_color normal) $answer[1]
+        test (count $answer) -gt 1; and printf '    %s\n' $answer[2..]
         set -l source (printf '%s' $json | jq -r '.source // empty')
-        test -n "$source"; and set_color brblack; and echo $source; and set_color normal
+        test -n "$source"; and printf '    %s%s%s\n' (set_color brblack) $source (set_color normal)
         return 0
     end
 
     set -l cmd (printf '%s' $json | jq -r '.command // empty' | string collect)
-    test -n "$cmd"; or begin
-        echo $out >&2
+    if test -z "$cmd"
+        printf '  %s✗ no command%s\n' (set_color red) (set_color normal) >&2
         return 1
     end
     set -l explain (printf '%s' $json | jq -r '.explain // empty')
-    set -l changes (printf '%s' $json | jq -r '.changes // false')
+    set -l accent magenta
+    test (printf '%s' $json | jq -r '.changes // false') = true; and set accent red
 
-    echo
-    printf '  %s\n' (printf '%s' $cmd | fish_indent --ansi)
-    set_color brblack
-    test -n "$explain"; and echo "  $explain"
-    set_color normal
-    set -l ask '  run? [Y/n/e] '
-    if test "$changes" = true
-        set_color red
-        echo '  changes things'
-        set_color normal
-        set ask '  run? [y/N/e] '
-    end
+    # The suggestion: the command, a dim line saying what it does, and a waiting ⏎.
+    set -l lines (printf '%s' $cmd | fish_indent --ansi)
+    printf '  %s▸%s %s\n' (set_color $accent) (set_color normal) $lines[1]
+    test (count $lines) -gt 1; and printf '    %s\n' $lines[2..]
+    test -n "$explain"; and printf '    %s%s%s\n' (set_color brblack) $explain (set_color normal)
+    printf '  %s⏎%s ' (set_color $accent) (set_color normal)
+    __oneshot_key
+    set -l cancelled $status
 
-    read -n 1 -P $ask reply; or return 1
-    switch (string lower -- "$reply")
-        case e
-            read --shell --command $cmd -P '  › ' cmd; or return 1
-        case y
-        case ''
-            test "$changes" = true; and return 1
-        case '*'
-            return 1
+    # Rows to clear: the waiting line, the explanation, and on cancel the command too.
+    set -l width (math "max(20, $COLUMNS)")
+    set -l up 0
+    test -n "$explain"; and set up (math "ceil((4 + $(string length --visible -- $explain)) / $width)")
+    if test $cancelled -ne 0
+        for line in $lines
+            set up (math "$up + max(1, ceil((4 + $(string length --visible -- $line)) / $width))")
+        end
     end
-    test -n "$cmd"; or return 1
+    printf '\r\e[K' >&2
+    test $up -gt 0; and printf '\e[%dA\r\e[J' $up >&2
+    test $cancelled -ne 0; and return 1
+
     builtin history append -- $cmd
     eval $cmd
+end
+
+# Braille spinner on stderr until the process ends; quiet when stderr is not a terminal. Keys
+# typed meanwhile are not echoed, so they can't break the layout. One sh process does it all:
+# fish resets the terminal modes before each external command it starts, so an `stty` from fish
+# would not last.
+function __oneshot_spin --argument-names pid
+    sh -c '
+        pid=$1 color=$2 normal=$3
+        [ -t 0 ] && saved=$(stty -g) && stty -echo
+        set -- ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏
+        while kill -0 "$pid" 2>/dev/null; do
+            [ -t 2 ] && printf "\r  %s%s%s" "$color" "$1" "$normal" >&2
+            frame=$1; shift; set -- "$@" "$frame"
+            sleep 0.08
+        done
+        [ -t 2 ] && printf "\r\033[K" >&2
+        [ -n "$saved" ] && stty "$saved"
+        true' sh $pid (set_color magenta) (set_color normal)
+end
+
+# One key from the terminal, raw: status 0 for Enter, 1 for any other key (Ctrl-C included)
+# or when no key could be read. Keys typed before the suggestion appeared are thrown away
+# first, so an early Enter can't run a command unseen; leftover bytes of a multi-byte key
+# (arrows) are drained after, so they don't reach the prompt. Without a terminal, an empty line
+# from stdin is Enter. One sh process does it all (fish resets terminal modes before each
+# external command) and writes the key to a file (an interactive fish runs command
+# substitutions without the terminal, so nothing inside one can read a key).
+function __oneshot_key
+    if not isatty stdin
+        read -l line; or return 1
+        test -z "$line"
+        return
+    end
+    set -l byte (mktemp)
+    sh -c '
+        saved=$(stty -g)
+        stty -icanon -echo -isig min 0 time 0
+        dd bs=4096 count=1 >/dev/null 2>&1
+        stty min 1 time 0
+        dd bs=1 count=1 2>/dev/null | od -An -tx1
+        stty min 0 time 0
+        dd bs=64 count=1 >/dev/null 2>&1
+        stty "$saved"' >$byte
+    set -l key (string trim <$byte | string join '')
+    rm -f $byte
+    contains -- "$key" 0a 0d
 end
 
 # The first model whose subscription has room, cheapest and fastest first. These calls are
