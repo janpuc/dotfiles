@@ -2,9 +2,11 @@
 #!/bin/sh
 # Pi Pocket, Jan's assistant: a pocket user without sudo, Pi Pocket at a pinned release, its
 # service, and tailscale serve publishing it over HTTPS on the tailnet only (phone push needs
-# HTTPS). Model keys come from ai-sync. Re-runs when any of it changes.
+# HTTPS), and the memini extension (switched on in Pi Pocket's config while the service is
+# stopped). Model and memini keys come from ai-sync. Re-runs when any of it changes.
 #   service {{ include ".system/pi-pocket.service" | sha256sum }}
 #   mise    {{ include ".system/pi-pocket-mise.toml" | sha256sum }}
+#   memini  {{ include ".system/pi-pocket-extensions/memini.ts" | sha256sum }}
 set -eu
 version=v0.11.0
 commit=f93f2e4c772ff9fc8e615f167ea8390ad59ae948
@@ -29,6 +31,25 @@ as_pocket sh -c "cd '$home' && mise install --yes && cd pi-pocket && mise exec -
 sudo install -m 644 "$src/pi-pocket.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable pi-pocket.service
-sudo systemctl restart pi-pocket.service
+
+# Drop-in extensions are off until the owner turns them on; config.json exists after the first start.
+sudo systemctl stop pi-pocket.service
+sudo install -d -o pocket -g pocket -m 700 "$home/.pi-pocket" "$home/.pi-pocket/extensions"
+sudo install -m 644 -o pocket -g pocket "$src/pi-pocket-extensions/memini.ts" "$home/.pi-pocket/extensions/"
+if sudo test -e "$home/.pi-pocket/config.json"; then
+    as_pocket python3 -c '
+import json, os, sys
+path = sys.argv[1]
+config = json.load(open(path))
+on = config.setdefault("enabledExtensions", [])
+if "memini.ts" not in on:
+    on.append("memini.ts")
+    tmp = path + ".tmp"
+    with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+        json.dump(config, f, indent=2)
+    os.replace(tmp, path)
+' "$home/.pi-pocket/config.json"
+fi
+sudo systemctl start pi-pocket.service
 sudo tailscale serve --bg --https=443 http://127.0.0.1:8787
 {{- end }}

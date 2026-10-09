@@ -19,7 +19,7 @@ reach Linux unless deliberately added there.
 | `home/.system/aether-hosts-sync*` (installed by `05-linux-system`) | hourly: derive internal DNS names from public home-ops into `/etc/hosts`, because the UniFi gateway does not answer DNS from the tailnet |
 | `home/.system/xterm-ghostty.terminfo` (`06-linux-terminfo`) | Ghostty terminfo in `~/.terminfo`, absent from Ubuntu's ncurses |
 | `home/.system/aether-keepalive*` (installed by `05-linux-system`) | hold 25% of RAM without CPU load to avoid Oracle's idle-instance reclamation criteria |
-| `home/.system/pi-pocket*` (installed by `20-linux-pi-pocket`) | [Pi Pocket](https://github.com/TannerMidd/pi-pocket) at a pinned release, run by the `pocket` user (no sudo, sees only its own home) as the `pi-pocket` system service on 127.0.0.1:8787; `tailscale serve` publishes it at `https://aether.<tailnet>.ts.net` on the tailnet only. At home the same URL works without Tailscale: a UniFi DNS record (`aether.tail17d532.ts.net` → aether's tailnet address, 100.108.252.49) and bob, the router on the tailnet, carry it. Node comes from pocket's own mise config |
+| `home/.system/pi-pocket*` (installed by `20-linux-pi-pocket`) | [Pi Pocket](https://github.com/TannerMidd/pi-pocket) at a pinned release, run by the `pocket` user (no sudo, sees only its own home) as the `pi-pocket` system service on 127.0.0.1:8787; `tailscale serve` publishes it at `https://aether.<tailnet>.ts.net` on the tailnet only. At home the same URL works without Tailscale: a UniFi DNS record (`aether.tail17d532.ts.net` → aether's tailnet address, 100.108.252.49) and bob, the router on the tailnet, carry it. Node comes from pocket's own mise config. `pi-pocket-extensions/memini.ts` gives it memory in memini namespace `homelab/assistant` (home `personal/jan`): a briefing per conversation, recall on each message, and `memory_recall`/`memory_remember` tools; test it with `node --test` on its `memini.test.ts` |
 
 No user-level systemd services, AI dot-directories or `~/.local/bin` launchers are allowlisted.
 The infrastructure units above are system services, installed separately by the Linux script.
@@ -35,7 +35,8 @@ Never in this public repository:
 - `~/.ssh/id_ed25519`: the server's private SSH signing key. Git uses the corresponding
   `~/.ssh/id_ed25519.pub`, registered on GitHub as `aether-sign`.
 - `/home/pocket/.config/pi-pocket/secrets.env` (0600, owned by pocket): Pi Pocket's model
-  keys (OpenCode Go, MiniMax, and the Claude API key with its monthly plan credit), written
+  keys (OpenCode Go, MiniMax, and the Claude API key with its monthly plan credit) and its
+  memini key, written
   by `ai-sync` from 1Password and loaded into the service by pocket's mise
   config. Run `fish -c ai-sync` again after a key rotation; it restarts the service.
 - `/home/pocket/.pi-pocket/`: Pi Pocket's database, push keys and sign-ins. Print the owner
