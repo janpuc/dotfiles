@@ -1,7 +1,7 @@
 # aether (Ubuntu server): shell basics and infrastructure helpers
 
-Aether keeps a familiar remote shell and two infrastructure helpers: internal DNS sync and
-keepalive. AI runtimes are retired from the server; laptop configuration stays on the Mac.
+Aether keeps a familiar remote shell, two infrastructure helpers (internal DNS sync and
+keepalive) and Pi Pocket, Jan's assistant. Laptop configuration stays on the Mac.
 An allowlist in `home/.chezmoiignore` makes that boundary explicit: new laptop files do not
 reach Linux unless deliberately added there.
 
@@ -19,6 +19,7 @@ reach Linux unless deliberately added there.
 | `home/.system/aether-hosts-sync*` (installed by `05-linux-system`) | hourly: derive internal DNS names from public home-ops into `/etc/hosts`, because the UniFi gateway does not answer DNS from the tailnet |
 | `home/.system/xterm-ghostty.terminfo` (`06-linux-terminfo`) | Ghostty terminfo in `~/.terminfo`, absent from Ubuntu's ncurses |
 | `home/.system/aether-keepalive*` (installed by `05-linux-system`) | hold 25% of RAM without CPU load to avoid Oracle's idle-instance reclamation criteria |
+| `home/.system/pi-pocket*` (installed by `20-linux-pi-pocket`) | [Pi Pocket](https://github.com/TannerMidd/pi-pocket) at a pinned release, run by the `pocket` user (no sudo, sees only its own home) as the `pi-pocket` system service on 127.0.0.1:8787; `tailscale serve` publishes it at `https://aether.<tailnet>.ts.net` on the tailnet only. Node comes from pocket's own mise config |
 
 No user-level systemd services, AI dot-directories or `~/.local/bin` launchers are allowlisted.
 The infrastructure units above are system services, installed separately by the Linux script.
@@ -33,6 +34,12 @@ Never in this public repository:
 - `~/.config/gh/hosts.yml` (0600): gh's own stored authentication, used by Git's credential helper.
 - `~/.ssh/id_ed25519`: the server's private SSH signing key. Git uses the corresponding
   `~/.ssh/id_ed25519.pub`, registered on GitHub as `aether-sign`.
+- `/home/pocket/.config/pi-pocket/secrets.env` (0600, owned by pocket): Pi Pocket's model
+  keys, written by `ai-sync` from 1Password and loaded into the service by pocket's mise
+  config. Run `fish -c ai-sync` again after a key rotation; it restarts the service.
+- `/home/pocket/.pi-pocket/`: Pi Pocket's database, push keys and sign-ins. The owner
+  sign-in link is `https://aether.<tailnet>.ts.net/login?token=<ownerToken>`, with the token
+  from `sudo jq -r .ownerToken /home/pocket/.pi-pocket/config.json`.
 
 Run `fish -c ai-sync` manually when GitHub authentication needs refreshing. Linux no longer
 fetches or sources `~/.local/state/ai/credentials.fish`.

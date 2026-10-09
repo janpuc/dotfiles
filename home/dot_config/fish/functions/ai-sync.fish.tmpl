@@ -1,4 +1,4 @@
-function ai-sync --description "{{ if eq .chezmoi.os "linux" }}Log gh into GitHub using 1Password{{ else }}Fetch AI service credentials from 1Password into a local cache{{ end }}"
+function ai-sync --description "{{ if eq .chezmoi.os "linux" }}Log gh into GitHub and give Pi Pocket its model keys, from 1Password{{ else }}Fetch AI service credentials from 1Password into a local cache{{ end }}"
 {{- if eq .chezmoi.os "linux" }}
     # The server reads 1Password through a read-only service account; its token lives in this
     # 0600 file, which is never managed or committed.
@@ -15,6 +15,27 @@ function ai-sync --description "{{ if eq .chezmoi.os "linux" }}Log gh into GitHu
         echo "  ! could not log gh in with op://Kubernetes/aether/GH_TOKEN" >&2
         return 1
     end
+
+    # Pi Pocket's model keys, for the pocket user only: a 0600 file its mise config loads into
+    # the service. The 1Password token itself never reaches pocket.
+    id pocket >/dev/null 2>&1; or return 0
+    set -l NAMES OPENCODE_API_KEY MINIMAX_API_KEY
+    set -l PATHS op://Kubernetes/opencode/OPENCODE_GO_API_KEY op://Kubernetes/minimax/MINIMAX_API_KEY
+    set -l tmp (mktemp)
+    chmod 600 $tmp
+    for i in (seq (count $NAMES))
+        set -l value (op read $PATHS[$i] 2>/dev/null)
+        if test -z "$value"
+            echo "  ! could not read $PATHS[$i]" >&2
+            rm -f $tmp
+            return 1
+        end
+        printf '%s=%s\n' $NAMES[$i] $value >>$tmp
+    end
+    sudo install -m 600 -o pocket -g pocket $tmp /home/pocket/.config/pi-pocket/secrets.env
+    rm -f $tmp
+    sudo systemctl try-restart pi-pocket.service
+    echo "Gave Pi Pocket its model keys ($NAMES)."
 {{- else }}
     set -q XDG_STATE_HOME; or set -l XDG_STATE_HOME "$HOME/.local/state"
     set -l CRED_FILE "$XDG_STATE_HOME/ai/credentials.fish"

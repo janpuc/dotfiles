@@ -12,6 +12,7 @@
 !.chezmoiscripts/*-linux-system.sh
 !.chezmoiscripts/*-linux-terminfo.sh
 !.chezmoiscripts/*-linux-mise.sh
+!.chezmoiscripts/*-linux-pi-pocket.sh
 !.config
 !.config/git
 !.config/git/**

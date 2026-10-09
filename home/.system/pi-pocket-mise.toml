@@ -1,0 +1,7 @@
+# The pocket user's global mise config on aether (~pocket/.config/mise/config.toml): the tools
+# Pi Pocket runs on, and its model keys. ai-sync writes the keys file (0600, owned by pocket).
+[tools]
+node = "24.21.0"
+
+[env]
+_.file = "{{env.HOME}}/.config/pi-pocket/secrets.env"

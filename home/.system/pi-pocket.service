@@ -1,0 +1,24 @@
+[Unit]
+Description=Pi Pocket: Jan's assistant, reached at https://aether.<tailnet>.ts.net through tailscale serve
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+# Its own user without sudo: whoever steers Pi Pocket runs commands as this user.
+User=pocket
+Group=pocket
+WorkingDirectory=/home/pocket
+# Node and the model keys come from pocket's mise config (pi-pocket-mise.toml).
+ExecStart=/usr/bin/mise exec -- node /home/pocket/pi-pocket/bin/pi-pocket.js --host 127.0.0.1 --port 8787 --data /home/pocket/.pi-pocket --cwd /home/pocket/work
+Restart=on-failure
+RestartSec=5
+# No privilege gain, a read-only system, and of /home only pocket's own home: the ubuntu
+# user's keys and 1Password token stay out of reach.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=tmpfs
+BindPaths=/home/pocket
+
+[Install]
+WantedBy=multi-user.target

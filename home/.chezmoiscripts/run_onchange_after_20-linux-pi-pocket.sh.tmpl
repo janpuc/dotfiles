@@ -1,0 +1,34 @@
+{{- if eq .chezmoi.os "linux" -}}
+#!/bin/sh
+# Pi Pocket, Jan's assistant: a pocket user without sudo, Pi Pocket at a pinned release, its
+# service, and tailscale serve publishing it over HTTPS on the tailnet only (phone push needs
+# HTTPS). Model keys come from ai-sync. Re-runs when any of it changes.
+#   service {{ include ".system/pi-pocket.service" | sha256sum }}
+#   mise    {{ include ".system/pi-pocket-mise.toml" | sha256sum }}
+set -eu
+version=v0.11.0
+commit=f93f2e4c772ff9fc8e615f167ea8390ad59ae948
+src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
+home=/home/pocket
+as_pocket() { sudo -u pocket -H "$@"; }
+
+id pocket >/dev/null 2>&1 || sudo useradd --create-home --home-dir "$home" --shell /bin/bash pocket
+sudo install -d -o pocket -g pocket -m 700 "$home/.config" "$home/.config/mise" "$home/.config/pi-pocket" "$home/work"
+sudo install -m 644 -o pocket -g pocket "$src/pi-pocket-mise.toml" "$home/.config/mise/config.toml"
+sudo test -e "$home/.config/pi-pocket/secrets.env" || sudo install -m 600 -o pocket -g pocket /dev/null "$home/.config/pi-pocket/secrets.env"
+
+# The release, checked against its commit.
+if ! sudo test -d "$home/pi-pocket/.git"; then
+    as_pocket git clone --quiet https://github.com/TannerMidd/pi-pocket "$home/pi-pocket"
+fi
+as_pocket git -C "$home/pi-pocket" fetch --quiet --tags origin
+as_pocket git -C "$home/pi-pocket" checkout --quiet --detach "$version"
+test "$(as_pocket git -C "$home/pi-pocket" rev-parse HEAD)" = "$commit" || { echo "pi-pocket $version is not $commit" >&2; exit 1; }
+as_pocket sh -c "cd '$home' && mise install --yes && cd pi-pocket && mise exec -- npm ci --ignore-scripts --no-audit --no-fund"
+
+sudo install -m 644 "$src/pi-pocket.service" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable pi-pocket.service
+sudo systemctl restart pi-pocket.service
+sudo tailscale serve --bg --https=443 http://127.0.0.1:8787
+{{- end }}
