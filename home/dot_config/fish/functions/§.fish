@@ -3,7 +3,8 @@ function § --description "One shot: a fish command, or a short answer, for a re
     # Asks a small model once through Pi with no session, memory, extensions or shell tool. A
     # command waits for one key: Enter runs it and puts it in history, any other key drops it;
     # red means it changes things. A question about the web gets a short answer and its source.
-    # The request stays out of history (fish_should_add_to_history).
+    # The request stays out of history (fish_should_add_to_history, and atuin's history_filter);
+    # the command it runs goes into both.
     # ONESHOT_MODEL=provider/id:thinking overrides the model.
     set -l request (string join ' ' -- $argv)
     if test -z "$request"
@@ -90,7 +91,13 @@ Current directory: '(prompt_pwd -D 99)
     test $cancelled -ne 0; and return 1
 
     builtin history append -- $cmd
+    # atuin's hooks only see what was typed at the prompt, so record this run the way they do.
+    set -l atuin_id
+    set -q ATUIN_SESSION; and type -q atuin; and set atuin_id (ATUIN_SHELL=fish atuin history start --hook -- $cmd 2>/dev/null)
     eval $cmd
+    set -l s $status
+    test -n "$atuin_id"; and atuin history end --hook --exit $s -- $atuin_id &>/dev/null
+    return $s
 end
 
 # Braille spinner on stderr until the process ends; quiet when stderr is not a terminal. Keys

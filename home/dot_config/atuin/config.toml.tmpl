@@ -2,6 +2,8 @@ auto_sync = true
 search_mode = "prefix"
 sync_address = "https://atuin.janpuc.com"
 sync_frequency = "5m"
+# A § request stays out of history; § records the command it runs instead.
+history_filter = ['^§(\s|$)']
 
 [daemon]
 autostart = true
