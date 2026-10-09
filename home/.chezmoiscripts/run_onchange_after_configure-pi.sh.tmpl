@@ -9,14 +9,10 @@
 # idempotent. Runs again when the managed settings change:
 #   {{ include "dot_pi/private_agent/modify_settings.json.tmpl" | sha256sum }}
 #
-# Host-agnostic: Pi comes from Homebrew on macOS (packages.yaml) and from
-# `npm install -g @earendil-works/pi-coding-agent` elsewhere. auth.json,
-# sessions and other runtime state are never touched.
+# Mac only (see .chezmoiignore): Pi comes from Homebrew (packages.yaml).
+# auth.json, sessions and other runtime state are never touched.
 
 set -eufo pipefail
-
-# On the aether server Pi is a mise tool, reachable through the shims directory.
-path=($HOME/.local/share/mise/shims $path)
 
 real_pi() {
   local d f launcher=${${:-$HOME/.local/bin/pi}:A}

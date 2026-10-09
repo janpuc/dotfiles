@@ -1,29 +1,28 @@
 {{- /*
   What each kind of machine manages. Paths are targets, relative to $HOME.
 
-  Linux is the aether server, which only runs Pi and T3 Code, so it takes an allowlist: a file
-  added for the laptop later stays off the server until it is listed here. Work never goes to
-  aether (AWS and laptop-only configuration).
+  Linux is the aether server: shell basics, internal DNS sync and keepalive. It takes an
+  allowlist so files added for the laptop stay off the server until listed here.
+  AI runtimes and laptop-only configuration are not managed on aether.
 */ -}}
 {{ if eq .chezmoi.os "linux" -}}
 **
 !.chezmoiscripts
-!.chezmoiscripts/*-linux-*.sh
+!.chezmoiscripts/*-linux-apt.sh
+!.chezmoiscripts/*-linux-system.sh
+!.chezmoiscripts/*-linux-terminfo.sh
+!.chezmoiscripts/*-linux-mise.sh
 !.config
 !.config/git
 !.config/git/**
 !.config/mise
 !.config/mise/**
-!.config/systemd
-!.config/systemd/**
 !.config/fish
 !.config/fish/config.fish
 !.config/fish/themes
 !.config/fish/themes/**
 !.config/fish/functions
 !.config/fish/functions/ai-sync.fish
-!.config/fish/functions/pi.fish
-!.config/fish/functions/__memini_namespace_prefix.fish
 !.config/starship.toml
 !.config/atuin
 !.config/atuin/**
@@ -32,34 +31,8 @@
 !.config/eza
 !.config/eza/**
 !.editorconfig
-!.local
-!.local/bin
-!.local/bin/**
-!.pi
-!.pi/agent
-# Keep the existing aether Pi runtime unchanged during the Mac-only rollout.
-# These are the unaffected Pi resources; defaults, models, roles, prompts, routing
-# and extensions are temporarily held back. Normal apply leaves ignored live files
-# intact. Restore the broad Pi allowlist only with an approved server migration.
-!.pi/agent/claude-bridge.json
-!.pi/agent/claude
-!.pi/agent/claude/**
-!.pi/agent/agents
-!.pi/agent/AGENTS.md
-!.pi/shared
-!.pi/shared/personal-policy.json
-!.pi/shared/skills
-!.pi/shared/skills/**
-!.t3
-!.t3/**
 {{- else -}}
-# Replaced on the Mac by extensions/profile/personal-gate.ts; aether's held runtime still uses it.
-.pi/shared/personal-policy.json
 .chezmoiscripts/*-linux-*.sh
 .config/mise
 .config/mise/**
-.config/systemd
-.config/systemd/**
-.t3
-.t3/**
 {{- end }}

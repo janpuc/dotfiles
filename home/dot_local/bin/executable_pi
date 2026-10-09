@@ -231,7 +231,7 @@ find_real_pi() {
 }
 
 
-# --- detachable terminal Pi (aether) --------------------------------------------------
+# --- detachable terminal Pi (optional dtach) --------------------------------------------------
 
 detach_dir() { print -r -- ${XDG_RUNTIME_DIR:-/tmp/pi-$UID}/pi }
 

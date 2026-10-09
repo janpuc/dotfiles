@@ -2,7 +2,7 @@
 #
 # Offline checks for the Pi setup (no real credentials, no network except npm
 # for --typecheck):
-#   syntax       zsh/fish syntax, JSON validity, chezmoi templates render (incl. the T3 seed)
+#   syntax       zsh/fish syntax, JSON validity, chezmoi templates render for Mac/Linux
 #   merge        the Personal settings merge keeps one bridge (the git fork)
 #   policy       node --test on the memory scope and approvals gate
 #   launcher     pi/pi-profile behaviour in a throwaway HOME
@@ -30,6 +30,13 @@ syntax() {
   # config.fish renders for the laptop and for the Linux server.
   for os in darwin linux; do
     (cd $src && chezmoi execute-template --override-data "{\"chezmoi\":{\"os\":\"$os\"}}" < dot_config/fish/config.fish.tmpl) > $out && fish --no-execute $out || { rm -f $out; return 1 }
+    if [[ $os == linux ]] && grep -Eq 'pi-attach|__memini_namespace_prefix|credentials.fish|DISABLE_AUTOUPDATER|MEMINI_|LITELLM_' $out; then
+      print 'Linux shell still depends on retired AI tools/state'; rm -f $out; return 1
+    fi
+    (cd $src && chezmoi execute-template --override-data "{\"chezmoi\":{\"os\":\"$os\"}}" < dot_config/fish/functions/ai-sync.fish.tmpl) > $out && fish --no-execute $out || { rm -f $out; return 1 }
+    if [[ $os == linux ]]; then
+      grep -q 'gh auth login --with-token' $out && ! grep -Eq 'CRED_FILE|MEMINI_API_KEY|LITELLM_API_KEY|PI_.*API_KEY' $out || { rm -f $out; return 1 }
+    fi
   done
   for f in $src/dot_pi/private_agent/models.json $src/dot_pi/**/settings.json(.); do
     jq empty $f || return 1
@@ -37,8 +44,6 @@ syntax() {
   for t in $src/dot_pi/**/modify_*.tmpl $src/.chezmoiscripts/run_onchange_after_configure-pi.sh.tmpl; do
     (cd $src && chezmoi execute-template < $t) > $out && zsh -n $out || { rm -f $out; return 1 }
   done
-  # The T3 seed for the aether server is valid JSON with the Pi provider enabled.
-  (cd $src && chezmoi execute-template < dot_t3/userdata/create_settings.json.tmpl) | jq -e '.providerInstances.pi.driver == "pi" and .providerInstances.pi.config.enabled' >/dev/null || return 1
   # A first-time apply renders valid JSON with the managed keys.
   for t in $src/dot_pi/**/modify_*.tmpl; do
     (cd $src && chezmoi execute-template < $t) > $out && zsh $out < /dev/null | jq -e 'type == "object"' >/dev/null || { rm -f $out; return 1 }
@@ -67,7 +72,7 @@ merge() {
 }
 
 # Render the actual Linux ignore rules into a temporary source state. Querying the managed
-# set proves a future aether apply cannot pick up the Mac-only Pi changes or installer.
+# set proves a future aether apply manages shell basics only, with no AI runtimes.
 platforms() {
   local tmp=$(mktemp -d) os managed
   mkdir -p $tmp/source $tmp/target
@@ -77,16 +82,46 @@ platforms() {
     (cd $src && chezmoi execute-template --override-data "{\"chezmoi\":{\"os\":\"$os\"}}" < .chezmoiignore) > $tmp/source/.chezmoiignore
     managed=$(chezmoi --config $tmp/config.toml --source $tmp/source --destination $tmp/target managed) || { rm -rf $tmp; return 1 }
     if [[ $os == darwin ]]; then
-      [[ $managed == *'.pi/shared/extensions/memory/index.ts'* && $managed == *'.pi/agent/settings.json'* ]] || { rm -rf $tmp; return 1 }
-    else
-      if print -r -- $managed | grep -Eq '^\.pi/(agent/(settings|models)|profiles|shared/(extensions/(profile|subagent|memory)|routing|context/AGENTS|agents/(planner|reviewer|scout|worker)|prompts/|README))|configure-pi'; then
-        print 'Linux would receive a held-back Mac Pi resource'; rm -rf $tmp; return 1
+      [[ $managed == *'.pi/shared/extensions/memory/index.ts'* && $managed == *'.pi/agent/settings.json'* && $managed == *'.local/bin/pi-attach'* ]] || { rm -rf $tmp; return 1 }
+      if print -r -- $managed | grep -Eq '^\.t3(/|$)|^\.pi/shared/personal-policy\.json$|^\.config/(mise|systemd)(/|$)|linux-'; then
+        print 'Mac would receive a server-only or retired source'; rm -rf $tmp; return 1
       fi
-      [[ $managed == *'.pi/agent/claude-bridge.json'* && $managed == *'.pi/shared/personal-policy.json'* ]] || { rm -rf $tmp; return 1 }
+    else
+      local expected='.chezmoiscripts/00-linux-apt.sh
+.chezmoiscripts/05-linux-system.sh
+.chezmoiscripts/06-linux-terminfo.sh
+.chezmoiscripts/10-linux-mise.sh
+.config
+.config/atuin
+.config/atuin/config.toml
+.config/atuin/themes
+.config/atuin/themes/catppuccin-mocha-blue.toml
+.config/bat
+.config/bat/config
+.config/bat/themes
+.config/bat/themes/Catppuccin Mocha.tmTheme
+.config/eza
+.config/eza/theme.yml
+.config/fish
+.config/fish/config.fish
+.config/fish/functions
+.config/fish/functions/ai-sync.fish
+.config/fish/themes
+.config/fish/themes/catppuccin-mocha.theme
+.config/git
+.config/git/config
+.config/git/ignore
+.config/mise
+.config/mise/config.toml
+.config/starship.toml
+.editorconfig'
+      [[ $(print -r -- $managed | LC_ALL=C sort) == $expected ]] || {
+        print 'Unexpected Linux managed set:'; print -r -- $managed; rm -rf $tmp; return 1
+      }
     fi
   done
   rm -rf $tmp
-  print 'ok: Mac resources managed; existing aether runtime held unchanged; Work excluded on Linux'
+  print 'ok: Mac Pi resources managed; Linux shell/GitHub tools only, no AI runtimes'
 }
 
 retry_js() {

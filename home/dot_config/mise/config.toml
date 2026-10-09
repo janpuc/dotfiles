@@ -1,18 +1,9 @@
-# Global tools on the aether server (Linux only, see .chezmoiignore). Everything installed by
-# `mise install` from the linux script; nothing else is installed by hand.
+# Global tools on the aether server (Linux only, see .chezmoiignore).
+# Installed by `mise install` from the Linux script.
 [tools]
-node = "lts"                                  # Pi needs >= 22.19
-"npm:@earendil-works/pi-coding-agent" = "latest"   # the real `pi`; ~/.local/bin/pi is the launcher
-# T3 Code server (self-contained binary per platform). On the nightly channel, pinned: the laptop runs
-# T3 Code (Nightly), and a client refuses a server older than it. Bump this when the app asks for it
-# (`npm view t3 dist-tags`).
-"npm:t3" = "0.0.46-nightly.20261007.2774"
-"1password-cli" = "latest"                    # `op`, for ai-sync
-claude = "latest"                             # Claude Code, for `pi-profile login` (the bridge has its own copy)
-codex = "latest"                              # Codex CLI: its app-server reports the ChatGPT usage in the Pi footer (`codex login --device-auth`)
+"1password-cli" = "latest"                    # `op`, for ai-sync's GitHub login
 chezmoi = "latest"
 gh = "latest"                                 # git's credential helper
-jq = "latest"                                 # the Pi launcher's memini handshake
 
 # The shell, as on the laptop (config.fish, starship, atuin, bat, eza; difft for git).
 starship = "latest"

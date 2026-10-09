@@ -21,10 +21,8 @@ set -gx SSH_AUTH_SOCK "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/age
 set -gx VISUAL nano
 {{- if eq .chezmoi.os "darwin" }}
 set -gx SAML2AWS_CONFIGFILE "~/.aws/saml2aws/config"
-{{- else }}
-# Claude Code is a mise tool here (`mise up claude`); its own updater would install a second copy.
-set -gx DISABLE_AUTOUPDATER 1
 {{- end }}
+{{- if eq .chezmoi.os "darwin" }}
 
 ### AI endpoints — not secrets, so plaintext here
 set -gx MEMINI_BASE_URL "https://memini.janpuc.com"
@@ -41,6 +39,7 @@ set -gx MEMINI_HOME "personal/jan"
 if test -r "$XDG_STATE_HOME/ai/credentials.fish"
     source "$XDG_STATE_HOME/ai/credentials.fish"
 end
+{{- end }}
 
 ## Abbrs
 
@@ -79,8 +78,8 @@ alias assume="source (brew --prefix)/bin/assume.fish"
 
 {{- end }}
 
-### pi / pi-profile: see functions/pi.fish and ~/.local/bin/pi.
 {{- if eq .chezmoi.os "darwin" }}
+### pi / pi-profile: see functions/pi.fish and ~/.local/bin/pi.
 
 alias claudex='CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-sol \
 CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1 \
@@ -99,14 +98,9 @@ source ~/.config/op/plugins.sh
 source ~/.orbstack/shell/init2.fish 2>/dev/null || :
 {{- else }}
 
-# Tools come from mise. The launcher in ~/.local/bin goes ahead of mise's shims, which include
-# the real `pi`; `mise activate` puts tool directories first again, so functions/pi.fish names
-# the launcher explicitly.
+# Shell and GitHub authentication tools come from mise.
 fish_add_path --prepend "$HOME/.local/bin" "$HOME/.local/share/mise/shims"
 status is-interactive; and mise activate fish | source
-
-# A Pi that kept running after its terminal went away (dtach; see ~/.local/bin/pi).
-status is-login; and status is-interactive; and pi-attach --summary
 {{- end }}
 
 fish_config theme choose catppuccin-mocha
@@ -119,11 +113,11 @@ zoxide init --cmd cd fish | source
 
 enable_transience
 
+{{- if eq .chezmoi.os "darwin" }}
 # Autoloaded --on-variable handlers only register once the function has been
 # loaded, so call them here to both register the hook and apply it to the
 # directory this shell started in.
 __memini_namespace_prefix
-{{- if eq .chezmoi.os "darwin" }}
 # Hermes Agent — ensure ~/.local/bin is on PATH
 fish_add_path "$HOME/.local/bin"
 {{- end }}

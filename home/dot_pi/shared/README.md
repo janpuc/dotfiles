@@ -15,7 +15,8 @@ Provider failures are reported, never used to silently replace the main collabor
 - The launcher refuses conflicting memory pins/read sets. A session stamped with one memory
   scope cannot continue under the other. Bare launches in a restricted project are blocked.
 - `PI_MEMINI=off pi ...` disables memory; `/profile` shows scope and enforcement diagnostics.
-- Linux detach/dtach and `pi-attach` remain available pending the separate server cleanup.
+- With optional `dtach` installed, interactive terminal sessions can survive disconnection;
+  `pi-attach` lists and reattaches them.
 
 ## Accounts
 
@@ -167,5 +168,5 @@ may answer via MiniMax. Verify generated citations.
   needs separate approval; this source cleanup does not uninstall packages or erase live state.
 - `/reload` reloads extensions, not packages or saved model selections. Pick a native model
   explicitly if a resumed selection no longer exists.
-- Aether's existing runtime remains held out of Linux management until a separately approved
-  migration. Do not purge ignored live files as part of the Mac cleanup.
+- Pi is managed on the Mac only. Server retirement is a separate, explicit cleanup: ignored
+  live targets are not removed automatically by chezmoi.

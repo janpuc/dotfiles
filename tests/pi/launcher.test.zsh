@@ -249,7 +249,7 @@ check "pi-profile reports the reason" "$(print -r -- $out | sed -n 's/^reason=//
 ( cd $H/plain && env -i HOME=$H PATH=$H/.local/bin:/usr/bin:/bin:/opt/homebrew/bin/jq-only $H/.local/bin/pi ) 2>$T/stderr; st=$?
 check "missing real pi → clear error" "$st/$(grep -c 'not on PATH' $T/stderr)" 78/1
 
-# --- detachable terminal Pi (aether: dtach) ----------------------------------------------------
+# --- detachable terminal Pi (optional dtach) ----------------------------------------------------
 
 print "detach"
 mkdir -p $T/dtachbin $T/run

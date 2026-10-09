@@ -1,7 +1,7 @@
 {{- if eq .chezmoi.os "linux" -}}
 #!/bin/sh
-# Install the tools in ~/.config/mise/config.toml (Pi, T3, op, chezmoi, ...). Runs before the Pi
-# package setup, which needs the real `pi`. Re-runs when the tool list changes.
+# Install the shell and GitHub authentication tools in ~/.config/mise/config.toml.
+# Re-runs when the tool list changes.
 # {{ include "dot_config/mise/config.toml" | sha256sum }}
 # bat theme {{ include "dot_config/bat/themes/Catppuccin Mocha.tmTheme" | sha256sum }}
 set -eu
