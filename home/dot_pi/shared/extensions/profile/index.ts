@@ -3,9 +3,6 @@
 //
 // - Keeps memini separate: refuses a Work project started without the ~/.local/bin/pi launcher and
 //   a session recorded under the other memory scope, and keeps pi-memini tool calls in scope.
-// - Gates tools through personal-gate.ts: consequential effects need Jan's approval, secrets stay
-//   blocked, and search output naming secret files is redacted.
-// - Registers the `advisor` tool (advisor.ts): a read-only second opinion from fable/astra.
 // - Tracks how much of each subscription is used (usage.ts, usage-sources.ts). `/usage`, usage_status.
 // - Shows the memory scope in the footer; the footer shows the native model.
 //
@@ -19,18 +16,14 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, sep } from "node:path";
+import { registerTitle } from "./title.ts";
 import { memoryToolBlock, type Profile } from "./memory-scope.ts";
-import { createPersonalGate } from "./personal-gate.ts";
-import { registerAdvisor } from "./advisor.ts";
-import { DEFAULT_USAGE, USAGE_POOLS, poolOf, isQuotaError, describe as describeUsage, limitedUntilFrom, pressure, shortTime } from "./usage.ts";
+import { DEFAULT_USAGE, USAGE_POOLS, poolOf, isQuotaError, describe as describeUsage, limitedUntilFrom, shortTime } from "./usage.ts";
 import { renderBars, renderPanel, type PoolView } from "./usage-view.ts";
 import { stripAiTrailers } from "./commit-trailers.ts";
 import { renderFooter } from "./footer-view.ts";
 import { duration, notify, notifyAfterMs } from "./notify.ts";
-import { acquire, holder, inUseMessage, ownIdentity, release, type LockOwner } from "./session-lock.ts";
-import { detachInfo, removeMeta, repaint, writeMeta } from "./detach.ts";
 import { readCache, writeCache, type UsageCache } from "./usage-sources.ts";
-import { claimCheckout, type CheckoutDelegation } from "../subagent/checkout.ts";
 
 const HOME = homedir();
 const PERSONAL_DIR = join(HOME, ".pi", "agent");
@@ -75,7 +68,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 	// `profile` is only the memory scope the launcher chose; models, sessions and tools are shared.
 	const profile: Profile = declared ?? "personal";
 	const models: Profile = "personal";
-	const worker = process.env.PI_WORKER === "1";
+	registerTitle(pi);
 	let memState = process.env.PI_MEMINI_STATE ?? "unchecked: started without the pi launcher";
 	let memoryOff = memState.startsWith("off") ? memState.replace(/^off:?\s*/, "") || "off" : undefined;
 	pi.events.on("memini:load-error", (message: unknown) => {
@@ -90,35 +83,9 @@ export default function profileExtension(pi: ExtensionAPI) {
 	let stamped = false;
 	const blocked = () => processBlock ?? sessionBlock;
 
-	// --- one process per session file (session-lock.ts) ---------------------------------------
-
-	// Kept on globalThis so a /reload, which re-runs this module, keeps the locks this process
-	// already holds instead of dropping and re-taking them (someone else could get in between).
-	const locks: { held: Map<string, LockOwner>; hooked: boolean } = ((globalThis as any).__piProfileLocks ??= { held: new Map(), hooked: false });
-	const argv = process.argv.join(" ");
-	const lockMode: LockOwner["mode"] = /--mode(?:=|\s+)rpc\b/.test(argv) ? "rpc" : process.stdout.isTTY ? "tui" : "print";
-	const detach = detachInfo();
-	let exitMessage: string | undefined;
-	const releaseAll = (except?: string) => {
-		for (const [file, me] of locks.held) {
-			if (file === except) continue;
-			release(file, me);
-			locks.held.delete(file);
-		}
-	};
-	if (!locks.hooked) {
-		locks.hooked = true;
-		process.on("exit", () => {
-			releaseAll();
-			const d = detachInfo();
-			if (d) removeMeta(d);
-			if (exitMessage) process.stderr.write(`${exitMessage}\n`);
-		});
-	}
-
 	if (process.env.AI_PROFILE && !declared) {
 		processBlock = `pi-profile: unknown AI_PROFILE=${process.env.AI_PROFILE}`;
-	} else if (!worker && profile === "personal" && expectedProfile(process.cwd()) === "work") {
+	} else if (profile === "personal" && expectedProfile(process.cwd()) === "work") {
 		// Personal memory must never open in a Work project. Work scope is sticky by design: the launcher
 		// keeps a Work session's children on work/* even outside the Work tree.
 		processBlock = `pi-profile: ${process.cwd()} needs Work memory scope; restart with \`pi\`.`;
@@ -126,14 +93,13 @@ export default function profileExtension(pi: ExtensionAPI) {
 	const publishMemoryBlock = () => { (globalThis as any)[Symbol.for("pi-profile.memory-block")] = blocked(); };
 	publishMemoryBlock();
 
-	const gate = createPersonalGate({ home: HOME, worker, alert: notify });
 
 	// --- subscription usage --------------------------------------------------------------
 
 	// A detached helper refreshes the fixed subscription pools without delaying requests.
 	const usageFile = join(agentDir, "usage.json");
 	const usageOpts = DEFAULT_USAGE;
-	const pools = worker ? [] : [...USAGE_POOLS];
+	const pools = [...USAGE_POOLS];
 	let usage: UsageCache = readCache(usageFile);
 	let usageMtime = 0;
 	const reloadUsage = () => {
@@ -158,10 +124,6 @@ export default function profileExtension(pi: ExtensionAPI) {
 		} catch {
 			// usage stays as cached
 		}
-	};
-	const pressureOf = (t: { provider: string; model: string }) => {
-		const pool = poolOf(t);
-		return pool ? pressure(usage[pool], t.model, Date.now(), usageOpts) : undefined;
 	};
 	const markLimited = (model: { provider: string; model: string }, errorText: string) => {
 		const pool = poolOf(model);
@@ -214,12 +176,6 @@ export default function profileExtension(pi: ExtensionAPI) {
 		alertsSeeded = true;
 	};
 
-	let footerTui: { requestRender(): void } | undefined;
-	if (!worker) {
-		registerAdvisor(pi, { blocked, pressureOf });
-		gate.register(pi, Type);
-	}
-
 	// --- request guard --------------------------------------------------------------
 
 	// A blocked process or session (memory scope unsafe) must not reach any model. Supported hooks
@@ -254,16 +210,11 @@ export default function profileExtension(pi: ExtensionAPI) {
 	// Replaces Pi's footer with scope, place, memory, native model and context.
 	const OWN_STATUSES = new Set(["pi-profile"]);
 	const showFooter = (ctx: any) => {
-		if (worker || !ctx?.hasUI) return;
+		if (!ctx?.hasUI) return;
 		ctx.ui.setFooter((tui: any, theme: any, data: any) => {
-			footerTui = tui;
-			(globalThis as any).__piProfileFooterTui = tui;
 			const unsub = data.onBranchChange(() => tui.requestRender());
 			return {
-				dispose() {
-					unsub();
-					if (footerTui === tui) footerTui = undefined;
-				},
+				dispose() { unsub(); },
 				invalidate() {},
 				render(width: number): string[] {
 					const m = ctx.model;
@@ -304,7 +255,6 @@ export default function profileExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", (_event, ctx) => {
-		if (worker) return;
 		liveCtx = ctx;
 		reloadUsage();
 		kickRefresh(stalePools());
@@ -323,33 +273,6 @@ export default function profileExtension(pi: ExtensionAPI) {
 			usageTimer.unref?.();
 		}
 		sessionBlock = undefined;
-		const sessionFile: string | undefined = ctx.sessionManager.getSessionFile();
-		if (sessionFile && !locks.held.has(sessionFile)) {
-			const me = ownIdentity(lockMode, detach?.id);
-			const got = acquire(sessionFile, me);
-			if (got.ok) {
-				locks.held.set(sessionFile, me);
-				releaseAll(sessionFile);
-			} else {
-				// Stop rather than stay open on a session another process is writing. Without a UI
-				// (pi -p, T3's RPC) the blocked request reports it; the TUI shows it, then repeats
-				// it on the terminal after leaving the alternate screen.
-				sessionBlock = inUseMessage(sessionFile, got.owner, got.reason);
-				publishMemoryBlock();
-				if (ctx.hasUI) {
-					exitMessage = sessionBlock;
-					say(ctx, sessionBlock, "error");
-				}
-				setTimeout(() => ctx.shutdown(), ctx.hasUI ? 1500 : 0);
-				return;
-			}
-		}
-		if (detach)
-			try {
-				writeMeta(detach, { pid: process.pid, cwd: ctx.cwd, profile, session: sessionFile, name: ctx.sessionManager.getSessionName?.(), started: new Date().toISOString() });
-			} catch {
-				// pi-attach then lists it without details
-			}
 		const stamp = ctx.sessionManager
 			.getEntries()
 			.find((e: any) => e.type === "custom" && e.customType === STAMP) as { data?: { profile?: string } } | undefined;
@@ -369,28 +292,6 @@ export default function profileExtension(pi: ExtensionAPI) {
 		// The launcher already printed this on stderr; repeat it where the TUI can show it.
 		else if (ctx.hasUI && !memState.startsWith("ok")) ctx.ui.notify(`memini ${memState}`, memoryOff ? "info" : "warning");
 	});
-
-	// Do not leave the current session for one another process has open.
-	pi.on("session_before_switch", (event: any, ctx: any) => {
-		const target: string | undefined = event.targetSessionFile;
-		if (!target || locks.held.has(target)) return undefined;
-		const owner = holder(target);
-		if (!owner) return undefined;
-		say(ctx, inUseMessage(target, owner, "held").replace(", so this one stops here", ""), "error");
-		return { cancel: true };
-	});
-	pi.on("session_shutdown", (event: any) => {
-		// A switch keeps the old lock until session_start has taken the new one; /reload keeps it.
-		if (event.reason === "quit") {
-			releaseAll();
-			if (detach) removeMeta(detach);
-		}
-	});
-	// pi-attach sends SIGUSR2 once a new terminal is attached: replay the terminal setup, repaint.
-	if (detach && !(globalThis as any).__piProfileRepaint) {
-		(globalThis as any).__piProfileRepaint = true;
-		process.on("SIGUSR2", () => repaint((globalThis as any).__piProfileFooterTui));
-	}
 
 	// Stamp on the first real turn rather than at startup, so opening Pi does not create a session.
 	pi.on("before_agent_start", () => {
@@ -413,43 +314,19 @@ export default function profileExtension(pi: ExtensionAPI) {
 		return { action: "handled" as const };
 	});
 
-	const checkoutCalls = new Map<string, ReturnType<typeof claimCheckout>>();
-	pi.on("tool_execution_end", event => { checkoutCalls.get(event.toolCallId)?.release(); checkoutCalls.delete(event.toolCallId); });
-	pi.on("session_shutdown", () => { for (const lease of checkoutCalls.values()) lease.release(); checkoutCalls.clear(); });
 	pi.on("tool_call", async (event, ctx) => {
 		const input = event.input as Record<string, unknown>;
 		const why = blocked() ?? memoryToolBlock(profile, event.toolName, input, { home: process.env.MEMINI_HOME, memoryOff });
 		if (why) return { block: true, reason: why };
 		// No AI attribution in commits, whichever model is answering. Edited in place so the
-		// gate below judges the command that will actually run.
+		// guard applies to the command that will actually run.
 		if (event.toolName === "bash" && typeof input?.command === "string") {
 			const fix = stripAiTrailers(input.command);
 			if (fix?.leftover)
 				return { block: true, reason: `Commits must not credit an AI model or agent. Remove "${fix.leftover}" from the commit message and commit again.` };
 			if (fix) input.command = fix.command;
 		}
-		const denied = gate.check(event.toolName, input, ctx); if (denied) return denied;
-		if (["bash", "edit", "write"].includes(event.toolName)) {
-			try {
-				const delegated: CheckoutDelegation | undefined = worker && process.env.PI_WORKER_CHECKOUT ? JSON.parse(process.env.PI_WORKER_CHECKOUT) : undefined;
-				checkoutCalls.set(event.toolCallId, claimCheckout(ctx.cwd, false, false, delegated));
-			} catch (e) { return { block: true, reason: `Checkout coordination: ${e}` }; }
-		}
 		return undefined;
-	});
-
-	pi.on("tool_result", (event, ctx) => {
-		if (!["grep", "find", "ls"].includes(event.toolName)) return undefined;
-		let hidden = 0;
-		const content = event.content.map((c) => {
-			if (c.type !== "text") return c;
-			const r = gate.redact(event.toolName, event.input as Record<string, unknown>, c.text, ctx.cwd);
-			hidden += r.hidden;
-			return { ...c, text: r.text };
-		});
-		if (!hidden) return undefined;
-		content.push({ type: "text", text: `[${hidden} result(s) hidden: they name secret files]` });
-		return { content };
 	});
 
 	// --- notifications ------------------------------------------------------------------------
@@ -469,7 +346,6 @@ export default function profileExtension(pi: ExtensionAPI) {
 
 	// Preserve quota visibility without changing the provider's error or selected model.
 	pi.on("message_end", (event, ctx) => {
-		if (worker) return;
 		const m = event.message as any;
 		if (m?.role !== "assistant") return;
 		const pool = poolOf(m);
@@ -480,9 +356,6 @@ export default function profileExtension(pi: ExtensionAPI) {
 		ctx.ui.setStatus("pi-profile", status());
 		checkAlerts(ctx);
 	});
-
-	const workerBlock = (model?: { provider: string; id: string }) => blocked() ?? (model ? undefined : "Worker model unavailable");
-	if (worker) return { workerBlock };
 
 	// --- usage visibility ----------------------------------------------------------------------------
 
@@ -496,7 +369,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 		name: "usage_status",
 		label: "Usage",
 		description:
-			"Show how much of each of the user's AI subscriptions (Claude, ChatGPT/Codex, OpenCode Go, MiniMax) is used. Use it before choosing a model, subagent or advisor for a large task.",
+			"Show how much of each of the user's AI subscriptions (Claude, ChatGPT/Codex, OpenCode Go, MiniMax) is used. Use it before choosing a model or delegated agent for a large task.",
 		promptSnippet: "usage_status: subscription usage",
 		parameters: Type.Object({}),
 		async execute(_id, _params, _signal, _onUpdate, ctx) {
@@ -531,7 +404,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 	// --- diagnostics ----------------------------------------------------------------------------
 
 	pi.registerCommand("profile", {
-		description: "Show memory scope, accounts and approval status",
+		description: "Show memory scope, accounts and usage diagnostics",
 		handler: async (_args, ctx) => {
 			const lines = [
 				`memory scope: ${profile}  (agent dir ${agentDir})`,
@@ -540,13 +413,11 @@ export default function profileExtension(pi: ExtensionAPI) {
 				`memini: ${memState}`,
 				`namespace env: prefix=${process.env.MEMINI_NAMESPACE_PREFIX ?? "-"} namespace=${process.env.MEMINI_NAMESPACE ?? "-"} home=${process.env.MEMINI_HOME ?? "-"}`,
 				blocked() ? `BLOCKED: ${blocked()}` : "requests: allowed",
-				gate.status(),
 				`selected: ${ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "-"}`,
 			];
 			ctx.ui.notify(lines.join("\n"), "info");
 		},
 	});
-	return { workerBlock };
 }
 
 // Exported for tests.

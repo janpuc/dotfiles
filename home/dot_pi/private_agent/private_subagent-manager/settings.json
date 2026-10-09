@@ -1,0 +1,11 @@
+{
+  "subagentMode": "opportunistic",
+  "widgetMode": "full",
+  "nerdFontIcons": true,
+  "loaderStyle": "braille",
+  "finalRecap": false,
+  "modelSelection": "pick-first-available",
+  "toolFiltering": "allowed",
+  "maxLevels": 2,
+  "maxConcurrent": 2
+}

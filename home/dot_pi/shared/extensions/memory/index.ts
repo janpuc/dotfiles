@@ -5,7 +5,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { quietMemoryAPI } from "./quiet.ts";
 
 export default async function memory(pi: ExtensionAPI) {
-	if (process.env.PI_WORKER === "1" || !process.env.PI_MEMINI_STATE?.startsWith("ok")) return;
+	if (!process.env.PI_MEMINI_STATE?.startsWith("ok")) return;
 	const entry = join(getAgentDir(), "npm", "node_modules", "@eleboucher", "pi-memini", "dist", "index.js");
 	try {
 		const mod = await import(entry);

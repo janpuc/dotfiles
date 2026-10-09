@@ -8,6 +8,7 @@
 emulate -L zsh
 setopt no_unset pipe_fail
 
+[[ -n ${PI_TEST_GUARD_DIR-} && -n ${PI_TEST_NETWORK_LOG-} ]] || { print "Run via tests/pi/run.sh (offline guard required)"; exit 1 }
 repo=${0:A:h:h:h}
 T=$(mktemp -d "${TMPDIR:-/tmp}/pi-launcher-test.XXXXXX")
 T=${T:A}
@@ -77,7 +78,7 @@ python3 $T/mock.py $T & mock_pid=$!
 for _ in {1..50}; do [[ -s $T/port ]] && break; sleep 0.1; done
 MOCK=http://127.0.0.1:$(<$T/port)
 
-TPATH=$H/.local/bin:$T/realbin:/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin
+TPATH=$PI_TEST_GUARD_DIR:$H/.local/bin:$T/realbin:/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin
 
 # run DIR [VAR=VAL...] -- CMD ARGS...: run the launcher from DIR with a clean env.
 run() {
@@ -85,7 +86,7 @@ run() {
   local -a extra=()
   while [[ $1 != -- ]]; do extra+=($1); shift; done; shift
   rm -f $T/out.*(N)
-  ( cd $dir && env -i HOME=$H PWD=$dir PATH=$TPATH TERM=dumb FAKE_PI_OUT=$T/out \
+  ( cd $dir && env -i HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9 NO_PROXY=127.0.0.1,localhost,::1 PI_TEST_NETWORK_LOG=$PI_TEST_NETWORK_LOG HOME=$H PWD=$dir PATH=$TPATH TERM=dumb FAKE_PI_OUT=$T/out \
       MEMINI_BASE_URL=$MOCK MEMINI_API_KEY=dummy-memini MEMINI_HOME=personal/jan \
       LITELLM_API_KEY=dummy-litellm LITELLM_BASE_URL=https://litellm.example \
       ANTHROPIC_API_KEY=dummy-anthropic OPENAI_API_KEY=dummy-openai \
@@ -174,7 +175,7 @@ check "exit status passes through" $st 42
 print -rl -- -p "two words" '$HOME' "it's" '' > $T/expected.args
 check "arguments pass through verbatim" "$(cmp -s $T/expected.args $T/out.args && print same || print differ)" same
 rm -f $T/out.*(N)
-( cd $H/plain && exec env -i HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK MEMINI_API_KEY=k $H/.local/bin/pi --sleep ) 2>/dev/null &
+( cd $H/plain && exec env -i HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9 NO_PROXY=127.0.0.1,localhost,::1 PI_TEST_NETWORK_LOG=$PI_TEST_NETWORK_LOG HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK MEMINI_API_KEY=k $H/.local/bin/pi --sleep ) 2>/dev/null &
 bg=$!
 for _ in {1..50}; do [[ -s $T/out.pid ]] && break; sleep 0.1; done
 check "launcher execs pi in place (same pid)" "$(<$T/out.pid)" $bg
@@ -233,72 +234,21 @@ set -gx MEMINI_API_KEY 'cached-memini'
 set -gx LITELLM_API_KEY 'cached-lite\'llm'
 EOF
 rm -f $T/out.*(N)
-( cd $H/plain && env -i HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK $H/.local/bin/pi ) 2>/dev/null
+( cd $H/plain && env -i HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9 NO_PROXY=127.0.0.1,localhost,::1 PI_TEST_NETWORK_LOG=$PI_TEST_NETWORK_LOG HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK $H/.local/bin/pi ) 2>/dev/null
 check "personal imports memini key from the ai-sync cache" "$(envv MEMINI_API_KEY)" cached-memini
 check "personal imports litellm key (fish escaping kept)" "$(envv LITELLM_API_KEY)" "cached-lite'llm"
-( cd $H/Work/team/api && env -i HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK $H/.local/bin/pi ) 2>/dev/null
+( cd $H/Work/team/api && env -i HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9 NO_PROXY=127.0.0.1,localhost,::1 PI_TEST_NETWORK_LOG=$PI_TEST_NETWORK_LOG HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK $H/.local/bin/pi ) 2>/dev/null
 check "Work imports the memini key" "$(envv MEMINI_API_KEY)" cached-memini
 check "Work imports the same subscription keys" "$(envv LITELLM_API_KEY)" "cached-lite'llm"
 
 # --- misc ---------------------------------------------------------------------------------------------
 
 print "misc"
-out=$(cd $H/elsewhere/api-wt && env -i HOME=$H PATH=$TPATH MEMINI_BASE_URL=$MOCK MEMINI_API_KEY=k $H/.local/bin/pi-profile 2>/dev/null)
+out=$(cd $H/elsewhere/api-wt && env -i HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9 NO_PROXY=127.0.0.1,localhost,::1 PI_TEST_NETWORK_LOG=$PI_TEST_NETWORK_LOG HOME=$H PATH=$TPATH MEMINI_BASE_URL=$MOCK MEMINI_API_KEY=k $H/.local/bin/pi-profile 2>/dev/null)
 check "pi-profile reports the worktree owner" "$(print -r -- $out | grep -c "owner $H/Work/team/api")" 1
 check "pi-profile reports the reason" "$(print -r -- $out | sed -n 's/^reason=//p')" repo
-( cd $H/plain && env -i HOME=$H PATH=$H/.local/bin:/usr/bin:/bin:/opt/homebrew/bin/jq-only $H/.local/bin/pi ) 2>$T/stderr; st=$?
+( cd $H/plain && env -i HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9 NO_PROXY=127.0.0.1,localhost,::1 PI_TEST_NETWORK_LOG=$PI_TEST_NETWORK_LOG HOME=$H PATH=$H/.local/bin:/usr/bin:/bin:/opt/homebrew/bin/jq-only $H/.local/bin/pi ) 2>$T/stderr; st=$?
 check "missing real pi → clear error" "$st/$(grep -c 'not on PATH' $T/stderr)" 78/1
-
-# --- detachable terminal Pi (optional dtach) ----------------------------------------------------
-
-print "detach"
-mkdir -p $T/dtachbin $T/run
-ln -sf pi $H/.local/bin/pi-attach
-# The fake dtach records how it was called and with which detach environment.
-cat > $T/dtachbin/dtach <<'EOF2'
-#!/bin/zsh
-print -rl -- "$@" > $FAKE_PI_OUT.dtach
-print -r -- "${PI_DETACH_ID-}|${PI_DETACH_DIR-}" > $FAKE_PI_OUT.dtachenv
-EOF2
-chmod +x $T/dtachbin/dtach
-# Run the launcher on a real pseudo-terminal (BSD and util-linux `script` differ).
-tty_run() {
-  local dir=$1; shift
-  rm -f $T/out.*(N)
-  local cmd="cd $dir && env -i HOME=$H PATH=$T/dtachbin:$TPATH TERM=dumb FAKE_PI_OUT=$T/out XDG_RUNTIME_DIR=$T/run MEMINI_BASE_URL=$MOCK MEMINI_API_KEY=k $*"
-  if [[ $(uname) == Darwin ]]; then script -q /dev/null zsh -c "$cmd" >/dev/null 2>&1 </dev/null
-  else script -qec "zsh -c '$cmd'" /dev/null >/dev/null 2>&1 </dev/null; fi
-}
-tty_run $H/plain $H/.local/bin/pi
-check "interactive Pi on a terminal runs under dtach" "$(sed -n 1p $T/out.dtach 2>/dev/null)/$(sed -n 3,7p $T/out.dtach 2>/dev/null | tr '\n' ' ')" "-c/-E -z -r winch $T/realbin/pi "
-check "…with a detach id and directory for pi-attach" "$(cut -d'|' -f2 $T/out.dtachenv 2>/dev/null)/$(cut -c1 $T/out.dtachenv 2>/dev/null)" "$T/run/pi/p"
-for args in "-p hello" "--mode rpc" "--version" "install npm:x" "--list-models"; do
-  tty_run $H/plain $H/.local/bin/pi $args
-  check "pi $args is never wrapped" "$( [[ -e $T/out.dtach ]] && print wrapped || print direct)" direct
-done
-tty_run $H/plain PI_DETACH=off $H/.local/bin/pi
-check "PI_DETACH=off opts out" "$( [[ -e $T/out.dtach ]] && print wrapped || print direct)" direct
-rm -f $T/out.*(N)
-( cd $H/plain && env -i HOME=$H PATH=$T/dtachbin:$TPATH FAKE_PI_OUT=$T/out XDG_RUNTIME_DIR=$T/run MEMINI_BASE_URL=$MOCK MEMINI_API_KEY=k $H/.local/bin/pi ) </dev/null >/dev/null 2>&1
-check "without a terminal it is not wrapped" "$( [[ -e $T/out.dtach ]] && print wrapped || print direct)" direct
-
-# pi-attach lists live sessions, forgets ones whose Pi is gone, and attaches.
-rm -rf $T/run/pi && mkdir -p -m 700 $T/run/pi
-mksock() { python3 -c 'import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' $1 }
-sleep 300 & live=$!
-mksock $T/run/pi/p1-1.sock; print "{\"pid\":$live,\"cwd\":\"$H/Development/app\",\"profile\":\"personal\",\"started\":\"2026-10-07T18:04:00Z\"}" > $T/run/pi/p1-1.json
-mksock $T/run/pi/p2-2.sock; print '{"pid":999999,"cwd":"/x","profile":"personal","started":"2026-10-07T18:05:00Z"}' > $T/run/pi/p2-2.json
-attach() { rm -f $T/out.*(N); env -i HOME=$H PATH=$T/dtachbin:$TPATH FAKE_PI_OUT=$T/out XDG_RUNTIME_DIR=$T/run $H/.local/bin/pi-attach "$@" 2>&1 }
-out=$(attach --list)
-check "pi-attach --list shows the live session (local time)" "$(print -r -- $out)" "[1] p1-1  ~/Development/app  personal  since $(date -r 1791396240 +%H:%M 2>/dev/null || date -d @1791396240 +%H:%M)"
-check "…and forgets the one whose Pi has exited" "$( [[ -e $T/run/pi/p2-2.json ]] && print kept || print removed)" removed
-attach >/dev/null
-check "pi-attach with one session attaches to it" "$(sed -n 1,2p $T/out.dtach 2>/dev/null | tr '\n' ' ')" "-a $T/run/pi/p1-1.sock "
-check "pi-attach --summary for the login shell" "$(attach --summary)" "1 Pi session(s) still running here: pi-attach to get back (pi-attach --list)."
-kill $live 2>/dev/null
-print '{"pid":999999}' > $T/run/pi/p3-3.json
-check "nothing running: --summary stays quiet" "$(attach --summary)" ""
-check "…and details left by a killed Pi are cleared" "$(ls $T/run/pi)" ""
 
 print "\n$passes passed, $failures failed"
 (( failures == 0 ))

@@ -1,0 +1,12 @@
+name: writer
+models:
+  - openai/gpt-6.1-sol
+tools:
+  allow:
+    - read
+    - grep
+    - find
+    - ls
+    - agent_update
+    - agent_pause
+  block: []

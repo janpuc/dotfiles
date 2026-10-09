@@ -23,4 +23,6 @@ print -r -- $current | jq --argjson managed "$managed" --argjson retired "$retir
   | reduce ("extensions", "prompts", "skills", "themes") as $k (.;
       if $managed[$k] then
         .[$k] = $managed[$k] + [($cur[$k] // [])[] | select(. as $e | $managed[$k] | index($e) | not)]
-      else . end)'
+      else . end)
+  | reduce ("extensions", "prompts", "skills", "themes") as $k (.;
+      if .[$k] then .[$k] |= map(select(. as $e | $retired | index($e) | not)) else . end)'

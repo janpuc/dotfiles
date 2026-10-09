@@ -4,7 +4,7 @@ Behaviour per model comes from <dir>/gateway.json:
   {"<model>": {"status": 429, "message": "...", "fail_times": N}}   fail N times (default: always)
   {"<model>": {"script": [{"tool": "bash", "args": {...}}, ...]}}   one tool call per step; step = tool
                                                                     results so far, then "RESULT: <last result>"
-  {"<model>": {"batch": [{"tool": "worker", "args": {...}}, ...]}}  calls in one assistant message
+  {"<model>": {"batch": [{"tool": "read", "args": {...}}, ...]}}  calls in one assistant message
   {"<model>": {"reply": "text"}}                                      a fixed answer
 Models without an entry stream back "MOCK-OK <model>". Every request is appended to <dir>/gateway.log.
 """
@@ -14,8 +14,6 @@ import os
 import sys
 import time
 
-# Markers trial harnesses look for in request text (tests/pi/trials).
-SENTINELS = ["SENTINEL_PARENT_CONTEXT", "SECRET_SENTINEL_VALUE", "synthetic recall evidence", "synthetic briefing evidence", "ORG_DENIED_RAN", "PUSH_RAN", "WORKER_OWN_HISTORY", "WORKER_STEER", "WORKER_RESUME", "FORK_PARENT_SENTINEL", "FORK_PARENT_OLD", "FORK_PARENT_LATER", "FORBIDDEN_MEMORY_SENTINEL", "FORBIDDEN_SYSTEM_SENTINEL", "FORBIDDEN_SUMMARY_SENTINEL"]
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DIR = sys.argv[1]
@@ -80,10 +78,8 @@ class Handler(BaseHTTPRequestHandler):
                 "reasoning_effort": body.get("reasoning_effort"),
                 "marker": "PI-SMOKE" in text,
                 "memory_context": "synthetic recall evidence" in text and "synthetic briefing evidence" in text,
-                "parent_context": "SENTINEL_PARENT_CONTEXT" in text,
                 "tools": sorted(t.get("function", {}).get("name", "") for t in body.get("tools", []) or []),
                 "t": time.time(),
-                "sentinels": [s for s in SENTINELS if s in text],
             }) + "\n")
         try:
             rules = json.loads(raw)

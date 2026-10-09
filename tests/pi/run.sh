@@ -1,14 +1,10 @@
 #!/usr/bin/env zsh
 #
-# Offline checks for the Pi setup (no real credentials, no network except npm
-# for --typecheck):
-#   syntax       zsh/fish syntax, JSON validity, chezmoi templates render for Mac/Linux
-#   merge        the Personal settings merge keeps one bridge (the git fork)
-#   policy       node --test on the memory scope and approvals gate
-#   launcher     pi/pi-profile behaviour in a throwaway HOME
-#   integration  real Pi + extension + installed packages against a mock gateway
-#                (skipped when Pi or the profile packages are not installed)
-#   typecheck    tsc --strict against the installed Pi's declarations (--typecheck)
+# Offline Pi checks. All runtime requests are loopback-only with synthetic keys.
+# --typecheck reuses installed dev dependencies or installs from npm's offline cache.
+# Stages: syntax/templates, settings merge, managed sets, unit/config tests,
+# launcher, real-Pi integration (when installed), strict extension typecheck.
+# No apply, package auto-install, or deployed-file changes.
 #
 
 emulate -L zsh
@@ -21,6 +17,74 @@ rc=0
 typecheck=0; [[ ${1-} == --typecheck ]] && typecheck=1
 step() { print "\n== $1"; shift; "$@" || { rc=1; print "!! failed" } }
 
+# Preload a loopback-only socket/DNS guard in every Node subprocess, and wrap the
+# launcher's curl. Clean-env test children explicitly carry these guard variables.
+# Proxies are defence in depth; they do not replace the fail-on-attempt audit.
+PI_TEST_GUARD_DIR=$(mktemp -d)
+export PI_TEST_GUARD_DIR PI_TEST_NETWORK_LOG=$PI_TEST_GUARD_DIR/network.log
+trap 'rm -rf $PI_TEST_GUARD_DIR' EXIT
+: > $PI_TEST_NETWORK_LOG
+cat > $PI_TEST_GUARD_DIR/offline.cjs <<'JS'
+const fs = require('node:fs');
+const net = require('node:net');
+const dns = require('node:dns');
+const local = host => ['127.0.0.1', '::1', 'localhost'].includes(host);
+function deny(target) {
+  fs.appendFileSync(process.env.PI_TEST_NETWORK_LOG, `node: ${target}\n`);
+  throw new Error(`Offline test blocked network target: ${target}`);
+}
+const connect = net.Socket.prototype.connect;
+net.Socket.prototype.connect = function (...args) {
+  const options = net._normalizeArgs(args)[0];
+  if (!options.path && !local(options.host || 'localhost')) deny(options.host);
+  return connect.apply(this, args);
+};
+const lookup = dns.lookup;
+dns.lookup = function (host, ...args) {
+  if (!local(host)) deny(host);
+  return lookup.call(this, host, ...args);
+};
+const promiseLookup = dns.promises.lookup;
+dns.promises.lookup = function (host, ...args) {
+  if (!local(host)) deny(host);
+  return promiseLookup.call(this, host, ...args);
+};
+JS
+cat > $PI_TEST_GUARD_DIR/curl <<'PY'
+#!/usr/bin/env python3
+import os, sys
+from urllib.parse import urlsplit
+urls = [arg for arg in sys.argv[1:] if arg.startswith(('http://', 'https://'))]
+if not urls or any(urlsplit(url).hostname not in ('127.0.0.1', 'localhost', '::1') for url in urls):
+    with open(os.environ['PI_TEST_NETWORK_LOG'], 'a') as log:
+        log.write('curl: non-loopback URL blocked\n')
+    sys.exit(97)
+# -q disables ~/.curlrc; --noproxy limits direct access to these loopback URLs.
+os.execv('/usr/bin/curl', ['curl', '-q', '--noproxy', '127.0.0.1,localhost,::1', *sys.argv[1:]])
+PY
+chmod +x $PI_TEST_GUARD_DIR/curl
+export NODE_OPTIONS="--require=$PI_TEST_GUARD_DIR/offline.cjs"
+export HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9
+export NO_PROXY=127.0.0.1,localhost,::1
+export http_proxy=$HTTP_PROXY https_proxy=$HTTPS_PROXY all_proxy=$ALL_PROXY no_proxy=$NO_PROXY
+export PATH=$PI_TEST_GUARD_DIR:$PATH
+
+offline_guard() {
+  # The probes must fail before connecting, including fetch's DNS/socket path.
+  node -e 'require("node:net").connect(443, "example.invalid")' >/dev/null 2>&1 && return 1
+  node -e 'fetch("https://example.invalid").then(() => process.exit(0), () => process.exit(1))' >/dev/null 2>&1 && return 1
+  curl -fsS https://example.invalid >/dev/null 2>&1 && return 1
+  [[ $(wc -l < $PI_TEST_NETWORK_LOG) -ge 3 ]] || return 1
+  : > $PI_TEST_NETWORK_LOG
+  print 'ok: socket, fetch and curl external probes blocked before connection'
+}
+offline_audit() {
+  if [[ -s $PI_TEST_NETWORK_LOG ]]; then
+    print 'Unexpected external network attempts (blocked):'; cat $PI_TEST_NETWORK_LOG; return 1
+  fi
+  print 'ok: zero external network attempts; runtime endpoints were loopback-only'
+}
+
 syntax() {
   local f t out=$(mktemp)
   zsh -n $src/dot_local/bin/executable_pi || return 1
@@ -30,7 +94,7 @@ syntax() {
   # config.fish renders for the laptop and for the Linux server.
   for os in darwin linux; do
     (cd $src && chezmoi execute-template --override-data "{\"chezmoi\":{\"os\":\"$os\"}}" < dot_config/fish/config.fish.tmpl) > $out && fish --no-execute $out || { rm -f $out; return 1 }
-    if [[ $os == linux ]] && grep -Eq 'pi-attach|__memini_namespace_prefix|credentials.fish|DISABLE_AUTOUPDATER|MEMINI_|LITELLM_' $out; then
+    if [[ $os == linux ]] && grep -Eq '__memini_namespace_prefix|credentials.fish|DISABLE_AUTOUPDATER|MEMINI_|LITELLM_' $out; then
       print 'Linux shell still depends on retired AI tools/state'; rm -f $out; return 1
     fi
     (cd $src && chezmoi execute-template --override-data "{\"chezmoi\":{\"os\":\"$os\"}}" < dot_config/fish/functions/ai-sync.fish.tmpl) > $out && fish --no-execute $out || { rm -f $out; return 1 }
@@ -52,24 +116,7 @@ syntax() {
   print "ok"
 }
 
-# The Personal settings merge: a pinned git fork replaces the npm release of the same package,
-# a filtered entry keeps its filter, and packages added by hand survive.
-merge() {
-  local out=$(mktemp) got
-  (cd $src && chezmoi execute-template < dot_pi/private_agent/modify_settings.json.tmpl) > $out || { rm -f $out; return 1 }
-  got=$(print -r -- '{"packages": ["npm:pi-claude-bridge@0.9.1", "npm:@eleboucher/pi-memini@0.7.30", "npm:pi-extra@1.0.0",
-    {"source": "git:github.com/janpuc/pi-optchat@0000000"}, "npm:pi-title-glyphs@0.1.1"], "lastChangelogVersion": "1.1.0"}' | zsh $out | jq -c '{
-      bridge: [.packages[] | strings | select(test("pi-claude-bridge"))],
-      memini: [.packages[] | objects | select(.source | test("pi-memini")) | {source, extensions}],
-      packages: (.packages | length),
-      extra: ([.packages[] | strings | select(. == "npm:pi-extra@1.0.0")] | length),
-      kept: .lastChangelogVersion }')
-  rm -f $out
-  print -r -- $got | jq -e '(.bridge | length == 1 and (.[0] | startswith("git:github.com/janpuc/pi-claude-bridge@")))
-    and .memini == [{"source":"npm:@eleboucher/pi-memini@0.7.34", "extensions":[]}] and .packages == 4 and .extra == 1 and .kept == "1.1.0"' >/dev/null ||
-    { print -r -- "unexpected merge: $got"; return 1 }
-  print "ok"
-}
+merge() { node --test $here/settings-merge.test.ts }
 
 # Render the actual Linux ignore rules into a temporary source state. Querying the managed
 # set proves a future aether apply manages shell basics only, with no AI runtimes.
@@ -82,11 +129,17 @@ platforms() {
     (cd $src && chezmoi execute-template --override-data "{\"chezmoi\":{\"os\":\"$os\"}}" < .chezmoiignore) > $tmp/source/.chezmoiignore
     managed=$(chezmoi --config $tmp/config.toml --source $tmp/source --destination $tmp/target managed) || { rm -rf $tmp; return 1 }
     if [[ $os == darwin ]]; then
-      [[ $managed == *'.pi/shared/extensions/memory/index.ts'* && $managed == *'.pi/agent/settings.json'* && $managed == *'.local/bin/pi-attach'* ]] || { rm -rf $tmp; return 1 }
+      local target
+      for target in .local/bin/pi .local/bin/pi-profile .pi/shared/extensions/memory/index.ts .pi/agent/settings.json .pi/agent/subagent-manager/settings.json .pi/shared/extensions/profile/title.ts .pi/agent/subagent-manager/agents/{architect,coder,researcher,reviewer,tasker,writer}.yml; do
+        print -r -- $managed | grep -Fxq $target || { print "Missing Mac target: $target"; rm -rf $tmp; return 1 }
+      done
       if print -r -- $managed | grep -Eq '^\.t3(/|$)|^\.pi/shared/personal-policy\.json$|^\.config/(mise|systemd)(/|$)|linux-'; then
         print 'Mac would receive a server-only or retired source'; rm -rf $tmp; return 1
       fi
     else
+      if print -r -- $managed | grep -Eq '^\.pi(/|$)|^\.local/bin/pi[^/]*$|^\.config/fish/functions/pi\.fish$'; then
+        print 'Linux must manage no Pi files'; rm -rf $tmp; return 1
+      fi
       local expected='.chezmoiscripts/00-linux-apt.sh
 .chezmoiscripts/05-linux-system.sh
 .chezmoiscripts/06-linux-terminfo.sh
@@ -132,12 +185,12 @@ retry_js() {
   done
 }
 
-policy() { PI_AI_RETRY_JS=$(retry_js) node --test $here/memory-scope.test.ts $here/effects.test.ts $here/gate.test.ts $here/usage.test.ts $here/commit-trailers.test.ts $here/session-lock.test.ts $here/workers.test.ts $here/worker-store.test.ts $here/worker-fork.test.ts $here/worker-worktree.test.ts $here/memory.test.ts }
+policy() { PI_AI_RETRY_JS=$(retry_js) node --test $here/memory-scope.test.ts $here/usage.test.ts $here/commit-trailers.test.ts $here/memory.test.ts $here/title.test.ts $here/manager-config.test.ts }
 
 integration() {
   if ! whence -pa pi | grep -qv "$HOME/.local/bin/pi"; then print "skipped: pi not installed"; return 0; fi
-  if [[ ! -d $HOME/.pi/agent/npm || ! -d $HOME/.pi/agent/git/github.com/janpuc/pi-claude-bridge ]]; then
-    print "skipped: profile packages not installed (chezmoi apply)"; return 0
+  if [[ ! -f $HOME/.pi/agent/npm/node_modules/@eleboucher/pi-memini/dist/index.js ]]; then
+    print "skipped: pi-memini not installed (no installation attempted)"; return 0
   fi
   zsh $here/integration.test.zsh
 }
@@ -145,18 +198,40 @@ integration() {
 typecheck_ext() {
   local pi_pkg=${$(retry_js)%/node_modules/@earendil-works/pi-ai/dist/utils/retry.js}
   [[ -n $pi_pkg ]] || { print "skipped: installed Pi not found"; return 0 }
-  local tmp=$(mktemp -d)
-  (cd $tmp && npm init -y >/dev/null && npm install --silent typescript@5 @types/node@24 >/dev/null) || { rm -rf $tmp; return 1 }
-  jq -n --arg pi $pi_pkg --arg ext $src/dot_pi/shared/extensions/profile --arg types $tmp/node_modules/@types '{
+  local tmp=$(mktemp -d) deps=${PI_TEST_TYPECHECK_DEPS:-${TMPDIR:-/tmp}/pi-test-typecheck-deps}
+  # Keep this disposable dependency cache between runs; never install into the repo/HOME.
+  if [[ -f $pi_pkg/node_modules/typescript/bin/tsc && -d $pi_pkg/node_modules/@types/node ]]; then
+    deps=$pi_pkg
+    print "using installed Pi dev dependencies (no install)"
+  elif [[ -f $deps/node_modules/typescript/bin/tsc && -d $deps/node_modules/@types/node ]]; then
+    print "using cached typecheck dev dependencies (no install)"
+  else
+    print "installing typescript@5 and @types/node@24 from npm's OFFLINE cache into $deps"
+    mkdir -p $deps
+    # npm may write cache metadata/logs even offline. Copy its cache into the
+    # sandbox so the dependency install cannot modify deployed HOME files.
+    local cache=${npm_config_cache:-$HOME/.npm}
+    mkdir -p $tmp/npm-cache
+    : > $tmp/npm-user.conf; : > $tmp/npm-global.conf
+    [[ ! -d $cache/_cacache ]] || cp -R $cache/_cacache $tmp/npm-cache/ || { rm -rf $tmp; return 1 }
+    (cd $deps && HOME=$tmp npm --userconfig=$tmp/npm-user.conf --globalconfig=$tmp/npm-global.conf --cache=$tmp/npm-cache --logs-dir=$tmp/npm-logs install --offline --ignore-scripts --no-audit --no-fund --no-package-lock typescript@5 @types/node@24) || {
+      print "Offline dev dependencies unavailable; set PI_TEST_TYPECHECK_DEPS to a prepared directory."
+      rm -rf $tmp; return 1
+    }
+  fi
+  jq -n --arg pi $pi_pkg --arg ext $src/dot_pi/shared/extensions/profile --arg types $deps/node_modules/@types '{
     compilerOptions: { target: "ES2023", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true,
       skipLibCheck: true, allowImportingTsExtensions: true, types: ["node"], typeRoots: [$types], baseUrl: ".",
       paths: { "@earendil-works/pi-coding-agent": ["\($pi)/dist/index.d.ts"],
                "@earendil-works/*": ["\($pi)/node_modules/@earendil-works/*"], typebox: ["\($pi)/node_modules/typebox"] } },
     files: $files }' --argjson files "$(print -rl -- $src/dot_pi/shared/extensions/*/*.ts(.) | jq -R . | jq -s .)" > $tmp/tsconfig.json
-  (cd $tmp && ./node_modules/.bin/tsc -p tsconfig.json) && print "ok"
+  node $deps/node_modules/typescript/bin/tsc -p $tmp/tsconfig.json && print "ok"
   local st=$?; rm -rf $tmp; return $st
 }
 
+# Fail closed: do not start runtime tests if the guard probes fail.
+print '\n== offline-guard'
+offline_guard || { print 'Offline guard failed; no tests run'; exit 1 }
 step syntax syntax
 step merge merge
 step platforms platforms
@@ -164,4 +239,5 @@ step policy policy
 step launcher zsh $here/launcher.test.zsh
 step integration integration
 (( typecheck )) && step typecheck typecheck_ext
+step offline-audit offline_audit
 exit $rc
