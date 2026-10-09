@@ -17,7 +17,7 @@ function § --description "One shot: a fish command, or a short answer, for a re
 Either propose one shell command, or give a short answer. You cannot run commands yourself; Jan runs the command after reading it.
 
 - Something to do or inspect on this machine, a Kubernetes cluster, git or GitHub: a command. His shell is fish 4 on macOS (Apple Silicon), so write fish syntax: (cmd) or $(cmd) for substitution, set for variables, no bash-only constructs. Prefer kubectl, flux, talosctl, helm, gh, git, jq, yq, rg, fd, eza, bat and curl, and the simplest form that does the job (flux get over kubectl piped to jq). For Kubernetes, all namespaces (-A) unless the request names one. One line, with pipes, ; or and/or. Read-only when the request allows it. Never invent flags.
-- A fact from the web (a version, documentation, how something works): use web_search or fetch_content, then answer in at most 6 lines of plain text, no markdown, with the source URL.
+- A fact from the web (a version, documentation, how something works): use web_search or fetch_content, then answer in at most 6 short lines of plain text, no markdown. Put the URL only in source, not in the answer.
 
 Reply with exactly one JSON object and nothing else, either
 {"command": "...", "explain": "one short sentence", "changes": true}
@@ -50,11 +50,20 @@ Current directory: '(prompt_pwd -D 99)
     end
     rm -f $out $err
 
+    # Text is wrapped here, so every line starts in the same column.
+    set -l columns 80
+    test -n "$COLUMNS"; and set columns $COLUMNS
+    set -l width (math "min(max(30, $columns), 104) - 4")
     set -l answer (printf '%s' $json | jq -r '.answer // empty')
     if test -n "$answer"
-        printf '  %s◆%s %s\n' (set_color magenta) (set_color normal) $answer[1]
-        test (count $answer) -gt 1; and printf '    %s\n' $answer[2..]
         set -l source (printf '%s' $json | jq -r '.source // empty')
+        # Models still add the URL to the answer now and then; it is shown once, below.
+        set answer (string match -v -r '^\s*(Sources?:|https?://\S+\s*$)' -- $answer)
+        set -l lines (__oneshot_wrap $width $answer)
+        printf '  %s◆%s %s\n' (set_color magenta) (set_color normal) $lines[1]
+        for line in $lines[2..]
+            test -n "$line"; and printf '    %s\n' $line; or echo
+        end
         test -n "$source"; and printf '    %s%s%s\n' (set_color brblack) $source (set_color normal)
         return 0
     end
@@ -64,7 +73,7 @@ Current directory: '(prompt_pwd -D 99)
         printf '  %s✗ no command%s\n' (set_color red) (set_color normal) >&2
         return 1
     end
-    set -l explain (printf '%s' $json | jq -r '.explain // empty')
+    set -l explain (__oneshot_wrap $width (printf '%s' $json | jq -r '.explain // empty'))
     set -l accent magenta
     test (printf '%s' $json | jq -r '.changes // false') = true; and set accent red
 
@@ -72,18 +81,19 @@ Current directory: '(prompt_pwd -D 99)
     set -l lines (printf '%s' $cmd | fish_indent --ansi)
     printf '  %s▸%s %s\n' (set_color $accent) (set_color normal) $lines[1]
     test (count $lines) -gt 1; and printf '    %s\n' $lines[2..]
-    test -n "$explain"; and printf '    %s%s%s\n' (set_color brblack) $explain (set_color normal)
+    for line in $explain
+        printf '    %s%s%s\n' (set_color brblack) $line (set_color normal)
+    end
     printf '  %s⏎%s ' (set_color $accent) (set_color normal)
     __oneshot_key
     set -l cancelled $status
 
     # Rows to clear: the waiting line, the explanation, and on cancel the command too.
-    set -l width (math "max(20, $COLUMNS)")
-    set -l up 0
-    test -n "$explain"; and set up (math "ceil((4 + $(string length --visible -- $explain)) / $width)")
+    set columns (math "max(20, $columns)")
+    set -l up (count $explain)
     if test $cancelled -ne 0
         for line in $lines
-            set up (math "$up + max(1, ceil((4 + $(string length --visible -- $line)) / $width))")
+            set up (math "$up + max(1, ceil((4 + $(string length --visible -- $line)) / $columns))")
         end
     end
     printf '\r\e[K' >&2
@@ -98,6 +108,34 @@ Current directory: '(prompt_pwd -D 99)
     set -l s $status
     test -n "$atuin_id"; and atuin history end --hook --exit $s -- $atuin_id &>/dev/null
     return $s
+end
+
+# Words wrapped to a width, one line per output item; a blank line between paragraphs, never
+# two, and none at either end.
+function __oneshot_wrap --argument-names width
+    set -l out
+    set -l blank 0
+    for text in $argv[2..]
+        if test -z (string trim -- "$text")
+            set blank 1
+            continue
+        end
+        test $blank -eq 1 -a (count $out) -gt 0; and set -a out ''
+        set blank 0
+        set -l line ''
+        for word in (string split -n ' ' -- $text)
+            if test -z "$line"
+                set line $word
+            else if test (math (string length --visible -- "$line") + 1 + (string length --visible -- "$word")) -le $width
+                set line "$line $word"
+            else
+                set -a out $line
+                set line $word
+            end
+        end
+        set -a out $line
+    end
+    test (count $out) -gt 0; and printf '%s\n' $out
 end
 
 # Braille spinner on stderr until the process ends; quiet when stderr is not a terminal. Keys
