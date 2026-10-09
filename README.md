@@ -19,3 +19,6 @@ Opus is the main model; it delegates to pi-subagents agents and picks each one's
 usage, following `AGENTS.md`. `settings.json` limits subagents to the worker subscriptions,
 `extensions/subagent/config.json` trims the tool, and `local/bc250-quiet-hours.ts` keeps the
 loud BC250 board (LiteLLM, `models.json`) to 23:00-07:00 unless asked for.
+
+`§ <request in plain words>` (fish) asks a small model once, with no session or memory, and
+answers with a fish command to confirm, edit or skip, or with a short answer from the web.
