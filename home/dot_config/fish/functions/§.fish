@@ -94,13 +94,15 @@ Current directory: '(prompt_pwd -D 99)
 end
 
 # Braille spinner on stderr until the process ends; quiet when stderr is not a terminal. Keys
-# typed meanwhile are not echoed, so they can't break the layout. One sh process does it all:
+# typed meanwhile are not echoed, so they can't break the layout. Raw mode, not just -echo:
+# echo off in line mode looks like a password prompt, and Ghostty turns on Secure Keyboard
+# Entry for it. One sh process does it all:
 # fish resets the terminal modes before each external command it starts, so an `stty` from fish
 # would not last.
 function __oneshot_spin --argument-names pid
     sh -c '
         pid=$1 color=$2 normal=$3
-        [ -t 0 ] && saved=$(stty -g) && stty -echo
+        [ -t 0 ] && saved=$(stty -g) && stty -echo -icanon
         set -- ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏
         while kill -0 "$pid" 2>/dev/null; do
             [ -t 2 ] && printf "\r  %s%s%s" "$color" "$1" "$normal" >&2
