@@ -17,12 +17,12 @@ function § --description "One shot: a fish command, or a short answer, for a re
 Either propose one shell command, or give a short answer. You cannot run commands yourself; Jan runs the command after reading it.
 
 - Something to do or inspect on this machine, a Kubernetes cluster, git or GitHub: a command. His shell is fish 4 on macOS (Apple Silicon), so write fish syntax: (cmd) or $(cmd) for substitution, set for variables, no bash-only constructs. Prefer kubectl, flux, talosctl, helm, gh, git, jq, yq, rg, fd, eza, bat and curl, and the simplest form that does the job (flux get over kubectl piped to jq). For Kubernetes, all namespaces (-A) unless the request names one. One line, with pipes, ; or and/or. Read-only when the request allows it. Never invent flags.
-- A fact from the web (a version, documentation, how something works): use web_search or fetch_content, then answer in at most 6 short lines of plain text, no markdown. Put the URL only in source, not in the answer.
+- A fact from the web (a version, documentation, how something works): use web_search or fetch_content, then answer in one short sentence, and add up to three short points only when they say something the sentence does not. Answer what was asked, not neighbouring questions. Plain text, no markdown. No links or source mentions in the answer or points: the URL goes only in source.
 
 Reply with exactly one JSON object and nothing else, either
 {"command": "...", "explain": "one short sentence", "changes": true}
 where changes is true when the command creates, modifies or deletes anything and false otherwise, or
-{"answer": "...", "source": "URL, or empty"}
+{"answer": "one sentence", "points": ["short point", "..."], "source": "URL, or empty"}
 
 Current directory: '(prompt_pwd -D 99)
 
@@ -57,14 +57,23 @@ Current directory: '(prompt_pwd -D 99)
     set -l answer (printf '%s' $json | jq -r '.answer // empty')
     if test -n "$answer"
         set -l source (printf '%s' $json | jq -r '.source // empty')
-        # Models still add the URL to the answer now and then; it is shown once, below.
-        set answer (string match -v -r '^\s*(Sources?:|https?://\S+\s*$)' -- $answer)
-        set -l lines (__oneshot_wrap $width $answer)
+        set -l points (printf '%s' $json | jq -r '.points // [] | .[]')
+        # Models still add the URL to the answer now and then; it is shown once, at the end.
+        # Lines past the first sentence become points too, so the answer stays one statement.
+        set answer (string match -v -r '^\s*(Sources?:|https?://\S+\s*$)' -- $answer | string match -r '\S.*')
+        set points (string match -v -r '^\s*(Sources?|Source code|Repo(sitory)?)\b' -- $answer[2..] $points)
+        # The answer, then a blank line, the points with a · and a hanging indent, a blank line
+        # and the source.
+        set -l lines (__oneshot_wrap $width $answer[1])
         printf '  %s◆%s %s\n' (set_color magenta) (set_color normal) $lines[1]
-        for line in $lines[2..]
-            test -n "$line"; and printf '    %s\n' $line; or echo
+        test (count $lines) -gt 1; and printf '    %s\n' $lines[2..]
+        test (count $points) -gt 0; and echo
+        for point in $points
+            set lines (__oneshot_wrap (math $width - 2) $point)
+            printf '    %s·%s %s\n' (set_color magenta) (set_color normal) $lines[1]
+            test (count $lines) -gt 1; and printf '      %s\n' $lines[2..]
         end
-        test -n "$source"; and printf '    %s%s%s\n' (set_color brblack) $source (set_color normal)
+        test -n "$source"; and printf '\n    %s%s%s\n' (set_color brblack) $source (set_color normal)
         return 0
     end
 
