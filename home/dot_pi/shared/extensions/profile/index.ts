@@ -1,77 +1,41 @@
-// Work/Personal profile support for Pi, loaded by both profiles' settings.json.
+// Pi profile support, loaded from settings.json. One set of models and sessions; the launcher only
+// decides the memory scope: Work projects keep work/* memini namespaces, everything else personal.
 //
-// - Registers the virtual models from ~/.pi/shared/routing.json under the profile's own provider
-//   id (personal/daily, work/fast, ...) with deterministic chains and bounded fallback.
-// - Enforces the Work provider allowlist on every request Pi makes (main turns, retries,
-//   compaction, summaries and extension calls all pass ModelRuntime.prepareRequest), on model
-//   selection and on input, and keeps project config from widening it.
-// - Refuses to run a Work project or a Work session under the Personal profile (and the reverse
-//   for sessions), e.g. when `pi` was started without the ~/.local/bin/pi launcher.
-// - Supports the launcher's explicit Work override (`--personal-models`): a Work session (Work
-//   session store, work/* memory, Work trust rules) that runs on the Personal models and says so.
-// - Keeps pi-memini tool calls inside the profile's memory scope.
-// - In Work, applies the organisation's Claude Code permission policy to Pi's own tools
-//   (permissions.ts): the bridge has Claude Code relay them, so Claude Code cannot.
+// - Keeps memini separate: refuses a Work project started without the ~/.local/bin/pi launcher and
+//   a session recorded under the other memory scope, and keeps pi-memini tool calls in scope.
+// - Gates tools through personal-gate.ts: consequential effects need Jan's approval, secrets stay
+//   blocked, and search output naming secret files is redacted.
 // - Registers the `advisor` tool (advisor.ts): a read-only second opinion from fable/astra.
-// - Tracks how much of each subscription is used (usage.ts, usage-sources.ts) and routes on it;
-//   `auto` lets a classifier model (MiniMax) pick the tier per prompt. `/usage`, usage_status.
-// - Shows the profile and memory scope in the footer; the footer already shows the routed model.
+// - Tracks how much of each subscription is used (usage.ts, usage-sources.ts). `/usage`, usage_status.
+// - Shows the memory scope in the footer; the footer shows the native model.
 //
-// This is account and configuration isolation inside one OS user, not a sandbox: anything the Pi
-// process can read (including other tools' credential files) is reachable by its tools.
+// This is configuration inside one OS user, not a sandbox: anything the Pi process can read
+// (including other tools' credential files) is reachable by its tools.
 
 import { ModelRuntime, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { matchesKey } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, sep } from "node:path";
-import {
-	chooseRoute,
-	classifyError,
-	conversationFacts,
-	failureHint,
-	fallbackMarker,
-	loadRouting,
-	memoryToolBlock,
-	nextFallback,
-	providerAllowed,
-	AUTO_CLASSIFIER_PROMPT,
-	DEFAULT_USAGE,
-	decideTier,
-	isShortFollowUp,
-	parseDecision,
-	decisionsRequest,
-	parseTier,
-	poolOf,
-	usagePolicy,
-	type ModelInfo,
-	type TargetPressure,
-	type Profile,
-	type RouterState,
-	type RoutingConfig,
-} from "./policy.ts";
-import { bashScope, decide, parseOrgPolicy, parsePersonalPolicy, redactSearchOutput, type Approvals, type OrgPolicy } from "./permissions.ts";
+import { memoryToolBlock, type Profile } from "./memory-scope.ts";
+import { createPersonalGate } from "./personal-gate.ts";
 import { registerAdvisor } from "./advisor.ts";
-import { describe as describeUsage, limitedUntilFrom, pressure, shortTime } from "./usage.ts";
+import { DEFAULT_USAGE, USAGE_POOLS, poolOf, isQuotaError, describe as describeUsage, limitedUntilFrom, pressure, shortTime } from "./usage.ts";
 import { renderBars, renderPanel, type PoolView } from "./usage-view.ts";
 import { stripAiTrailers } from "./commit-trailers.ts";
-import { renderFooter, type FooterState } from "./footer-view.ts";
+import { renderFooter } from "./footer-view.ts";
 import { duration, notify, notifyAfterMs } from "./notify.ts";
 import { acquire, holder, inUseMessage, ownIdentity, release, type LockOwner } from "./session-lock.ts";
 import { detachInfo, removeMeta, repaint, writeMeta } from "./detach.ts";
-import { readCache, SOURCES, writeCache, type UsageCache } from "./usage-sources.ts";
+import { readCache, writeCache, type UsageCache } from "./usage-sources.ts";
+import { claimCheckout, type CheckoutDelegation } from "../subagent/checkout.ts";
 
 const HOME = homedir();
 const PERSONAL_DIR = join(HOME, ".pi", "agent");
-const WORK_DIR = join(HOME, ".pi", "profiles", "work", "agent");
-const WORK_ROOT = join(HOME, "Development", "Work");
-const ROUTING = join(HOME, ".pi", "shared", "routing.json");
+const WORK_ROOT = join(HOME, "Work");
 const EXT_DIR = join(HOME, ".pi", "shared", "extensions", "profile");
-const PERSONAL_POLICY = join(HOME, ".pi", "shared", "personal-policy.json");
-// Claude Code caches the enterprise's server-managed settings beside the Work login.
-const ORG_POLICY = join(WORK_DIR, "claude", "remote-settings.json");
 const STAMP = "pi-profile";
 const GUARD = Symbol.for("pi-profile.request-guard");
 
@@ -100,42 +64,24 @@ function expectedProfile(cwd: string): Profile {
 	return git.status === 0 && inside(canon(git.stdout.trim()), root) ? "work" : "personal";
 }
 
-function workProjectRisks(cwd: string): string[] {
-	const dir = join(cwd, ".pi");
-	const risks: string[] = [];
-	if (existsSync(join(dir, "extensions"))) risks.push(".pi/extensions");
-	if (existsSync(join(dir, "mcp.json"))) risks.push(".pi/mcp.json");
-	try {
-		const s = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
-		for (const k of ["packages", "extensions", "defaultProvider", "defaultModel", "enabledModels", "npmCommand", "shellPath", "shellCommandPrefix"])
-			if (k in s) risks.push(`.pi/settings.json ${k}`);
-	} catch {
-		// absent or unreadable: nothing to load either
-	}
-	return risks;
-}
-
 /** Notify in the TUI; print, JSON and RPC runs have no notification area, so use stderr. */
 const say = (ctx: { hasUI: boolean; ui: { notify(m: string, t?: "info" | "warning" | "error"): void } }, msg: string, level: "info" | "warning" | "error") =>
 	ctx.hasUI ? ctx.ui.notify(msg, level) : console.error(msg);
 
-const modelInfo = (m: any): ModelInfo | undefined =>
-	m ? { provider: m.provider, id: m.id, input: m.input ?? ["text"], contextWindow: m.contextWindow ?? 0 } : undefined;
-
 export default function profileExtension(pi: ExtensionAPI) {
 	const agentDir = canon(process.env.PI_CODING_AGENT_DIR?.replace(/^~(?=$|\/)/, HOME) || PERSONAL_DIR);
-	const dirProfile: Profile = agentDir === canon(WORK_DIR) ? "work" : "personal";
 	const asProfile = (v: string | undefined) => (v === "work" || v === "personal" ? v : undefined);
 	const declared = asProfile(process.env.AI_PROFILE);
-	// `profile` owns the session store, memory scope and trust rules; `models` decides which
-	// virtual models exist and which providers may be called. They differ only under the
-	// launcher's Work override, where a Work session runs on the Personal agent dir's models.
-	const profile: Profile = declared ?? dirProfile;
-	const models: Profile = declared ? (asProfile(process.env.AI_PROFILE_MODELS) ?? declared) : dirProfile;
-	const override = profile === "work" && models === "personal";
-	const otherDir = canon(profile === "work" ? PERSONAL_DIR : WORK_DIR);
-	const memState = process.env.PI_MEMINI_STATE ?? "unchecked: started without the pi launcher";
-	const memoryOff = memState.startsWith("off") ? memState.replace(/^off:?\s*/, "") || "off" : undefined;
+	// `profile` is only the memory scope the launcher chose; models, sessions and tools are shared.
+	const profile: Profile = declared ?? "personal";
+	const models: Profile = "personal";
+	const worker = process.env.PI_WORKER === "1";
+	let memState = process.env.PI_MEMINI_STATE ?? "unchecked: started without the pi launcher";
+	let memoryOff = memState.startsWith("off") ? memState.replace(/^off:?\s*/, "") || "off" : undefined;
+	pi.events.on("memini:load-error", (message: unknown) => {
+		memState = `degraded: ${message}`;
+		memoryOff = "memini extension failed to load";
+	});
 
 	// Process-wide problems block every request, tool call and prompt; session problems only
 	// while that session is open.
@@ -172,80 +118,22 @@ export default function profileExtension(pi: ExtensionAPI) {
 
 	if (process.env.AI_PROFILE && !declared) {
 		processBlock = `pi-profile: unknown AI_PROFILE=${process.env.AI_PROFILE}`;
-	} else if (declared && (models !== dirProfile || (profile === "personal" && models === "work"))) {
-		processBlock = `pi-profile: the launcher selected ${profile}${override ? " on personal models" : ""} but Pi is running with the ${dirProfile} agent dir (${agentDir}). Restart with \`pi\` or \`piw\`.`;
-	} else if (!declared && profile === "personal" && expectedProfile(process.cwd()) === "work") {
-		processBlock = `pi-profile: ${process.cwd()} is a Work project but Pi started with the Personal profile (bypassing the pi launcher). Nothing was sent; restart with \`pi\`.`;
+	} else if (!worker && profile === "personal" && expectedProfile(process.cwd()) === "work") {
+		// Personal memory must never open in a Work project. Work scope is sticky by design: the launcher
+		// keeps a Work session's children on work/* even outside the Work tree.
+		processBlock = `pi-profile: ${process.cwd()} needs Work memory scope; restart with \`pi\`.`;
 	}
+	const publishMemoryBlock = () => { (globalThis as any)[Symbol.for("pi-profile.memory-block")] = blocked(); };
+	publishMemoryBlock();
 
-	let cfg: RoutingConfig | undefined;
-	let cfgError: string | undefined;
-	try {
-		cfg = loadRouting(JSON.parse(readFileSync(ROUTING, "utf8")));
-	} catch (e) {
-		cfgError = `pi-profile: ${ROUTING}: ${(e as Error).message}`;
-		// Without a validated map there is no allowlist to enforce, so Work fails closed.
-		if (profile === "work") processBlock ??= cfgError;
-	}
-
-	// --- organisation tool policy (Work) ----------------------------------------------
-
-	let orgPolicy: OrgPolicy | undefined;
-	let orgPolicyError: string | undefined;
-	let personalPolicyMissing: string | undefined;
-	if (profile === "work") {
-		try {
-			orgPolicy = parseOrgPolicy(JSON.parse(readFileSync(ORG_POLICY, "utf8")));
-		} catch (e) {
-			// Fail closed: without the org's rules Work tools stay off.
-			orgPolicyError = `pi-profile: Work tools are off until your organisation's Claude policy can be read (${ORG_POLICY}: ${(e as Error).message}). Log the Work profile in once: pi-profile --work login`;
-		}
-	} else {
-		// Personal: the rules in ~/.pi/shared/personal-policy.json ask or refuse; everything else runs.
-		// A file that exists but cannot be read fails closed like Work, so a typo never silently
-		// drops the approvals; a missing file (an older deploy) runs without a policy, with a warning.
-		try {
-			orgPolicy = parsePersonalPolicy(JSON.parse(readFileSync(PERSONAL_POLICY, "utf8")));
-		} catch (e) {
-			if (existsSync(PERSONAL_POLICY))
-				orgPolicyError = `pi-profile: Personal tools are off until ${PERSONAL_POLICY} is fixed (${(e as Error).message})`;
-			else personalPolicyMissing = `pi-profile: no Personal tool policy (${PERSONAL_POLICY} is missing); every tool runs without asking. Run chezmoi apply.`;
-		}
-	}
-	const policyName = profile === "work" ? "Work policy" : "Personal policy";
-	// Session approvals ("allow for this session") reach subagents and the advisor, which run
-	// headless and cannot ask, through the environment they inherit.
-	const approvals: Approvals = (() => {
-		try {
-			const a = JSON.parse(process.env.PI_PROFILE_APPROVALS ?? "{}");
-			return { bash: Array.isArray(a.bash) ? a.bash : [], tools: Array.isArray(a.tools) ? a.tools : [] };
-		} catch {
-			return { bash: [], tools: [] };
-		}
-	})();
-	const approve = (kind: "bash" | "tools", value: string) => {
-		if (!approvals[kind].includes(value)) approvals[kind].push(value);
-		process.env.PI_PROFILE_APPROVALS = JSON.stringify(approvals);
-	};
+	const gate = createPersonalGate({ home: HOME, worker, alert: notify });
 
 	// --- subscription usage --------------------------------------------------------------
 
-	// Pools the profile's chains, advisors and auto classifier draw on. A detached helper
-	// (usage-refresh.ts) refreshes <agent-dir>/usage.json; routing only ever reads the file, so it
-	// never waits on the network and print-mode runs exit as soon as they answer.
+	// A detached helper refreshes the fixed subscription pools without delaying requests.
 	const usageFile = join(agentDir, "usage.json");
-	const usageOpts = cfg ? usagePolicy(cfg) : DEFAULT_USAGE;
-	const pools = cfg
-		? [
-				...new Set(
-					[
-						...Object.values(cfg.profiles[models].models).flatMap((v) => v.chain.map((t) => poolOf(cfg!, t))),
-						...Object.values(cfg.advisors?.[models]?.models ?? {}).map((t) => poolOf(cfg!, t)),
-						...(cfg.profiles[models].auto ? [poolOf(cfg, cfg.profiles[models].auto!.classifier)] : []),
-					].filter((p): p is string => !!p && p in SOURCES),
-				),
-			]
-		: [];
+	const usageOpts = DEFAULT_USAGE;
+	const pools = worker ? [] : [...USAGE_POOLS];
 	let usage: UsageCache = readCache(usageFile);
 	let usageMtime = 0;
 	const reloadUsage = () => {
@@ -266,32 +154,26 @@ export default function profileExtension(pi: ExtensionAPI) {
 		lastKick = Date.now();
 		const strip = Number(process.versions.node.split(".")[0]) < 23 ? ["--experimental-strip-types"] : [];
 		try {
-			spawn(process.execPath, [...strip, join(EXT_DIR, "usage-refresh.ts"), agentDir, models, ...list], { detached: true, stdio: "ignore", env: process.env }).unref();
+			spawn(process.execPath, [...strip, join(EXT_DIR, "usage-refresh.ts"), agentDir, ...list], { detached: true, stdio: "ignore", env: process.env }).unref();
 		} catch {
 			// usage stays as cached
 		}
 	};
-	const pressureOf = (t: { provider: string; model: string; usage?: string }): TargetPressure | undefined => {
-		const pool = cfg ? poolOf(cfg, t) : undefined;
+	const pressureOf = (t: { provider: string; model: string }) => {
+		const pool = poolOf(t);
 		return pool ? pressure(usage[pool], t.model, Date.now(), usageOpts) : undefined;
 	};
-	const markLimited = (provider: string, errorText: string) => {
-		const pool = cfg ? poolOf(cfg, { provider }) : undefined;
+	const markLimited = (model: { provider: string; model: string }, errorText: string) => {
+		const pool = poolOf(model);
 		if (!pool) return;
 		reloadUsage();
 		const until = limitedUntilFrom(errorText, Date.now());
 		usage[pool] = { ...(usage[pool] ?? { sub: pool, label: pool, windows: [], fetchedAt: new Date(0).toISOString() }), limitedUntil: until };
-		try {
-			writeCache(usageFile, usage);
-		} catch {
-			// in-memory only
-		}
+		try { writeCache(usageFile, usage); } catch { /* in-memory only */ }
 	};
-	// The subscription serving the last reply (or the selected model), marked in the bars.
 	let activePool: string | undefined;
-	const noteActive = (provider: string | undefined) => {
-		const pool = cfg && provider ? poolOf(cfg, { provider }) : undefined;
-		if (pool && pools.includes(pool)) activePool = pool;
+	const noteActive = (model: { provider: string; id?: string; model?: string } | undefined) => {
+		activePool = model ? poolOf(model) : undefined;
 	};
 	const poolViews = (): PoolView[] => pools.map((p) => ({ name: p === "opencode-go" ? "go" : p, u: usage[p], active: p === activePool }));
 	const showBars = (ctx: any) => {
@@ -332,199 +214,19 @@ export default function profileExtension(pi: ExtensionAPI) {
 		alertsSeeded = true;
 	};
 
-	// Where the request in flight went (set by route(), cleared when its reply lands); after that
-	// the footer reads the model from the session, so it survives /reload and resumed sessions.
-	let lastRoute: FooterState["route"];
-	let autoWhy: string | undefined;
 	let footerTui: { requestRender(): void } | undefined;
-	const noteRoute = (r: NonNullable<FooterState["route"]>) => {
-		lastRoute = r;
-		footerTui?.requestRender();
-	};
-
-	// --- virtual models -----------------------------------------------------------
-
-	for (const [id, spec] of Object.entries(cfg?.profiles[models].models ?? {})) {
-		pi.registerVirtualModel<RouterState>({
-			provider: models,
-			id,
-			name: `${spec.name} (${override ? "work on personal models" : models})`,
-			thinkingLevels: [spec.level],
-			route(request, ctx) {
-				const why = blocked();
-				if (why) throw new Error(why);
-				if (request.reason === "user") {
-					reloadUsage();
-					kickRefresh(stalePools());
-				}
-				const registry = ctx.modelRegistry;
-				const choice = chooseRoute({
-					pressure: pressureOf,
-					cfg: cfg!,
-					profile: models,
-					virtualId: id,
-					reason: request.reason,
-					previous: request.previous && { provider: request.previous.model.provider, id: request.previous.model.id },
-					failed: request.failed && {
-						provider: request.failed.model.provider,
-						id: request.failed.model.id,
-						errorMessage: request.failed.message.errorMessage,
-					},
-					state: request.state,
-					...conversationFacts(request.messages),
-					now: Date.now(),
-					lookup: (provider, model) => modelInfo(registry.find(provider, model)),
-					hasAuth: (info) => {
-						const m = registry.find(info.provider, info.id);
-						return !!m && registry.hasConfiguredAuth(m);
-					},
-				});
-				if (choice.note) say(ctx, choice.note, "warning");
-				noteRoute({ model: choice.target.model, thinking: choice.target.thinking });
-				return {
-					model: registry.find(choice.target.provider, choice.target.model)!,
-					thinkingLevel: choice.target.thinking,
-					state: choice.state,
-				};
-			},
-		});
+	if (!worker) {
+		registerAdvisor(pi, { blocked, pressureOf });
+		gate.register(pi, Type);
 	}
-
-	// `auto`: a classifier model picks the tier (daily, deep, fast, ...) for each new prompt; the
-	// tier's own chain then picks the model. Follow-ups, tool loops and compaction stay put.
-	type AutoState = { tier?: string; byTier?: Record<string, RouterState> };
-	const auto = cfg?.profiles[models].auto;
-	const lastUserText = (messages: readonly any[]): string => {
-		for (let i = messages.length - 1; i >= 0; i--) {
-			const m = messages[i];
-			if (m?.role !== "user") continue;
-			return typeof m.content === "string" ? m.content : (m.content ?? []).filter((b: any) => b?.type === "text").map((b: any) => b.text).join("\n");
-		}
-		return "";
-	};
-	// The prompt the user typed. Extensions such as memini add custom messages after it, and those
-	// reach the router as user messages too, so the session branch (where they stay `custom_message`
-	// entries) is asked first.
-	const typedText = (ctx: any, messages: readonly any[]): string => {
-		const branch: any[] = ctx.sessionManager?.getBranch?.() ?? [];
-		for (let i = branch.length - 1; i >= 0; i--) {
-			const e = branch[i];
-			if (e?.type === "message" && e.message?.role === "user") return lastUserText([e.message]);
-		}
-		return lastUserText(messages);
-	};
-	const lastAssistantText = (messages: readonly any[]): string => {
-		for (let i = messages.length - 1; i >= 0; i--) {
-			const m = messages[i];
-			if (m?.role === "assistant") return (m.content ?? []).filter((b: any) => b?.type === "text").map((b: any) => b.text).join(" ").slice(0, 400);
-		}
-		return "";
-	};
-	if (auto && cfg) {
-		pi.registerVirtualModel<AutoState>({
-			provider: models,
-			id: "auto",
-			name: `${auto.name} (${override ? "work on personal models" : models})`,
-			thinkingLevels: ["medium"],
-			async route(request, ctx) {
-				const why = blocked();
-				if (why) throw new Error(why);
-				const registry = ctx.modelRegistry;
-				const facts = conversationFacts(request.messages);
-				let tier = request.state?.tier;
-				let note = "";
-				if (request.reason === "user") {
-					reloadUsage();
-					kickRefresh(stalePools());
-					const text = typedText(ctx, request.messages);
-					const c = auto.classifier;
-					const classifier = registry.find(c.provider, c.model);
-					let proposed: { tier: string; why: string } | undefined;
-					if (text && !isShortFollowUp(text)) {
-						const prompt =
-							`Current tier: ${tier ?? auto.default}\nConversation: ${request.messages.length} messages, ~${facts.estimatedTokens} tokens${facts.hasImages ? ", contains images" : ""}.\n` +
-							(lastAssistantText(request.messages) ? `Last assistant reply (start): ${lastAssistantText(request.messages)}\n` : "") +
-							`New user message:\n${text.slice(0, 3000)}`;
-						const within = (ms: number) => AbortSignal.any([AbortSignal.timeout(ms), ...(request.signal ? [request.signal] : [])]);
-						const d = auto.decisions;
-						const key = process.env.PI_OPENAI_API_KEY;
-						if (d && key) {
-							try {
-								const res = await fetch(`${(d.baseUrl ?? "https://api.openai.com/v1").replace(/\/$/, "")}/decisions`, {
-									method: "POST",
-									headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-									body: JSON.stringify(decisionsRequest(d.model, auto.tiers, prompt)),
-									signal: within(d.timeoutMs ?? 4000),
-								});
-								if (res.ok) proposed = parseDecision(await res.json(), auto.tiers, d.minConfidence);
-							} catch {
-								// Decisions down or slow: ask the chat classifier instead
-							}
-						}
-						if (!proposed && classifier && registry.hasConfiguredAuth(classifier) && !pressureOf(c)?.exhausted) {
-							try {
-								const res: any = await registry.complete(
-									classifier,
-									{ systemPrompt: AUTO_CLASSIFIER_PROMPT, messages: [{ role: "user", content: prompt, timestamp: Date.now() }] } as any,
-									{ maxTokens: 200, signal: within(c.timeoutMs ?? 8000) } as any,
-								);
-								proposed = parseTier((res?.content ?? []).filter((b: any) => b?.type === "text").map((b: any) => b.text).join(" "), auto.tiers);
-							} catch {
-								// classifier down or slow: keep the current tier
-							}
-						}
-					}
-					const next = decideTier(tier, proposed?.tier, auto.tiers, auto.default, facts.estimatedTokens);
-					if (next !== tier && tier) note = `auto: ${tier} → ${next}${proposed?.why ? ` (${proposed.why})` : ""}`;
-					tier = next;
-					autoWhy = proposed?.why;
-				}
-				tier ??= auto.default;
-				const inner = request.state?.byTier?.[tier];
-				const choice = chooseRoute({
-					pressure: pressureOf,
-					cfg,
-					profile: models,
-					virtualId: tier,
-					reason: request.reason,
-					previous: request.previous && { provider: request.previous.model.provider, id: request.previous.model.id },
-					failed: request.failed && { provider: request.failed.model.provider, id: request.failed.model.id, errorMessage: request.failed.message.errorMessage },
-					state: inner,
-					...facts,
-					now: Date.now(),
-					lookup: (provider, model) => modelInfo(registry.find(provider, model)),
-					hasAuth: (info) => {
-						const m = registry.find(info.provider, info.id);
-						return !!m && registry.hasConfiguredAuth(m);
-					},
-				});
-				if (note || choice.note) say(ctx, [note, choice.note].filter(Boolean).join("; "), "info");
-				noteRoute({ model: choice.target.model, thinking: choice.target.thinking, tier, why: autoWhy });
-				const changed = tier !== request.state?.tier || choice.state !== undefined;
-				return {
-					model: registry.find(choice.target.provider, choice.target.model)!,
-					thinkingLevel: choice.target.thinking,
-					state: changed ? { tier, byTier: { ...(request.state?.byTier ?? {}), ...(choice.state ? { [tier]: choice.state } : {}) } } : undefined,
-				};
-			},
-		});
-	}
-
-	registerAdvisor(pi, { cfg, models, profile, blocked, pressureOf });
 
 	// --- request guard --------------------------------------------------------------
 
-	// Supported hooks cannot veto a request by provider, so the Work allowlist is also enforced
-	// at ModelRuntime.prepareRequest, which every chat, compaction, image and classifier request
-	// passes. The method is not documented API: if it disappears, Work still has credential
-	// isolation, the route and the model checks, and says so.
-	const requestBlock = (model: { provider: string; id: string }): string | undefined => {
-		const why = blocked();
-		if (why) return why;
-		if (models === "work" && cfg && !providerAllowed(cfg, "work", model.provider))
-			return `pi-profile: the Work profile does not send requests to ${model.provider}/${model.id} (allowed: ${cfg.profiles.work.allowedProviders!.join(", ")}). If the enterprise seat is out of credits, restart deliberately on personal models: piw --personal-models -c`;
-		return undefined;
-	};
+	// A blocked process or session (memory scope unsafe) must not reach any model. Supported hooks
+	// cannot veto every request, so the block is also enforced at ModelRuntime.prepareRequest, which
+	// every model request passes. Not documented API: if it
+	// disappears, input and tool calls still refuse.
+	const requestBlock = (_model?: unknown): string | undefined => blocked();
 
 	// Installed on the exported ModelRuntime class while the extension loads, so it is in place
 	// before any extension's session_start can make a call. On /reload the new instance's check
@@ -546,32 +248,13 @@ export default function profileExtension(pi: ExtensionAPI) {
 
 	const status = () => {
 		const mem = memState.startsWith("ok: ") ? memState.slice(4).replace(/ \(.*\)$/, "") : memState.split(":")[0];
-		return `${profile}${override ? " on PERSONAL models" : ""} · mem ${mem}${blocked() ? " · BLOCKED" : ""}`;
+		return `${profile} · mem ${mem}${blocked() ? " · BLOCKED" : ""}`;
 	};
 
-	// Replaces Pi's footer (token counts, cost) with profile, place, memory, route and context.
-	const OWN_STATUSES = new Set(["pi-profile", "pi-router"]);
-	// The model behind the latest reply and the `auto` tier, from the session; cached per entry count.
-	let answered: { key: string; route?: FooterState["route"] } = { key: "" };
-	const answeredRoute = (sm: any): FooterState["route"] => {
-		const key = `${sm.getSessionId?.()}:${sm.getLeafId?.()}:${sm.getEntryCount?.()}`;
-		if (answered.key === key) return answered.route;
-		let route: FooterState["route"];
-		let tier: string | undefined;
-		const branch: any[] = sm.getBranch?.() ?? sm.getEntries?.() ?? [];
-		for (let i = branch.length - 1; i >= 0 && (!route || !tier); i--) {
-			const e = branch[i];
-			if (!route && e?.type === "message" && e.message?.role === "assistant" && e.message.model)
-				route = { model: e.message.model, thinking: e.message.thinkingLevel };
-			if (!tier && e?.type === "custom" && e.customType === "pi.virtual-model-state" && e.data?.modelId === "auto") tier = e.data.state?.tier;
-		}
-		if (route && tier) route.tier = tier;
-		answered = { key, route };
-		return route;
-	};
-	const withWhy = (r: FooterState["route"]) => (r && autoWhy && r.tier ? { ...r, why: autoWhy } : r);
+	// Replaces Pi's footer with scope, place, memory, native model and context.
+	const OWN_STATUSES = new Set(["pi-profile"]);
 	const showFooter = (ctx: any) => {
-		if (!ctx?.hasUI) return;
+		if (worker || !ctx?.hasUI) return;
 		ctx.ui.setFooter((tui: any, theme: any, data: any) => {
 			footerTui = tui;
 			(globalThis as any).__piProfileFooterTui = tui;
@@ -584,7 +267,6 @@ export default function profileExtension(pi: ExtensionAPI) {
 				invalidate() {},
 				render(width: number): string[] {
 					const m = ctx.model;
-					const virtual = !!m && m.provider === models && (m.id === "auto" || !!cfg?.profiles[models].models[m.id]);
 					const usage = ctx.getContextUsage?.();
 					const statuses = [...data.getExtensionStatuses().entries()]
 						.filter(([k]: [string, string]) => !OWN_STATUSES.has(k))
@@ -594,15 +276,13 @@ export default function profileExtension(pi: ExtensionAPI) {
 					return renderFooter(
 						{
 							profile,
-							override,
 							blocked: !!blocked(),
 							cwd: ctx.sessionManager.getCwd?.() ?? ctx.cwd,
 							home: HOME,
 							branch: data.getGitBranch() ?? undefined,
 							sessionName: ctx.sessionManager.getSessionName?.() ?? undefined,
 							memory: memState,
-							model: m ? { provider: m.provider, id: m.id, virtual } : undefined,
-							route: virtual ? (lastRoute ?? withWhy(answeredRoute(ctx.sessionManager))) : undefined,
+							model: m ? { provider: m.provider, id: m.id } : undefined,
 							thinking: m?.reasoning ? pi.getThinkingLevel() : undefined,
 							context: usage ? { percent: usage.percent, window: usage.contextWindow } : m?.contextWindow ? { percent: null, window: m.contextWindow } : undefined,
 							statuses,
@@ -624,6 +304,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", (_event, ctx) => {
+		if (worker) return;
 		liveCtx = ctx;
 		reloadUsage();
 		kickRefresh(stalePools());
@@ -641,8 +322,6 @@ export default function profileExtension(pi: ExtensionAPI) {
 			}, usageOpts.refreshMinutes * 60_000);
 			usageTimer.unref?.();
 		}
-		if (!guardInstalled && models === "work")
-			say(ctx, "pi-profile: request guard unavailable in this Pi version; Work relies on credential isolation and model checks", "warning");
 		sessionBlock = undefined;
 		const sessionFile: string | undefined = ctx.sessionManager.getSessionFile();
 		if (sessionFile && !locks.held.has(sessionFile)) {
@@ -656,6 +335,7 @@ export default function profileExtension(pi: ExtensionAPI) {
 				// (pi -p, T3's RPC) the blocked request reports it; the TUI shows it, then repeats
 				// it on the terminal after leaving the alternate screen.
 				sessionBlock = inUseMessage(sessionFile, got.owner, got.reason);
+				publishMemoryBlock();
 				if (ctx.hasUI) {
 					exitMessage = sessionBlock;
 					say(ctx, sessionBlock, "error");
@@ -676,25 +356,17 @@ export default function profileExtension(pi: ExtensionAPI) {
 		stamped = !!stamp;
 		const file = ctx.sessionManager.getSessionFile();
 		if (stamp?.data?.profile && stamp.data.profile !== profile) {
-			sessionBlock = `pi-profile: this session was recorded under the ${stamp.data.profile} profile; it cannot continue under ${profile}. Use ${stamp.data.profile === "work" ? "piw" : "pi"} --session ${file ?? "<file>"}.`;
-		} else if (!stamp && file && inside(canon(file), otherDir)) {
-			sessionBlock = `pi-profile: ${file} belongs to the other profile's session store; not continuing it under ${profile}.`;
+			sessionBlock = `pi-profile: this session was recorded with ${stamp.data.profile} memory; it cannot continue with ${profile} memory. Open it from a ${stamp.data.profile === "work" ? "Work" : "non-Work"} directory: pi --session ${file ?? "<file>"}.`;
 		}
+		publishMemoryBlock();
 		ctx.ui.setStatus("pi-profile", status());
-		noteActive(ctx.model?.provider);
+		noteActive(ctx.model);
 		showFooter(ctx);
 		showBars(ctx);
 		checkAlerts(ctx);
 		const why = blocked();
 		if (why) say(ctx, why, "error");
-		else if (cfgError) say(ctx, cfgError, "error");
-		else if (orgPolicyError) say(ctx, orgPolicyError, "warning");
-		else if (personalPolicyMissing) say(ctx, personalPolicyMissing, "warning");
-		else if (orgPolicy?.managedRulesOnly && models === "work")
-			say(ctx, "pi-profile: your organisation's Claude policy only honours managed permission rules, so Claude Code will refuse Pi's tools in Work.", "warning");
-		// The launcher already printed these on stderr; repeat them where the TUI can show them.
-		else if (ctx.hasUI && override)
-			ctx.ui.notify("Work session on PERSONAL models (--personal-models): personal subscriptions/LiteLLM are billed; sessions and memory stay Work.", "warning");
+		// The launcher already printed this on stderr; repeat it where the TUI can show it.
 		else if (ctx.hasUI && !memState.startsWith("ok")) ctx.ui.notify(`memini ${memState}`, memoryOff ? "info" : "warning");
 	});
 
@@ -730,91 +402,53 @@ export default function profileExtension(pi: ExtensionAPI) {
 
 	// --- model and input guards -----------------------------------------------------------
 
-	// In the TUI a forbidden pick is undone on the spot. Without a UI (`pi -p --model …`) it is
-	// left selected so the request guard fails the run loudly instead of answering with another model.
-	pi.on("model_select", async (event, ctx) => {
-		noteActive(event.model.provider);
-		lastRoute = undefined;
-		autoWhy = undefined;
-		if (models !== "work" || !cfg || providerAllowed(cfg, "work", event.model.provider)) return;
-		if (!ctx.hasUI) return;
-		const back =
-			event.previousModel && providerAllowed(cfg, "work", event.previousModel.provider)
-				? event.previousModel
-				: ctx.modelRegistry.find("work", "daily");
-		ctx.ui.notify(
-			`Work policy: ${event.model.provider}/${event.model.id} is not available in the Work profile${back ? `; staying on ${back.provider}/${back.id}` : ""}`,
-			"error",
-		);
-		if (back) await pi.setModel(back);
-	});
+	pi.on("model_select", (event) => { noteActive(event.model); });
 
 	pi.on("input", (event, ctx) => {
-		const why =
-			blocked() ??
-			(models === "work" && cfg && ctx.model && !providerAllowed(cfg, "work", ctx.model.provider)
-				? `Work policy: ${ctx.model.provider}/${ctx.model.id} is not available in the Work profile; pick work/daily with /model`
-				: undefined);
-		// Only the TUI can explain a swallowed prompt. Elsewhere the prompt proceeds and the route
-		// or request guard fails it with the same reason and a non-zero exit.
+		const why = blocked();
+		// Only the TUI can explain a swallowed prompt. Elsewhere the prompt proceeds and the
+		// request guard fails it with the same reason and a non-zero exit.
 		if (!why || !ctx.hasUI) return { action: "continue" as const };
 		ctx.ui.notify(why, "error");
 		return { action: "handled" as const };
 	});
 
+	const checkoutCalls = new Map<string, ReturnType<typeof claimCheckout>>();
+	pi.on("tool_execution_end", event => { checkoutCalls.get(event.toolCallId)?.release(); checkoutCalls.delete(event.toolCallId); });
+	pi.on("session_shutdown", () => { for (const lease of checkoutCalls.values()) lease.release(); checkoutCalls.clear(); });
 	pi.on("tool_call", async (event, ctx) => {
 		const input = event.input as Record<string, unknown>;
 		const why = blocked() ?? memoryToolBlock(profile, event.toolName, input, { home: process.env.MEMINI_HOME, memoryOff });
 		if (why) return { block: true, reason: why };
 		// No AI attribution in commits, whichever model is answering. Edited in place so the
-		// Work policy below judges the command that will actually run.
+		// gate below judges the command that will actually run.
 		if (event.toolName === "bash" && typeof input?.command === "string") {
 			const fix = stripAiTrailers(input.command);
 			if (fix?.leftover)
 				return { block: true, reason: `Commits must not credit an AI model or agent. Remove "${fix.leftover}" from the commit message and commit again.` };
 			if (fix) input.command = fix.command;
 		}
-		if (!orgPolicy) {
-			if (personalPolicyMissing) return undefined;
-			return /^memory_/.test(event.toolName) ? undefined : { block: true, reason: orgPolicyError! };
+		const denied = gate.check(event.toolName, input, ctx); if (denied) return denied;
+		if (["bash", "edit", "write"].includes(event.toolName)) {
+			try {
+				const delegated: CheckoutDelegation | undefined = worker && process.env.PI_WORKER_CHECKOUT ? JSON.parse(process.env.PI_WORKER_CHECKOUT) : undefined;
+				checkoutCalls.set(event.toolCallId, claimCheckout(ctx.cwd, false, false, delegated));
+			} catch (e) { return { block: true, reason: `Checkout coordination: ${e}` }; }
 		}
-
-		const d = decide(orgPolicy, event.toolName, input, { cwd: ctx.cwd, home: HOME, approvals });
-		if (d.verdict === "allow") return undefined;
-		if (d.verdict === "deny") return { block: true, reason: d.reason };
-		if (!ctx.hasUI)
-			return { block: true, reason: `${d.reason}; it needs your approval, which a headless run cannot ask for. Approve it "for this session" in the interactive session, or run it yourself.` };
-
-		const isBash = event.toolName === "bash";
-		const scope = isBash ? bashScope(String(input?.command ?? "")) : event.toolName;
-		const session =
-			isBash ? `Allow \`${scope}\` commands for this session`
-			: event.toolName === "edit" || event.toolName === "write" ? "Allow file edits for this session"
-			: `Allow ${event.toolName} for this session`;
-		const detail = isBash ? String(input?.command ?? "") : JSON.stringify(input ?? {}).slice(0, 300);
-		notify(`Pi · ${basename(ctx.cwd)}`, `${policyName}: approval needed`);
-		const choice = await ctx.ui.select(`${policyName}: ${d.reason}\n\n${detail}`, ["Allow once", session, "Deny"]);
-		if (choice === "Allow once") return undefined;
-		if (choice === session) {
-			if (isBash) approve("bash", scope);
-			else if (event.toolName === "edit" || event.toolName === "write") (approve("tools", "edit"), approve("tools", "write"));
-			else approve("tools", event.toolName);
-			return undefined;
-		}
-		return { block: true, reason: `denied by you (${policyName} approval)` };
+		return undefined;
 	});
 
 	pi.on("tool_result", (event, ctx) => {
-		if (!orgPolicy || !["grep", "find", "ls"].includes(event.toolName)) return undefined;
+		if (!["grep", "find", "ls"].includes(event.toolName)) return undefined;
 		let hidden = 0;
 		const content = event.content.map((c) => {
 			if (c.type !== "text") return c;
-			const r = redactSearchOutput(orgPolicy!, event.toolName, event.input as Record<string, unknown>, c.text, ctx.cwd, HOME);
+			const r = gate.redact(event.toolName, event.input as Record<string, unknown>, c.text, ctx.cwd);
 			hidden += r.hidden;
 			return { ...c, text: r.text };
 		});
 		if (!hidden) return undefined;
-		content.push({ type: "text", text: `[${hidden} result(s) hidden: ${orgPolicy!.label ?? "your organisation's Claude policy"} denies reading them]` });
+		content.push({ type: "text", text: `[${hidden} result(s) hidden: they name secret files]` });
 		return { content };
 	});
 
@@ -833,117 +467,45 @@ export default function profileExtension(pi: ExtensionAPI) {
 		if (took >= notifyAfterMs()) notify(`Pi · ${basename(ctx.cwd)}`, `Done in ${duration(took)}, ready for input`);
 	});
 
-	// --- fallback for failures Pi does not retry ---------------------------------------------
-
-	// Pi only re-routes (reason "retry") after transient errors. A plan limit, a missing login or
-	// an unavailable model ends the turn instead, so when the virtual model has a usable next
-	// target the error is restated as retryable; the router then moves down the chain. The
-	// provider's own text is kept in a session entry and shown as a notice.
+	// Preserve quota visibility without changing the provider's error or selected model.
 	pi.on("message_end", (event, ctx) => {
+		if (worker) return;
 		const m = event.message as any;
-		if (m?.role === "assistant") lastRoute = undefined;
-		if (m?.role === "assistant" && cfg) {
-			const pool = poolOf(cfg, { provider: m.provider });
-			if (m.stopReason === "error" && classifyError(m.errorMessage) === "quota") markLimited(m.provider, m.errorMessage ?? "");
-			else if (pool && pools.includes(pool) && (!usage[pool] || Date.now() - Date.parse(usage[pool].fetchedAt) > 120_000)) kickRefresh([pool]);
-			if (m.stopReason !== "error") noteActive(m.provider);
-			reloadUsage();
-			ctx.ui.setStatus("pi-profile", status());
-			checkAlerts(ctx);
-		}
-		if (!cfg || m?.role !== "assistant" || m.stopReason !== "error" || !m.errorMessage) return;
-		if (ctx.model?.provider !== models || !cfg.profiles[models].models[ctx.model.id]) return;
-		const cls = classifyError(m.errorMessage);
-		if (cls !== "quota" && cls !== "auth" && cls !== "unavailable") return;
-		if (m.errorMessage.startsWith("pi-profile fallback")) return;
-		const registry = ctx.modelRegistry;
-		const next = nextFallback({
-			cfg,
-			profile: models,
-			virtualId: ctx.model.id,
-			failed: { provider: m.provider, id: m.model, errorMessage: m.errorMessage },
-			lookup: (provider, model) => modelInfo(registry.find(provider, model)),
-			hasAuth: (info) => {
-				const found = registry.find(info.provider, info.id);
-				return !!found && registry.hasConfiguredAuth(found);
-			},
-		});
-		if (!next) {
-			const hint = failureHint(models, m.provider, cls);
-			if (hint) say(ctx, `${m.provider}/${m.model}: ${hint}`, "error");
-			return;
-		}
-		const from = `${m.provider}/${m.model}`;
-		const to = `${next.provider}/${next.model}`;
-		pi.appendEntry("pi-profile-fallback", { from, to, class: cls, error: m.errorMessage, at: new Date().toISOString() });
-		say(ctx, `${ctx.model.id}: ${from} failed (${cls}): ${m.errorMessage.slice(0, 200)} — trying ${to}`, "warning");
-		return { message: { ...m, errorMessage: fallbackMarker(cls, from, to) } };
+		if (m?.role !== "assistant") return;
+		const pool = poolOf(m);
+		if (m.stopReason === "error" && isQuotaError(m.errorMessage)) markLimited(m, m.errorMessage ?? "");
+		else if (pool && (!usage[pool] || Date.now() - Date.parse(usage[pool].fetchedAt) > 120_000)) kickRefresh([pool]);
+		if (m.stopReason !== "error") noteActive(m);
+		reloadUsage();
+		ctx.ui.setStatus("pi-profile", status());
+		checkAlerts(ctx);
 	});
 
-	// --- project trust ------------------------------------------------------------------------
-
-	// Project settings, extensions and MCP servers load after trust; in Work they could add
-	// providers or code paths around the policy, so such projects stay untrusted.
-	pi.on("project_trust", (event, ctx) => {
-		if (profile !== "work") return { trusted: "undecided" as const };
-		const risks = workProjectRisks(event.cwd);
-		if (!risks.length) return { trusted: "undecided" as const };
-		say(ctx, `Work profile: not loading project config from ${event.cwd} (${risks.join(", ")})`, "warning");
-		return { trusted: "no" as const };
-	});
+	const workerBlock = (model?: { provider: string; id: string }) => blocked() ?? (model ? undefined : "Worker model unavailable");
+	if (worker) return { workerBlock };
 
 	// --- usage visibility ----------------------------------------------------------------------------
 
-	const usageReport = (ctx: any): string => {
+	const usageReport = (): string => {
 		reloadUsage();
 		const now = Date.now();
-		return [...pools.map((p) => (usage[p] ? describeUsage(usage[p], now, usageOpts) : `${p}: not fetched yet`)), ...routingLines(ctx, now)].join("\n");
-	};
-
-	const routingLines = (ctx: any, now: number): string[] => {
-		const lines: string[] = [];
-		if (cfg) {
-			const registry = ctx.modelRegistry;
-			for (const id of Object.keys(cfg.profiles[models].models)) {
-				try {
-					const c = chooseRoute({
-						pressure: pressureOf,
-						cfg,
-						profile: models,
-						virtualId: id,
-						reason: "user",
-						hasImages: false,
-						estimatedTokens: 0,
-						now,
-						lookup: (provider, model) => modelInfo(registry.find(provider, model)),
-						hasAuth: (info) => {
-							const m = registry.find(info.provider, info.id);
-							return !!m && registry.hasConfiguredAuth(m);
-						},
-					});
-					lines.push(`${models}/${id} → ${c.target.provider}/${c.target.model}:${c.target.thinking}${c.note ? ` (${c.note.replace(/^[^:]+: using [^ ]+ \(/, "").replace(/\)$/, "")})` : ""}`);
-				} catch (e) {
-					lines.push(`${models}/${id} → none (${(e as Error).message})`);
-				}
-			}
-		}
-		return lines;
+		return pools.map((p) => usage[p] ? describeUsage(usage[p], now, usageOpts) : `${p}: not fetched yet`).join("\n");
 	};
 
 	pi.registerTool({
 		name: "usage_status",
 		label: "Usage",
 		description:
-			"Show how much of each of the user's AI subscriptions (Claude, ChatGPT/Codex, OpenCode Go, MiniMax) is used and where each virtual model would route a new prompt right now. Use it before choosing a model, subagent or advisor for a large task.",
-		promptSnippet: "usage_status: subscription usage left and current routing",
+			"Show how much of each of the user's AI subscriptions (Claude, ChatGPT/Codex, OpenCode Go, MiniMax) is used. Use it before choosing a model, subagent or advisor for a large task.",
+		promptSnippet: "usage_status: subscription usage",
 		parameters: Type.Object({}),
 		async execute(_id, _params, _signal, _onUpdate, ctx) {
-			return { content: [{ type: "text", text: usageReport(ctx) }], details: undefined };
+			return { content: [{ type: "text", text: usageReport() }], details: undefined };
 		},
 	});
 
 	pi.registerCommand("usage", {
-		description: "Show subscription usage and current routing (`/usage refresh` to re-read now)",
+		description: "Show subscription usage (`/usage refresh` to re-read now)",
 		handler: async (args, ctx) => {
 			if (args.trim() === "refresh") {
 				lastKick = 0;
@@ -952,12 +514,12 @@ export default function profileExtension(pi: ExtensionAPI) {
 				return;
 			}
 			if (!ctx.hasUI || !pools.length) {
-				ctx.ui.notify(usageReport(ctx), "info");
+				ctx.ui.notify(usageReport(), "info");
 				return;
 			}
 			reloadUsage();
 			await ctx.ui.custom<void>((_tui: unknown, theme: any, _kb: unknown, done: (r?: void) => void) => ({
-				render: (width: number) => renderPanel(poolViews(), routingLines(ctx, Date.now()), Date.now(), usageOpts, theme, width),
+				render: (width: number) => renderPanel(poolViews(), Date.now(), usageOpts, theme, width),
 				handleInput: (data: string) => {
 					if (matchesKey(data, "escape") || matchesKey(data, "enter") || matchesKey(data, "ctrl+c") || data === "q" || data === " ") done();
 				},
@@ -969,28 +531,23 @@ export default function profileExtension(pi: ExtensionAPI) {
 	// --- diagnostics ----------------------------------------------------------------------------
 
 	pi.registerCommand("profile", {
-		description: "Show the Pi profile, memory scope and virtual-model chains",
+		description: "Show memory scope, accounts and approval status",
 		handler: async (_args, ctx) => {
 			const lines = [
-				`profile: ${profile}${override ? " — on PERSONAL models (--personal-models)" : ""}  (agent dir ${agentDir})`,
+				`memory scope: ${profile}  (agent dir ${agentDir})`,
 				`sessions: ${process.env.PI_CODING_AGENT_SESSION_DIR ?? `${agentDir}/sessions`}`,
 				`claude config: ${process.env.CLAUDE_CONFIG_DIR ?? "(unset — bridge uses ~/.claude)"}`,
 				`memini: ${memState}`,
 				`namespace env: prefix=${process.env.MEMINI_NAMESPACE_PREFIX ?? "-"} namespace=${process.env.MEMINI_NAMESPACE ?? "-"} home=${process.env.MEMINI_HOME ?? "-"}`,
 				blocked() ? `BLOCKED: ${blocked()}` : "requests: allowed",
-				orgPolicy
-					? `${profile === "work" ? "org" : "personal"} tool policy: ${orgPolicy.allow.length} allow, ${orgPolicy.deny.length} deny, ${orgPolicy.ask.length} ask rules${orgPolicy.unlisted === "allow" ? " (anything else runs)" : ""}; session approvals: ${JSON.stringify(approvals)}`
-					: (orgPolicyError ?? personalPolicyMissing ?? "no tool policy"),
-				...(cfgError ? [cfgError] : []),
-				...Object.entries(cfg?.profiles[models].models ?? {}).map(
-					([id, spec]) => `${models}/${id}: ${spec.chain.map((t) => `${t.provider}/${t.model}:${t.thinking}`).join(" → ")}${spec.fallback === false ? " (no fallback)" : ""}`,
-				),
+				gate.status(),
 				`selected: ${ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "-"}`,
 			];
 			ctx.ui.notify(lines.join("\n"), "info");
 		},
 	});
+	return { workerBlock };
 }
 
 // Exported for tests.
-export { expectedProfile, workProjectRisks };
+export { expectedProfile };

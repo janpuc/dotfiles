@@ -111,8 +111,8 @@ export function renderBars(pools: PoolView[], now: number, opts: UsageOptions, t
 	return paint(kept, t, width);
 }
 
-/** The /usage panel: every window of every subscription, then where each virtual model routes. */
-export function renderPanel(pools: PoolView[], routing: string[], now: number, opts: UsageOptions, t: Paint, width: number): string[] {
+/** The /usage panel: every window of every subscription. */
+export function renderPanel(pools: PoolView[], now: number, opts: UsageOptions, t: Paint, width: number): string[] {
 	const lines: string[] = [""];
 	for (const p of pools) {
 		const u = p.u;
@@ -134,11 +134,6 @@ export function renderPanel(pools: PoolView[], routing: string[], now: number, o
 			if (w.resetsAt) parts.push(["dim", expired ? "  has reset" : `  resets ${shortTime(w.resetsAt, now)} (in ${duration(Date.parse(w.resetsAt) - now)})`]);
 			lines.push(paint(parts, t, width));
 		}
-		lines.push("");
-	}
-	if (routing.length) {
-		lines.push(paint([["muted", "routing"]], t, width));
-		for (const r of routing) lines.push(paint([["dim", `  ${r}`]], t, width));
 		lines.push("");
 	}
 	lines.push(paint([["dim", "esc closes · /usage refresh re-reads now"]], t, width));

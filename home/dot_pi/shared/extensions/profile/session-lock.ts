@@ -78,7 +78,7 @@ export function ownerAlive(o: LockOwner): boolean {
 		if ((e as NodeJS.ErrnoException).code === "ESRCH") return false;
 	}
 	const started = processStart(o.pid);
-	return !started || started === o.started;
+	return !started || !o.started || started === o.started;
 }
 
 const sameProcess = (a: LockOwner, b: LockOwner) => a.pid === b.pid && a.host === b.host && a.boot === b.boot && a.started === b.started;
@@ -107,7 +107,7 @@ function ageMs(path: string): number {
 }
 
 /** Take the lock on `file` for `me`, or say who holds it. Re-taking one's own lock succeeds. */
-export function acquire(file: string, me: LockOwner): Acquired {
+export function acquire(file: string, me: LockOwner, retainOwner?: (owner: LockOwner) => boolean): Acquired {
 	for (let attempt = 0; attempt < 3; attempt++) {
 		try {
 			mkdirSync(lockDir(file), { mode: 0o700 });
@@ -121,6 +121,9 @@ export function acquire(file: string, me: LockOwner): Acquired {
 		if (owner === "missing") {
 			if (ageMs(lockDir(file)) < PUBLISH_GRACE_MS) return { ok: false, reason: "another Pi is opening this session right now" };
 		} else {
+			// Checkout launch witnesses can hide an as-yet-unpublished child. Keep this
+			// rule inside reclamation (also under its mutex), not in a racy caller check.
+			if (retainOwner?.(owner)) return { ok: false, owner, reason: "owner requires explicit inspection before reclaim" };
 			if (sameProcess(owner, me)) {
 				publish(file, me);
 				return { ok: true };
@@ -139,7 +142,7 @@ export function acquire(file: string, me: LockOwner): Acquired {
 		}
 		try {
 			const again = readOwner(file);
-			const stillDead = again === "missing" ? ageMs(lockDir(file)) >= PUBLISH_GRACE_MS : again !== "unreadable" && !ownerAlive(again);
+			const stillDead = again === "missing" ? ageMs(lockDir(file)) >= PUBLISH_GRACE_MS : again !== "unreadable" && !retainOwner?.(again) && !ownerAlive(again);
 			if (stillDead) rmSync(lockDir(file), { recursive: true, force: true });
 		} finally {
 			rmSync(mutex, { recursive: true, force: true });

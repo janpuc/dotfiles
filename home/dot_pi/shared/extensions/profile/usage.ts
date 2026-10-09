@@ -1,6 +1,24 @@
 // Subscription usage: normalise what each plan reports into windows (used %, reset, length,
-// optional model scope) and turn them into routing pressure. Pure functions; usage-sources.ts
+// optional model scope) and expose subscription pressure. Pure functions; usage-sources.ts
 // does the I/O.
+
+export const USAGE_POOLS = ["claude", "chatgpt", "opencode-go", "minimax"] as const;
+export const DEFAULT_USAGE = { refreshMinutes: 5, staleMinutes: 30, exhaustedPercent: 97 };
+const PROVIDER_POOL: Record<string, string> = { "claude-bridge": "claude", openai: "chatgpt", "opencode-go": "opencode-go", minimax: "minimax" };
+
+export function poolOf(t: { provider: string; id?: string; model?: string }): string | undefined {
+	const id = t.id ?? t.model ?? "";
+	if (t.provider === "litellm") {
+		if (id.startsWith("opencode-go/")) return "opencode-go";
+		if (id.startsWith("minimax/")) return "minimax";
+	}
+	return PROVIDER_POOL[t.provider];
+}
+
+/** Subscription limits, not transient rate limits that Pi may retry natively. */
+export function isQuotaError(text: string | undefined): boolean {
+	return !!text && /usage.?limit|quota|insufficient_quota|billing|out of budget|credit balance|limit reached|Claude rate limit \(|subscription_sharing|GoUsageLimitError|FreeUsageLimitError|available balance/i.test(text);
+}
 
 export interface UsageWindow {
 	name: string;

@@ -1,45 +1,13 @@
 #!/usr/bin/env zsh
 #
-# Profile-aware launcher for Pi (https://pi.dev), installed as ~/.local/bin/pi
-# ahead of the real binary on PATH. Same script, several names:
-#
-#   pi           Work under ~/Work (or a repo/worktree owned by it),
-#                Personal everywhere else
-#   piw          Work, from anywhere
-#   pi-profile   print what `pi`/`piw` would do here, or run a profile's
-#                one-time Claude login: `pi-profile [--work] [login|auth]`
-#   pi-attach    reattach to an interactive Pi that kept running after its
-#                terminal went away (Linux with dtach, i.e. the aether server)
-#   unii         the one chat that never ends (pi-optchat): Personal, always
-#                from $HOME, on the aether server. From the laptop it opens
-#                the same chat there over SSH (UNII_HOST=local runs it here).
-#
-# Where dtach is installed (aether), an interactive Pi runs under it, so an SSH
-# drop or a closed laptop only ends the dtach client: the run carries on and
-# `pi-attach` brings it back. PI_DETACH=off opts out; print/RPC modes and
-# subcommands are never wrapped.
-#
-# Work override, when the enterprise seat runs short: `pi --personal-models`
-# (or `piw --personal-models`, e.g. with `-c` to continue the same session)
-# keeps everything Work about the session — its session store, work/* memory,
-# Work markers for child processes — but runs on the Personal models
-# (personal Claude and ChatGPT subscriptions, LiteLLM). It is explicit per
-# launch and announced; nothing ever falls back from Work to personal models
-# on its own.
-#
-# Every launch recomputes the profile from the canonical working directory
-# rather than trusting what fish's PWD hooks last exported: those match the
-# logical $PWD only, so a symlink, `cd ~/development/work` on case-insensitive
-# APFS, or a linked worktree outside the tree would slip past them.
-#
-# Profiles mirror omp's: Personal keeps Pi's default agent dir (~/.pi/agent),
-# Work lives in ~/.pi/profiles/work/agent. Each has its own auth.json, sessions,
-# packages and Claude Code config dir for pi-claude-bridge. Shared extension
-# code and the virtual-model map live in ~/.pi/shared.
-#
-# The final step is `exec`, so the real pi keeps this PID: arguments, exit
-# status, signals and printed resume commands pass through untouched.
-# Policy refusals exit 78 (EX_CONFIG) before anything is executed.
+# Launcher for Pi (https://pi.dev): one agent dir, models, sessions and tools.
+# Canonical cwd/repo resolution chooses only the memini memory scope: Work
+# projects use work/*, elsewhere Personal never reads Work memory. Handshake
+# conflicts refuse before Pi starts; PI_MEMINI=off disables memory.
+# pi-profile reports the launch or handles the Personal Claude login/auth.
+# pi-attach reattaches dtach sessions.
+# Interactive terminals use dtach when available (PI_DETACH=off opts out).
+# The final exec preserves arguments, exit status and signals. Refusals exit 78.
 
 emulate -L zsh
 setopt extended_glob no_unset pipe_fail
@@ -50,7 +18,6 @@ readonly invoked=${0:t}
 readonly work_root=$HOME/Work
 readonly dev_root=$HOME/Development
 readonly personal_dir=$HOME/.pi/agent
-readonly work_dir=$HOME/.pi/profiles/work/agent
 
 warn() { print -ru2 -- "pi: $*" }
 refuse() { print -ru2 -- "pi: $*"; exit 78 }
@@ -66,18 +33,13 @@ inside() { # inside PATH ROOT
 
 typeset -g profile reason repo_top= repo_owner= memini_prefix= memini_namespace=
 typeset -ga why=()
-# Whose models (agent dir, auth store, Claude login) the session uses. Equal to
-# $profile except under the Work override, where it is personal.
-typeset -g models
-
-resolve() { # resolve EXPLICIT_WORK
+resolve() {
   local logical=${PWD:-$(pwd)} physical=$(pwd -P)
   local work_canon=${work_root:A} dev_canon=${dev_root:A}
   local -a git_out
 
-  [[ $1 == 1 ]] && why+=(explicit)
   # Work is sticky down a process tree: a Work session that shells out to pi
-  # (from any directory) must not hand Work context to personal providers.
+  # (from any directory) must not hand Work context to personal memory.
   [[ ${AI_PROFILE-} == work ]] && why+=(parent)
   { inside $logical $work_root || inside $physical $work_canon } && why+=(cwd)
 
@@ -96,8 +58,8 @@ resolve() { # resolve EXPLICIT_WORK
   reason=${(j:,:)why:-default}
 
   # Memory identity, recomputed here rather than inherited from fish. Same rules
-  # as __memini_namespace_prefix.fish, keyed on the effective profile so an
-  # explicit `piw` outside the tree still gets Work semantics. A server-side pin
+  # as __memini_namespace_prefix.fish, keyed on the effective memory scope so an
+  # inherited Work scope outside the tree still gets Work semantics. A server-side pin
   # still wins over both variables; check_memini below vets the result.
   if [[ $profile == work ]]; then
     if [[ -n $repo_top ]] || inside $logical $work_root || inside $physical $work_canon; then
@@ -112,40 +74,9 @@ resolve() { # resolve EXPLICIT_WORK
   fi
 }
 
-# --session/--fork/--session-dir naming a file inside a profile's agent dir pin
-# the launch to that profile. A Work session opened from outside the tree goes
-# to Work; Personal history is never loaded into Work.
-check_session_args() {
-  local i a val owner
-  for (( i = 1; i <= $#; i++ )); do
-    a=${argv[i]} val=
-    case $a in
-      --) break ;;
-      --session|--fork|--session-dir) val=${argv[i+1]-} ;;
-      --session=*|--fork=*|--session-dir=*) val=${a#*=} ;;
-      *) continue ;;
-    esac
-    [[ -n $val && -e $val ]] || continue # a bare session id stays profile-local
-    if inside ${val:A} ${work_dir:A}; then owner=work
-    elif inside ${val:A} ${personal_dir:A}; then owner=personal
-    else continue
-    fi
-    if [[ $owner == work && $profile == personal ]]; then
-      warn "$val belongs to the Work profile; launching as Work"
-      profile=work why+=(session) reason=${(j:,:)why}
-      [[ -z $memini_prefix ]] && memini_namespace=work/scratch
-      [[ -n $repo_top ]] && memini_prefix=work memini_namespace=
-    elif [[ $owner == personal && $profile == work ]]; then
-      refuse "$val is Personal history; refusing to load it into the Work profile ($reason)"
-    fi
-  done
-}
-
 # --- environment ----------------------------------------------------------------
 
-# Credentials and endpoint overrides that would let Claude Code or Pi bill
-# something other than the profile's subscriptions. Cleared for both profiles;
-# Work additionally loses every personal provider key below.
+# Keep subscription billing and clear enclosing Claude Code runtime markers.
 readonly -a scrub_always=(
   ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_OAUTH_TOKEN ANTHROPIC_BASE_URL
   ANTHROPIC_CUSTOM_HEADERS ANTHROPIC_MODEL ANTHROPIC_SMALL_FAST_MODEL
@@ -157,26 +88,12 @@ readonly -a scrub_always=(
   OPENAI_API_KEY OPENAI_BASE_URL OPENAI_ORG_ID OPENAI_ORGANIZATION OPENAI_PROJECT
   PI_CODING_AGENT_SESSION_DIR
 )
-readonly -a scrub_work=(
-  LITELLM_API_KEY LITELLM_BASE_URL LITELLM_MASTER_KEY PI_OPENCODE_API_KEY PI_MINIMAX_API_KEY PI_OPENAI_API_KEY
-  AI_GATEWAY_API_KEY ANT_LING_API_KEY AZURE_OPENAI_API_KEY AZURE_OPENAI_BASE_URL
-  AZURE_OPENAI_RESOURCE_NAME AWS_BEARER_TOKEN_BEDROCK BASETEN_API_KEY CEREBRAS_API_KEY
-  CLOUDFLARE_API_KEY CODEX_API_KEY COPILOT_GITHUB_TOKEN DEEPSEEK_API_KEY FIREWORKS_API_KEY
-  GEMINI_API_KEY GOOGLE_CLOUD_API_KEY GROQ_API_KEY HF_TOKEN KIMI_API_KEY META_API_KEY
-  MINIMAX_API_KEY MINIMAX_CN_API_KEY MISTRAL_API_KEY MOONSHOT_API_KEY NVIDIA_API_KEY
-  OPENCODE_API_KEY OPENROUTER_API_KEY QWEN_TOKEN_PLAN_API_KEY QWEN_TOKEN_PLAN_CN_API_KEY
-  RADIUS_API_KEY TOGETHER_API_KEY TYPESAFE_API_KEY XAI_API_KEY XIAOMI_API_KEY
-  XIAOMI_TOKEN_PLAN_AMS_API_KEY XIAOMI_TOKEN_PLAN_CN_API_KEY XIAOMI_TOKEN_PLAN_SGP_API_KEY
-  ZAI_API_KEY ZAI_CODING_CN_API_KEY
-)
-
 # Launched from somewhere other than fish (cron, another shell), the ai-sync
-# cache has not been sourced. Import only what this profile may use; never
+# cache has not been sourced. Import the shared subscription keys; never
 # prompts, since the cache is the whole point of ai-sync.
 import_cached_credentials() {
   local cache=${XDG_STATE_HOME:-$HOME/.local/state}/ai/credentials.fish name
-  local -a names=(MEMINI_API_KEY) missing=() pairs
-  [[ $models == personal ]] && names+=(LITELLM_API_KEY PI_OPENCODE_API_KEY PI_MINIMAX_API_KEY PI_OPENAI_API_KEY)
+  local -a names=(MEMINI_API_KEY LITELLM_API_KEY PI_OPENCODE_API_KEY PI_MINIMAX_API_KEY PI_OPENAI_API_KEY) missing=() pairs
   for name in $names; do [[ -z ${(P)name-} ]] && missing+=($name); done
   local fish=${commands[fish]:-/opt/homebrew/bin/fish}
   (( ${#missing} )) && [[ -r $cache && -x $fish ]] || return 0
@@ -187,49 +104,18 @@ import_cached_credentials() {
 }
 
 apply_environment() {
-  local agent_dir
-  [[ $models == work ]] && agent_dir=$work_dir || agent_dir=$personal_dir
-  if [[ -n ${PI_CODING_AGENT_DIR-} && ${PI_CODING_AGENT_DIR:A} != ${agent_dir:A} && -z ${AI_PROFILE-} ]]; then
-    warn "ignoring PI_CODING_AGENT_DIR=$PI_CODING_AGENT_DIR; this launch is $profile ($reason)"
-  fi
-
   local v
   for v in $scrub_always; do unset $v; done
-  # Runtime markers of an enclosing Claude Code session would make the bridge's
-  # Claude Code child behave as a nested session.
   for v in CLAUDECODE CLAUDE_PID ${(k)parameters[(I)CLAUDE_CODE_*]}; do unset $v; done
-  [[ $models == work ]] && for v in $scrub_work; do unset $v; done
-  if [[ $profile == work ]]; then
-    if [[ $models == personal ]]; then
-      # Override: Personal auth and models, but the exact per-cwd folder Work
-      # sessions use, so `-c`/`--resume` see one history in both modes.
-      local cwd=$(pwd -P)
-      export PI_CODING_AGENT_SESSION_DIR=$work_dir/sessions/--${${cwd#/}//[\/:]/-}--
-      mkdir -p $PI_CODING_AGENT_SESSION_DIR
-    fi
-    export OMP_PROFILE=work
-    # Codex CLI keeps its ChatGPT login in ~/.codex; a Work child that runs
-    # `codex` gets an empty home instead of the personal subscription.
-    export CODEX_HOME=$work_dir/codex
-    mkdir -p -m 700 $CODEX_HOME
-  else
-    unset OMP_PROFILE
-  fi
-
   import_cached_credentials
-  # Personal subscription keys ai-sync caches under PI_* names (see ai-sync.fish),
-  # exposed under the names Pi's opencode-go and minimax providers read, for Pi only.
-  if [[ $models == personal ]]; then
-    [[ -n ${PI_OPENCODE_API_KEY-} ]] && export OPENCODE_API_KEY=$PI_OPENCODE_API_KEY
-    [[ -n ${PI_MINIMAX_API_KEY-} ]] && export MINIMAX_API_KEY=$PI_MINIMAX_API_KEY
-  fi
+  # ai-sync's subscription keys under the names Pi providers read.
+  [[ -n ${PI_OPENCODE_API_KEY-} ]] && export OPENCODE_API_KEY=$PI_OPENCODE_API_KEY
+  [[ -n ${PI_MINIMAX_API_KEY-} ]] && export MINIMAX_API_KEY=$PI_MINIMAX_API_KEY
 
-  export AI_PROFILE=$profile AI_PROFILE_MODELS=$models
-  export PI_CODING_AGENT_DIR=$agent_dir
-  # pi-claude-bridge runs Claude Code with Pi's environment, and Claude Code
-  # keys both its config and its Keychain item on this directory.
-  export CLAUDE_CONFIG_DIR=$agent_dir/claude
-  mkdir -p -m 700 $agent_dir $CLAUDE_CONFIG_DIR
+  export AI_PROFILE=$profile
+  export PI_CODING_AGENT_DIR=$personal_dir
+  export CLAUDE_CONFIG_DIR=$personal_dir/claude
+  mkdir -p -m 700 $personal_dir $CLAUDE_CONFIG_DIR
 
   export MEMINI_BASE_URL=${MEMINI_BASE_URL:-https://memini.janpuc.com}
   export MEMINI_HOME=${MEMINI_HOME:-personal/jan}
@@ -260,10 +146,10 @@ memory_off() { # memory_off REASON
 check_memini() {
   if [[ ${PI_MEMINI-on} == off ]]; then memory_off "PI_MEMINI=off"; return; fi
   if [[ -z ${MEMINI_API_KEY-} ]]; then
-    memini_state=degraded memini_detail="MEMINI_API_KEY unset (run ai-sync)"; return
+    memory_off "MEMINI_API_KEY unset (run ai-sync)"; return
   fi
   if ! (( $+commands[curl] && $+commands[jq] )); then
-    memini_state=degraded memini_detail="curl/jq missing, scope not verified"; return
+    memory_off "curl/jq missing, scope not verified"; return
   fi
 
   local physical=$(pwd -P) remote= facts resp verdict
@@ -281,7 +167,7 @@ check_memini() {
   resp=$(print -r -- "header = \"Authorization: Bearer $MEMINI_API_KEY\"" |
     curl -fsS -m 3 -K - -H "X-Memini-Home: $MEMINI_HOME" -H 'Content-Type: application/json' \
       --data-binary $facts "$MEMINI_BASE_URL/v1/handshake" 2>&1) || {
-    memini_state=degraded memini_detail="handshake failed: ${resp:0:120}"; return
+    memory_off "handshake failed: ${resp:0:120}"; return
   }
   verdict=$(print -r -- $resp | jq -r --arg profile "$profile" --arg home "$MEMINI_HOME" '
     def work: . == "work" or startswith("work/");
@@ -300,36 +186,18 @@ check_memini() {
     ok) memini_state=ok memini_detail=${verdict#*$'\t'} ;;
     conflict)
       memini_state=conflict memini_detail=${verdict#*$'\t'} ;;
-    *) memini_state=degraded memini_detail="unparseable handshake reply" ;;
+    *) memory_off "unparseable handshake reply" ;;
   esac
 }
 
 # --- Claude account and billing -------------------------------------------------------
 
-# The bridge's Claude Code logs in per CLAUDE_CONFIG_DIR. Claude Code only enforces
-# forceLoginOrgUUID from managed policy, so the launcher checks the stored login:
-# Work must hold an organisation seat distinct from Personal's, Personal must not be
-# the enterprise seat. A missing login is reported, not fatal (Pi still starts).
+# Personal login hint only; no Work account or organisation policy.
 check_claude_account() {
   (( $+commands[jq] )) || return 0
-  local -a mine other
-  org_of() { jq -r '.oauthAccount // {} | [.organizationUuid // "", .organizationType // "", .organizationName // ""] | @tsv' $1 2>/dev/null }
-  mine=("${(@ps:\t:)$(org_of $CLAUDE_CONFIG_DIR/.claude.json)}")
-  if [[ -z ${mine[1]-} ]]; then
-    warn "Claude (pi-claude-bridge) is not logged in for $models; run once: pi-profile${${models:#personal}:+ --work} login"
-    return 0
+  if ! jq -e '.oauthAccount.organizationUuid' $CLAUDE_CONFIG_DIR/.claude.json >/dev/null 2>&1; then
+    warn "Claude (pi-claude-bridge) is not logged in; run once: pi-profile login"
   fi
-  local other_dir; [[ $models == work ]] && other_dir=$personal_dir || other_dir=$work_dir
-  other=("${(@ps:\t:)$(org_of $other_dir/claude/.claude.json)}")
-  if [[ -n ${other[1]-} && ${other[1]} == ${mine[1]} ]]; then
-    refuse "both profiles' Claude logins are the same organisation (${mine[3]-}); log the $models profile in again with the right account: pi-profile${${models:#personal}:+ --work} login"
-  fi
-  case $models:${mine[2]-} in
-    work:claude_max|work:claude_pro|work:claude_free)
-      refuse "the Work Claude login is a personal ${mine[2]} plan (${mine[3]-}); re-login with the enterprise seat: pi-profile --work login" ;;
-    personal:claude_enterprise)
-      refuse "the Personal Claude login is the enterprise seat (${mine[3]-}); re-login with the personal subscription: pi-profile login" ;;
-  esac
 }
 
 # Project Claude settings apply to the bridge's Claude Code like any other session, and
@@ -345,7 +213,7 @@ check_project_claude_settings() {
       [[ -f $f ]] || continue
       bad=$(jq -r '[ (if .apiKeyHelper then "apiKeyHelper" else empty end),
                      (.env // {} | keys[] | select(test("^(ANTHROPIC_|CLAUDE_CODE_USE_|CLAUDE_CODE_OAUTH_TOKEN$)"))) ] | join(", ")' $f 2>/dev/null)
-      [[ -n $bad ]] && refuse "$f sets $bad, which would move pi-claude-bridge off the $profile subscription login"
+      [[ -n $bad ]] && refuse "$f sets $bad, which would move pi-claude-bridge off the Personal subscription login"
     done
   done
   return 0
@@ -438,139 +306,49 @@ attach_main() {
   exec dtach -a ${socks[pick]} -E -z -r winch
 }
 
-# --- unii: one chat that never ends --------------------------------------------------
-
-# pi-optchat keeps one endless chat as a summary tree (~/.optchat/profiles/unii) and
-# rebuilds each turn's context from it. It is installed with the Personal packages but
-# loaded only here. The chat lives on one machine: optchat lets one process own it, and
-# memini carries what it learns to the agents on the other machines.
-readonly unii_ext=$personal_dir/git/github.com/janpuc/pi-optchat
-readonly unii_sessions=$personal_dir/sessions/unii
-
-# Whether the chat already runs under dtach here (its fixed id is `unii`).
-unii_running() {
-  local dir=$(detach_dir) pid
-  [[ -S $dir/unii.sock ]] || return 1
-  pid=$(jq -r '.pid // empty' $dir/unii.json 2>/dev/null)
-  [[ -n $pid ]] && kill -0 $pid 2>/dev/null
-}
-
-# Remote hop, Work check and directory; the arguments are completed after resolve.
-unii_prepare() {
-  local host=${UNII_HOST-}
-  [[ -z $host && $OSTYPE == darwin* ]] && host=ubuntu@aether
-  if [[ -n $host && $host != local ]]; then
-    # The remote login shell is fish, which reads these single-quoted words as zsh wrote them.
-    exec ssh -t $host .local/bin/unii ${(q-)@}
-  fi
-  [[ ${AI_PROFILE-} == work ]] && refuse "unii is Personal; it does not start from inside a Work session"
-  [[ -d $unii_ext ]] || refuse "pi-optchat is not installed ($unii_ext); run chezmoi apply"
-  cd $HOME || refuse "cannot enter $HOME"
-}
-
-# The chat's own session store, Claude by default (it keeps the view cached), and the
-# latest of its sessions continued unless another one is asked for.
-unii_args() {
-  local a has_model=0 has_thinking=0 has_session=0
-  for a in "$@"; do
-    case $a in
-      --) break ;;
-      --model|--model=*) has_model=1 ;;
-      --thinking|--thinking=*) has_thinking=1 ;;
-      -c|--continue|-r|--resume|--session|--session=*|--session-id|--session-id=*|--fork|--fork=*|--no-session) has_session=1 ;;
-    esac
-  done
-  reply=(-e $unii_ext --optchat-profile unii --session-dir $unii_sessions)
-  (( has_model )) || reply+=(--model claude-bridge/claude-opus-5-5)
-  (( has_thinking )) || reply+=(--thinking medium)
-  (( has_session )) || reply+=(-c)
-  reply+=("$@")
-}
-
 # --- main ---------------------------------------------------------------------------
 
 if [[ $invoked == pi-attach ]]; then
   attach_main "$@"
   exit
 fi
-[[ $invoked == unii ]] && unii_prepare "$@"
 
-explicit=0 override=0 sub=
-case $invoked in
-  piw) explicit=1 ;;
-  pi-profile)
-    while (( $# )); do
-      case $1 in
-        --work) explicit=1 ;;
-        --personal-models) override=1 ;;
-        login|auth) sub=$1 ;;
-        -h|--help) print "usage: pi-profile [--work] [--personal-models] [login|auth]"; exit 0 ;;
-        *) refuse "pi-profile: unknown argument $1" ;;
-      esac
-      shift
-    done ;;
-esac
-if [[ $invoked != pi-profile ]]; then
-  # --personal-models is the launcher's own flag; pi never sees it.
-  typeset -a rest=()
-  typeset passthrough=0 a
-  for a in "$@"; do
-    if (( ! passthrough )) && [[ $a == --personal-models ]]; then override=1; continue; fi
-    [[ $a == -- ]] && passthrough=1
-    rest+=("$a")
+sub=
+for a in "$@"; do
+  [[ $a == --personal-models ]] && refuse "Pi now uses personal models everywhere; Work only changes memory scope"
+done
+if [[ $invoked == pi-profile ]]; then
+  while (( $# )); do
+    case $1 in
+      login|auth) sub=$1 ;;
+      -h|--help) print "usage: pi-profile [login|auth]"; exit 0 ;;
+      *) refuse "pi-profile: unknown argument $1" ;;
+    esac
+    shift
   done
-  set -- "${rest[@]}"
 fi
 
-resolve $explicit
-if [[ $invoked == unii ]]; then
-  # Its own namespace, wherever the chat's tools wander; a server-side pin still wins.
-  memini_prefix= memini_namespace=homelab/unii
-  mkdir -p -m 700 $unii_sessions
-  unii_args "$@"; set -- "${reply[@]}"
-fi
-[[ $invoked == pi-profile ]] || check_session_args "$@"
-models=$profile
-# A pi started from inside an override session (a subagent, a nested launch) keeps it.
-[[ $profile == work && ${AI_PROFILE-} == work && ${AI_PROFILE_MODELS-} == personal ]] && override=1
-if (( override )); then
-  if [[ $profile == work ]]; then
-    models=personal
-    warn "Work session on PERSONAL models (--personal-models): personal Claude/ChatGPT subscriptions and LiteLLM are used and billed; sessions and memory stay Work"
-  else
-    warn "--personal-models only changes Work sessions; this launch is already Personal"
-  fi
-fi
+resolve
 apply_environment
-
-# Work runs under the managed settings (provider allowlist, tool policy). A machine that does not
-# deploy them, such as the aether server, must not start a bare Pi in a Work tree instead.
-if [[ $invoked != pi-profile && $models == work && ! -f $work_dir/settings.json ]]; then
-  refuse "the Work profile is not set up on this machine ($work_dir/settings.json is missing), so Work sessions are not available here"
-fi
 
 if [[ $invoked == pi-profile ]]; then
   case $sub in
     login)
-      # One-time, per profile: Claude subscription OAuth for pi-claude-bridge,
-      # stored under this profile's CLAUDE_CONFIG_DIR and its own Keychain item.
-      print -r -- "Logging Claude Code into the $models profile ($CLAUDE_CONFIG_DIR)."
-      [[ $models == work ]] && print -r -- "Pick the ENTERPRISE organisation on the consent page." \
-        || print -r -- "Pick the PERSONAL subscription on the consent page."
+      print -r -- "Logging Claude Code into the Personal account ($CLAUDE_CONFIG_DIR)."
+      print -r -- "Pick the PERSONAL subscription on the consent page."
       exec claude auth login --claudeai ;;
     auth)
-      print -r -- "== $models: Claude Code (pi-claude-bridge)"
+      print -r -- "== Personal: Claude Code (pi-claude-bridge)"
       claude auth status --json 2>&1 | jq '{loggedIn, authMethod, orgName, subscriptionType, configDirectory}' 2>/dev/null
-      if [[ $models == personal ]] && real=$(find_real_pi); then
-        print -r -- "== $models: openai-codex"
-        $real auth check --provider openai-codex 2>&1
+      if real=$(find_real_pi); then
+        print -r -- "== Personal: openai (ChatGPT subscription)"
+        $real auth check --provider openai 2>&1
       fi
       exit 0 ;;
   esac
   check_memini
   print -r -- "profile=$profile"
   print -r -- "reason=$reason"
-  print -r -- "models=$models"
   print -r -- "agent_dir=$PI_CODING_AGENT_DIR"
   print -r -- "session_dir=${PI_CODING_AGENT_SESSION_DIR:-$PI_CODING_AGENT_DIR/sessions}"
   print -r -- "claude_config_dir=$CLAUDE_CONFIG_DIR"
@@ -594,31 +372,14 @@ case ${1-} in
   Nothing has been read or captured. Fix the pin for this project (in the right
   profile: /memini:namespace, or memini's pins API), or start without memory:
   PI_MEMINI=off $invoked ${(j: :)${(q-)@}}" ;;
-      degraded) warn "memini degraded: $memini_detail — memory is not being recalled or saved" ;;
+      off) warn "memini off: $memini_detail — memory is not being recalled or saved" ;;
     esac
     check_claude_account
     check_project_claude_settings ;;
 esac
 export PI_MEMINI_STATE="$memini_state${memini_detail:+: $memini_detail}"
 
-# A project .pi/claude-bridge.json is read by the bridge without project trust
-# and can re-enable Claude Code MCP config, swap the Claude binary or turn on
-# AskClaude (native tools, subagents). None of that is allowed in Work.
-bridge_project_config="$(pwd -P)/.pi/claude-bridge.json"
-if [[ $profile == work && -f $bridge_project_config ]]; then
-  bad=$(jq -r '[ (if .provider.strictMcpConfig == false then "provider.strictMcpConfig=false" else empty end),
-                 (if .provider.pathToClaudeCodeExecutable then "provider.pathToClaudeCodeExecutable" else empty end),
-                 (if .askClaude.enabled then "askClaude.enabled" else empty end) ] | join(", ")' \
-        $bridge_project_config 2>/dev/null || print unparseable)
-  [[ -n $bad ]] && refuse "project .pi/claude-bridge.json sets $bad, which the Work profile does not allow"
-fi
-
 real=$(find_real_pi) || refuse "the pi binary is not on PATH
   macOS: brew install pi-coding-agent   elsewhere: npm install -g @earendil-works/pi-coding-agent"
-if [[ $invoked == unii ]]; then
-  # One chat, one owner: a second terminal joins the running one instead of starting another.
-  if [[ -t 0 && -t 1 ]] && interactive_args "$@" && unii_running; then attach_main unii; exit; fi
-  detach_id=unii
-fi
 maybe_detach "$@"
 exec $real "$@"

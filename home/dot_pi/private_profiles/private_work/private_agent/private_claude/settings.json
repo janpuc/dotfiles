@@ -1,8 +1,0 @@
-{
-  "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "disableAllHooks": true,
-  "enableAllProjectMcpServers": false,
-  "permissions": {
-    "allow": ["mcp__custom-tools"]
-  }
-}

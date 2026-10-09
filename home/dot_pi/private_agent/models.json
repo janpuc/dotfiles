@@ -11,8 +11,8 @@
           "name": "Qwen3.6 35B A3B (BC250, MiniMax M3 when off)",
           "reasoning": true,
           "input": ["text"],
-          "contextWindow": 24576,
-          "maxTokens": 8192,
+          "contextWindow": 131072,
+          "maxTokens": 16384,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         },
         {
@@ -20,8 +20,8 @@
           "name": "Qwen3.6 35B A3B (BC250, local only)",
           "reasoning": true,
           "input": ["text"],
-          "contextWindow": 24576,
-          "maxTokens": 8192,
+          "contextWindow": 131072,
+          "maxTokens": 16384,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         }
       ]

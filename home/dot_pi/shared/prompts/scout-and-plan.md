@@ -1,9 +1,13 @@
 ---
-description: Scout gathers context, planner creates implementation plan (no implementation)
+description: Bounded read-only scouting followed by an Opus implementation plan; no edits
 ---
-Use the subagent tool with the chain parameter to execute this workflow:
+Investigate and plan: $@
 
-1. First, use the "scout" agent to find all code relevant to: $@
-2. Then, use the "planner" agent to create an implementation plan for "$@" using the context from the previous step (use {previous} placeholder)
+If useful, start a trusted scout with the worker tool for a specific read-only question. Choose exact
+read/grep/find/ls tools (or a separate web-only loadout), a fixed permitted model, a bounded evidence
+request and acceptance criteria. Do not give it history, memini, bash or editing tools by default.
+You may keep discussing requirements while it runs. Cancel/rebrief obsolete work.
 
-Execute this as a chain, passing output between steps via {previous}. Do NOT implement - just return the plan.
+Use the returned evidence to make the implementation plan in this main Opus session. A planner worker
+is optional for a genuinely separable question, not a mandatory extra chain step. Do NOT implement: return the plan,
+validation strategy, important trade-offs and user decisions that materially affect it.

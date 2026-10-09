@@ -1,17 +1,17 @@
 #!/usr/bin/env zsh
 #
-# Install the packages each Pi profile pins in its settings.json (npm: into
-# that profile's npm dir, git: forks pinned to a commit into its git dir).
+# Install the packages Pi's settings.json pins (npm: into ~/.pi/agent/npm,
+# git: forks pinned to a commit into its git dir). Pi has one agent dir; Work
+# projects differ only in their memini scope, chosen by the launcher.
 # Pi installs missing pinned packages on first launch anyway; doing it here
 # keeps that launch fast and surfaces failures at apply time. `pi update
 # --extensions` skips pinned versions by design, hence `pi install`, which is
-# idempotent. Runs again when a profile's managed settings change:
-#   personal {{ include "dot_pi/private_agent/modify_settings.json.tmpl" | sha256sum }}
-#   work     {{ include "dot_pi/private_profiles/private_work/private_agent/modify_settings.json.tmpl" | sha256sum }}
+# idempotent. Runs again when the managed settings change:
+#   {{ include "dot_pi/private_agent/modify_settings.json.tmpl" | sha256sum }}
 #
 # Host-agnostic: Pi comes from Homebrew on macOS (packages.yaml) and from
 # `npm install -g @earendil-works/pi-coding-agent` elsewhere. auth.json,
-# sessions and the rest of each profile's runtime state are never touched.
+# sessions and other runtime state are never touched.
 
 set -eufo pipefail
 
@@ -32,10 +32,9 @@ if ! pi_bin=$(real_pi); then
   exit 0
 fi
 
-for profile dir in personal $HOME/.pi/agent work $HOME/.pi/profiles/work/agent; do
-  [[ -f $dir/settings.json ]] || continue
-  for src in ${(f)"$(jq -r '.packages[]? | if type == "object" then .source else . end | select(startswith("npm:") or startswith("git:"))' $dir/settings.json)"}; do
-    print "pi ($profile): $src"
-    AI_PROFILE=$profile PI_CODING_AGENT_DIR=$dir $pi_bin install $src
-  done
+dir=$HOME/.pi/agent
+[[ -f $dir/settings.json ]] || exit 0
+for src in ${(f)"$(jq -r '.packages[]? | if type == "object" then .source else . end | select(startswith("npm:") or startswith("git:"))' $dir/settings.json)"}; do
+  print "pi: $src"
+  PI_CODING_AGENT_DIR=$dir $pi_bin install $src
 done

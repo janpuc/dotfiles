@@ -3,13 +3,12 @@
 
   Linux is the aether server, which only runs Pi and T3 Code, so it takes an allowlist: a file
   added for the laptop later stays off the server until it is listed here. Work never goes to
-  aether (the Work Pi profile, AWS, omp); the Pi launcher falls back to Personal without it.
+  aether (AWS and laptop-only configuration).
 */ -}}
 {{ if eq .chezmoi.os "linux" -}}
 **
 !.chezmoiscripts
 !.chezmoiscripts/*-linux-*.sh
-!.chezmoiscripts/configure-pi.sh
 !.config
 !.config/git
 !.config/git/**
@@ -38,14 +37,24 @@
 !.local/bin/**
 !.pi
 !.pi/agent
-!.pi/agent/**
+# Keep the existing aether Pi runtime unchanged during the Mac-only rollout.
+# These are the unaffected Pi resources; defaults, models, roles, prompts, routing
+# and extensions are temporarily held back. Normal apply leaves ignored live files
+# intact. Restore the broad Pi allowlist only with an approved server migration.
+!.pi/agent/claude-bridge.json
+!.pi/agent/claude
+!.pi/agent/claude/**
+!.pi/agent/agents
+!.pi/agent/AGENTS.md
 !.pi/shared
-!.pi/shared/**
-!.optchat
-!.optchat/**
+!.pi/shared/personal-policy.json
+!.pi/shared/skills
+!.pi/shared/skills/**
 !.t3
 !.t3/**
 {{- else -}}
+# Replaced on the Mac by extensions/profile/personal-gate.ts; aether's held runtime still uses it.
+.pi/shared/personal-policy.json
 .chezmoiscripts/*-linux-*.sh
 .config/mise
 .config/mise/**

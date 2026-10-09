@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { describe, fromClaude, fromCodex, fromMinimax, fromOpencodeGo, limitedUntilFrom, mergeUsage, pressure } from "../../home/dot_pi/shared/extensions/profile/usage.ts";
+import { poolOf, isQuotaError, DEFAULT_USAGE, describe, fromClaude, fromCodex, fromMinimax, fromOpencodeGo, limitedUntilFrom, mergeUsage, pressure } from "../../home/dot_pi/shared/extensions/profile/usage.ts";
 
 const NOW = Date.parse("2026-10-07T10:00:00Z");
 const at = "2026-10-07T09:58:00Z";
@@ -92,4 +92,18 @@ test("a failed or empty refresh never blanks good data", () => {
 	const fresh = mergeUsage({ ...good, limitedUntil: "2026-10-07T11:00:00Z" }, "opencode-go", { ...good, fetchedAt: "2026-10-07T09:59:30Z" });
 	assert.equal(fresh.limitedUntil, "2026-10-07T11:00:00Z", "a known plan limit survives a refresh");
 	assert.equal(fresh.fetchError, undefined);
+});
+
+
+test("native provider/model pairs map only to the fixed usage pools", () => {
+	for (const [provider, id, pool] of [
+		["claude-bridge", "claude-opus-5-5", "claude"], ["openai", "gpt-6-astra", "chatgpt"],
+		["litellm", "opencode-go/glm", "opencode-go"], ["litellm", "minimax/MiniMax-M3", "minimax"],
+		["minimax", "MiniMax-M3", "minimax"], ["opencode-go", "glm", "opencode-go"],
+		["litellm", "bc250-local/qwen", undefined], ["unknown", "model", undefined],
+	]) assert.equal(poolOf({ provider: provider!, id }), pool);
+	assert.deepEqual(DEFAULT_USAGE, { refreshMinutes: 5, staleMinutes: 30, exhaustedPercent: 97 });
+	assert.equal(isQuotaError("Claude rate limit (weekly) — resets tomorrow"), true);
+	assert.equal(isQuotaError("GoUsageLimitError"), true);
+	assert.equal(isQuotaError("429 too many requests"), false);
 });

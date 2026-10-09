@@ -1,6 +1,6 @@
 #!/usr/bin/env zsh
 #
-# Behavioural tests for home/dot_local/bin/executable_pi (pi / piw / pi-profile).
+# Behavioural tests for home/dot_local/bin/executable_pi (pi / pi-profile).
 # Everything runs in a throwaway HOME with synthetic Work/Personal trees, dummy
 # credentials, a fake `pi` that records what it was given, and a mock memini
 # handshake server. Nothing touches the real ~/.pi, Keychain or network.
@@ -23,10 +23,8 @@ check() { [[ $2 == $3 ]] && ok $1 || bad $1 "got '$2', want '$3'" }
 
 mkdir -p $H/.local/bin $T/realbin $H/Work/team $H/Work2/x \
   $H/Workshop/y $H/elsewhere $H/outside $H/plain
-mkdir -p $H/.pi/profiles/work/agent && print '{}' > $H/.pi/profiles/work/agent/settings.json
 cp $repo/home/dot_local/bin/executable_pi $H/.local/bin/pi
 chmod +x $H/.local/bin/pi
-ln -s pi $H/.local/bin/piw
 ln -s pi $H/.local/bin/pi-profile
 
 # The fake real pi records its pid, args and environment.
@@ -92,7 +90,7 @@ run() {
       LITELLM_API_KEY=dummy-litellm LITELLM_BASE_URL=https://litellm.example \
       ANTHROPIC_API_KEY=dummy-anthropic OPENAI_API_KEY=dummy-openai \
       OPENROUTER_API_KEY=dummy-openrouter AWS_PROFILE=work-aws CLAUDECODE=1 \
-      PI_OPENCODE_API_KEY=dummy-go PI_MINIMAX_API_KEY=dummy-mm PI_OPENAI_API_KEY=dummy-decisions \
+      PI_OPENCODE_API_KEY=dummy-go PI_MINIMAX_API_KEY=dummy-mm PI_OPENAI_API_KEY=dummy-openai \
       $extra "$@" ) 2>$T/stderr
 }
 envv() { sed -n "s/^$1=//p" $T/out.env 2>/dev/null }
@@ -118,20 +116,9 @@ check "repo outside Development → no namespace" "$(has MEMINI_NAMESPACE)" no
 
 run $H/Work/team/api/src/deep -- pi
 check "nested Work path → work" "$(envv AI_PROFILE)" work
-check "work agent dir" "$(envv PI_CODING_AGENT_DIR)" $H/.pi/profiles/work/agent
-check "work claude dir" "$(envv CLAUDE_CONFIG_DIR)" $H/.pi/profiles/work/agent/claude
 check "Work → work prefix" "$(envv MEMINI_NAMESPACE_PREFIX)" work
 check "Work keeps memini key" "$(envv MEMINI_API_KEY)" dummy-memini
 check "Work keeps read-only home overlay" "$(envv MEMINI_HOME)" personal/jan
-check "Work drops LITELLM_API_KEY" "$(has LITELLM_API_KEY)" no
-check "Work drops LITELLM_BASE_URL" "$(has LITELLM_BASE_URL)" no
-check "Work drops OPENROUTER_API_KEY" "$(has OPENROUTER_API_KEY)" no
-check "Work gets no OpenCode Go key" "$(has OPENCODE_API_KEY)/$(has PI_OPENCODE_API_KEY)" no/no
-check "Work gets no MiniMax key" "$(has MINIMAX_API_KEY)/$(has PI_MINIMAX_API_KEY)" no/no
-check "Work gets no OpenAI Decisions key" "$(has PI_OPENAI_API_KEY)/$(has OPENAI_API_KEY)" no/no
-check "Work keeps AWS_PROFILE for work tooling" "$(envv AWS_PROFILE)" work-aws
-check "Work children use the work omp vault" "$(envv OMP_PROFILE)" work
-check "Work children get an empty Codex home" "$(envv CODEX_HOME)" $H/.pi/profiles/work/agent/codex
 check "ANTHROPIC_API_KEY scrubbed (Work)" "$(has ANTHROPIC_API_KEY)" no
 check "enclosing Claude Code marker scrubbed" "$(has CLAUDECODE)" no
 
@@ -162,20 +149,10 @@ run $H/elsewhere/api-wt -- pi
 check "linked worktree of a Work repo → work" "$(envv AI_PROFILE)" work
 check "linked worktree → work memory prefix" "$(envv MEMINI_NAMESPACE_PREFIX)" work
 
-run $H/plain -- piw
-check "piw outside Work → work" "$(envv AI_PROFILE)" work
-check "piw non-repo → work/scratch" "$(envv MEMINI_NAMESPACE)" work/scratch
-check "piw non-repo → no prefix" "$(has MEMINI_NAMESPACE_PREFIX)" no
-
-run $H/Development/home-ops -- piw
-check "piw in a personal repo → work prefix" "$(envv MEMINI_NAMESPACE_PREFIX)" work
-
 # --- conflicting inherited environment ------------------------------------------------
 
 print "conflicting environment"
-run $H/Work/team/api PI_CODING_AGENT_DIR=$H/.pi/agent MEMINI_NAMESPACE=homelab/x MEMINI_NAMESPACE_PREFIX=homelab OMP_PROFILE= -- pi
-check "personal agent-dir override ignored in Work" "$(envv PI_CODING_AGENT_DIR)" $H/.pi/profiles/work/agent
-check "override is reported" "$(grep -c 'ignoring PI_CODING_AGENT_DIR' $T/stderr)" 1
+run $H/Work/team/api MEMINI_NAMESPACE=homelab/x MEMINI_NAMESPACE_PREFIX=homelab -- pi
 check "inherited homelab namespace dropped" "$(has MEMINI_NAMESPACE)" no
 check "inherited prefix replaced" "$(envv MEMINI_NAMESPACE_PREFIX)" work
 
@@ -184,43 +161,10 @@ check "child of a Work session stays Work" "$(envv AI_PROFILE)" work
 run $H/Work/team/api AI_PROFILE=personal -- pi
 check "Work signals beat AI_PROFILE=personal" "$(envv AI_PROFILE)" work
 
-# --- Work override: Work session on personal models ---------------------------------------
+# --- obsolete model flag ---------------------------------------------------------
 
-print "work override (--personal-models)"
-run $H/Work/team/api -- pi --personal-models -c
-check "override keeps Work profile" "$(envv AI_PROFILE)" work
-check "override uses personal models" "$(envv AI_PROFILE_MODELS)" personal
-check "override uses the personal agent dir" "$(envv PI_CODING_AGENT_DIR)" $H/.pi/agent
-check "override uses the personal Claude login" "$(envv CLAUDE_CONFIG_DIR)" $H/.pi/agent/claude
-check "override stores sessions in Work's per-cwd folder" "$(envv PI_CODING_AGENT_SESSION_DIR)" "$H/.pi/profiles/work/agent/sessions/--${${${:-$H/Work/team/api}#/}//\//-}--"
-check "override keeps Work memory scope" "$(envv MEMINI_NAMESPACE_PREFIX)" work
-check "override keeps LiteLLM for personal models" "$(envv LITELLM_API_KEY)" dummy-litellm
-check "override gets the personal subscription keys" "$(envv OPENCODE_API_KEY)/$(envv MINIMAX_API_KEY)" dummy-go/dummy-mm
-check "override still marks children Work" "$(envv OMP_PROFILE)" work
-check "flag consumed, other args kept" "$(<$T/out.args)" -c
-check "override is announced" "$(grep -c 'PERSONAL models' $T/stderr)" 1
-run $H/plain AI_PROFILE=work AI_PROFILE_MODELS=personal -- pi
-check "a pi started inside an override session keeps it" "$(envv AI_PROFILE)/$(envv AI_PROFILE_MODELS)" work/personal
-run $H/plain AI_PROFILE=work AI_PROFILE_MODELS=work -- pi
-check "…while one inside a normal Work session stays on Work models" "$(envv AI_PROFILE_MODELS)" work
-run $H/plain -- pi --personal-models
-check "override outside Work is a no-op" "$(envv AI_PROFILE_MODELS)" personal
-check "…and says so" "$(grep -c 'only changes Work sessions' $T/stderr)" 1
-run $H/plain -- pi -- --personal-models
-check "flag after -- is passed through" "$(tail -1 $T/out.args)" --personal-models
-
-# --- session arguments -------------------------------------------------------------------
-
-print "session arguments"
-mkdir -p $H/.pi/profiles/work/agent/sessions/x $H/.pi/agent/sessions/y
-touch $H/.pi/profiles/work/agent/sessions/x/w.jsonl $H/.pi/agent/sessions/y/p.jsonl
-run $H/plain -- pi --session $H/.pi/profiles/work/agent/sessions/x/w.jsonl
-check "Work session file → Work profile" "$(envv AI_PROFILE)" work
-run $H/plain -- piw --session $H/.pi/agent/sessions/y/p.jsonl; st=$?
-check "Personal history refused in Work (exit)" $st 78
-check "…and pi never ran" "$([[ -e $T/out.pid ]] && print ran || print not-run)" not-run
-run $H/Work/team/api -- pi --fork=$H/.pi/agent/sessions/y/p.jsonl; st=$?
-check "--fork of Personal history refused in Work" $st 78
+run $H/Work/team/api -- pi --personal-models; st=$?
+check "obsolete model flag refused before Pi starts" "$st/$([[ -e $T/out.pid ]] && print ran || print not-run)/$(grep -c 'personal models everywhere; Work only changes memory scope' $T/stderr)" 78/not-run/1
 
 # --- exec semantics ------------------------------------------------------------------------
 
@@ -267,39 +211,17 @@ run $H/Work/team/api -- pi install npm:x
 check "subcommands skip the handshake" "$([[ -e $T/handshake.log ]] && print called || print skipped)" skipped
 run $H/Work/team/api MEMINI_BASE_URL=http://127.0.0.1:9 -- pi; st=$?
 check "memini down → still starts" $st 0
-check "…marked degraded" "$(envv PI_MEMINI_STATE | cut -d: -f1)" degraded
-check "…and warns" "$(grep -c 'memini degraded' $T/stderr)" 1
+check "…memory off after handshake failure" "$(envv PI_MEMINI_STATE | cut -d: -f1)/$(has MEMINI_API_KEY)/$(envv MEMINI_BASE_URL)" "off/no/http://127.0.0.1:9"
+check "…and warns" "$(grep -c 'memini off' $T/stderr)" 1
 
 # --- project config that would loosen the bridge or switch billing ----------------------------
 
 print "project config"
-mkdir -p $H/Work/team/api/.pi
-print '{"provider":{"strictMcpConfig":false}}' > $H/Work/team/api/.pi/claude-bridge.json
-run $H/Work/team/api -- pi; st=$?
-check "Work refuses a project that turns strict MCP off" $st 78
-rm $H/Work/team/api/.pi/claude-bridge.json
 mkdir -p $H/Development/home-ops/.claude
 print '{"apiKeyHelper":"echo sk-test"}' > $H/Development/home-ops/.claude/settings.json
 run $H/Development/home-ops -- pi; st=$?
 check "project apiKeyHelper refused (would bill the API)" $st 78
 rm -r $H/Development/home-ops/.claude
-
-# --- Claude login organisation ------------------------------------------------------------------
-
-print "claude accounts"
-mkdir -p $H/.pi/agent/claude $H/.pi/profiles/work/agent/claude
-print '{"oauthAccount":{"organizationUuid":"org-personal","organizationType":"claude_max","organizationName":"Me"}}' > $H/.pi/agent/claude/.claude.json
-print '{"oauthAccount":{"organizationUuid":"org-personal","organizationType":"claude_max","organizationName":"Me"}}' > $H/.pi/profiles/work/agent/claude/.claude.json
-run $H/Work/team/api -- pi; st=$?
-check "Work logged into the personal org is refused" $st 78
-print '{"oauthAccount":{"organizationUuid":"org-corp","organizationType":"claude_enterprise","organizationName":"Corp"}}' > $H/.pi/profiles/work/agent/claude/.claude.json
-run $H/Work/team/api -- pi; st=$?
-check "Work on the enterprise org starts" $st 0
-run $H/Work/team/api -- pi --personal-models; st=$?
-check "override checks the personal login instead" $st 0
-rm $H/.pi/agent/claude/.claude.json
-run $H/plain -- pi; st=$?
-check "missing personal login warns but starts" "$st/$(grep -c 'not logged in' $T/stderr)" 0/1
 
 # --- credentials cache ----------------------------------------------------------------------------
 
@@ -316,7 +238,7 @@ check "personal imports memini key from the ai-sync cache" "$(envv MEMINI_API_KE
 check "personal imports litellm key (fish escaping kept)" "$(envv LITELLM_API_KEY)" "cached-lite'llm"
 ( cd $H/Work/team/api && env -i HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK $H/.local/bin/pi ) 2>/dev/null
 check "Work imports the memini key" "$(envv MEMINI_API_KEY)" cached-memini
-check "Work never imports the litellm key" "$(has LITELLM_API_KEY)" no
+check "Work imports the same subscription keys" "$(envv LITELLM_API_KEY)" "cached-lite'llm"
 
 # --- misc ---------------------------------------------------------------------------------------------
 
@@ -326,14 +248,6 @@ check "pi-profile reports the worktree owner" "$(print -r -- $out | grep -c "own
 check "pi-profile reports the reason" "$(print -r -- $out | sed -n 's/^reason=//p')" repo
 ( cd $H/plain && env -i HOME=$H PATH=$H/.local/bin:/usr/bin:/bin:/opt/homebrew/bin/jq-only $H/.local/bin/pi ) 2>$T/stderr; st=$?
 check "missing real pi → clear error" "$st/$(grep -c 'not on PATH' $T/stderr)" 78/1
-
-# A machine without the managed Work settings (the aether server) refuses Work instead of starting bare.
-mv $H/.pi/profiles/work/agent/settings.json $T/work-settings.json
-( cd $H/Work/team/api && env -i HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK $H/.local/bin/pi ) 2>$T/stderr; st=$?
-check "Work without managed settings is refused" "$st/$(grep -c 'Work profile is not set up on this machine' $T/stderr)" 78/1
-( cd $H/plain && env -i HOME=$H PATH=$TPATH FAKE_PI_OUT=$T/out MEMINI_BASE_URL=$MOCK $H/.local/bin/pi ) 2>/dev/null; st=$?
-check "…while Personal still starts" "$st" 0
-mv $T/work-settings.json $H/.pi/profiles/work/agent/settings.json
 
 # --- detachable terminal Pi (aether: dtach) ----------------------------------------------------
 
@@ -385,53 +299,6 @@ kill $live 2>/dev/null
 print '{"pid":999999}' > $T/run/pi/p3-3.json
 check "nothing running: --summary stays quiet" "$(attach --summary)" ""
 check "…and details left by a killed Pi are cleared" "$(ls $T/run/pi)" ""
-
-# --- unii: the one chat that never ends ------------------------------------------------------
-
-print "unii"
-ln -sf pi $H/.local/bin/unii
-ext=$H/.pi/agent/git/github.com/janpuc/pi-optchat
-args() { tr '\n' ' ' < $T/out.args 2>/dev/null }
-run $H/Work/team/api UNII_HOST=local -- unii
-check "refused without pi-optchat installed" "$(grep -c 'pi-optchat is not installed' $T/stderr)/$( [[ -e $T/out.args ]] && print ran || print none)" 1/none
-mkdir -p $ext
-run $H/Work/team/api UNII_HOST=local -- unii
-check "unii is Personal even from a Work tree" "$(envv AI_PROFILE)" personal
-check "…and always runs from HOME" "$(envv PWD)" $H
-check "…with its own memini namespace" "$(envv MEMINI_NAMESPACE)/$(has MEMINI_NAMESPACE_PREFIX)" homelab/unii/no
-check "…optchat, its profile and session store, Claude by default, continued" "$(args)" \
-  "-e $ext --optchat-profile unii --session-dir $H/.pi/agent/sessions/unii --model claude-bridge/claude-opus-5-5 --thinking medium -c "
-check "…and the session store exists" "$( [[ -d $H/.pi/agent/sessions/unii ]] && print yes || print no)" yes
-run $H/plain UNII_HOST=local -- unii --model openai/gpt-6.1-sol -r
-check "own --model and session choice win" "$(args)" \
-  "-e $ext --optchat-profile unii --session-dir $H/.pi/agent/sessions/unii --thinking medium --model openai/gpt-6.1-sol -r "
-run $H/plain UNII_HOST=local AI_PROFILE=work -- unii
-check "refused from inside a Work session" "$(grep -c 'unii is Personal' $T/stderr)/$( [[ -e $T/out.args ]] && print ran || print none)" 1/none
-# Elsewhere the chat opens on its host over SSH, arguments quoted for the remote shell.
-cat > $T/realbin/ssh <<'EOF2'
-#!/bin/zsh
-print -rl -- "$@" > $FAKE_PI_OUT.ssh
-EOF2
-chmod +x $T/realbin/ssh
-run $H/plain UNII_HOST=me@chat -- unii -p 'what next?'
-check "UNII_HOST hops over SSH" "$(tr '\n' '|' < $T/out.ssh 2>/dev/null)" "-t|me@chat|.local/bin/unii|-p|'what next?'|"
-check "…and runs nothing here" "$( [[ -e $T/out.args ]] && print ran || print none)" none
-if [[ $OSTYPE == darwin* ]]; then
-  run $H/plain -- unii
-  check "on the laptop the chat is on aether" "$(sed -n 2p $T/out.ssh 2>/dev/null)" ubuntu@aether
-fi
-# Under dtach the chat has the fixed id unii, and a second unii joins it.
-rm -rf $T/run/pi
-tty_run $H/plain UNII_HOST=local $H/.local/bin/unii
-check "unii runs under dtach as unii" "$(sed -n 2p $T/out.dtach 2>/dev/null)" $T/run/pi/unii.sock
-mkdir -p -m 700 $T/run/pi
-sleep 300 & live=$!
-mksock $T/run/pi/unii.sock; print "{\"pid\":$live,\"cwd\":\"$H\",\"profile\":\"personal\",\"started\":\"2026-10-08T07:00:00Z\"}" > $T/run/pi/unii.json
-tty_run $H/plain UNII_HOST=local $H/.local/bin/unii
-check "a second unii attaches to the running chat" "$(sed -n 1,2p $T/out.dtach 2>/dev/null | tr '\n' ' ')" "-a $T/run/pi/unii.sock "
-tty_run $H/plain UNII_HOST=local $H/.local/bin/unii -p hello
-check "…but a print run is not an attach" "$( [[ -e $T/out.dtach ]] && print dtach || print direct)" direct
-kill $live 2>/dev/null
 
 print "\n$passes passed, $failures failed"
 (( failures == 0 ))

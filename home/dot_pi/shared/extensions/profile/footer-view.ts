@@ -1,5 +1,5 @@
 // The footer under the editor: who and where (profile, directory, branch, memory) and what is
-// answering (model, route, thinking, context). Pure rendering over a snapshot; index.ts gathers it.
+// answering (model, thinking, context). Pure rendering over a snapshot; index.ts gathers it.
 
 export interface FooterTheme {
 	fg(color: string, text: string): string;
@@ -9,8 +9,6 @@ export interface FooterTheme {
 
 export interface FooterState {
 	profile: "personal" | "work";
-	/** Work session running on the Personal models (`--personal-models`). */
-	override: boolean;
 	blocked: boolean;
 	cwd: string;
 	home?: string;
@@ -18,10 +16,7 @@ export interface FooterState {
 	sessionName?: string;
 	/** The launcher's memini verdict, e.g. "ok: homelab/home-ops (pin)" or "degraded: …". */
 	memory: string;
-	/** Selected model; `virtual` when it is one of the profile's routed models. */
-	model?: { provider: string; id: string; virtual: boolean };
-	/** Where the latest request went, for virtual models. */
-	route?: { model: string; thinking?: string; tier?: string; why?: string };
+	model?: { provider: string; id: string };
 	/** Thinking level of a directly selected model. */
 	thinking?: string;
 	context?: { percent: number | null; window: number };
@@ -87,8 +82,7 @@ const THINKING: Record<string, string> = {
 
 function badge(s: FooterState): Seg[] {
 	const segs: Seg[] =
-		s.profile === "work" && s.override ? [["error", " work · personal models ", "inverse"]]
-		: s.profile === "work" ? [["warning", " work ", "inverse"]]
+		s.profile === "work" ? [["warning", " work ", "inverse"]]
 		: [["success", " personal ", "inverse"]];
 	if (s.blocked) segs.push([undefined, " "], ["error", " blocked ", "inverse"]);
 	return segs;
@@ -128,14 +122,7 @@ function modelSegs(s: FooterState): Seg[] {
 	const m = s.model;
 	if (!m) return [["dim", "no model"]];
 	const think = (level?: string): Seg[] => (level ? [["dim", " · "], [THINKING[level] ?? "muted", level]] : []);
-	if (!m.virtual) return [["text", `${m.provider}/`], ["text", m.id, "bold"], ...think(s.thinking)];
-	// The model actually answering is the bold part; the virtual model and tier lead up to it.
-	const segs: Seg[] = [["accent", m.id]];
-	if (m.id === "auto" && s.route?.tier) segs.push(["dim", " → "], ["accent", s.route.tier]);
-	if (!s.route) return [...segs, ["dim", "  routes on the first prompt"]];
-	segs.push(["dim", " → "], ["text", s.route.model, "bold"], ...think(s.route.thinking));
-	if (s.route.why) segs.push(["dim", `  ${s.route.why}`]);
-	return segs;
+	return [["text", `${m.provider}/`], ["text", m.id, "bold"], ...think(s.thinking)];
 }
 
 export function renderFooter(s: FooterState, t: FooterTheme, max: number): string[] {

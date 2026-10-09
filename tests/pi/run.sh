@@ -3,14 +3,13 @@
 # Offline checks for the Pi setup (no real credentials, no network except npm
 # for --typecheck):
 #   syntax       zsh/fish syntax, JSON validity, chezmoi templates render (incl. the T3 seed)
-#   merge        the Personal settings merge keeps one bridge (the git fork) and optchat's filter
-#   policy       node --test on the routing/fallback/memory policy and the Work org-policy mirror
-#   launcher     pi/piw/pi-profile behaviour in a throwaway HOME
+#   merge        the Personal settings merge keeps one bridge (the git fork)
+#   policy       node --test on the memory scope and approvals gate
+#   launcher     pi/pi-profile behaviour in a throwaway HOME
 #   integration  real Pi + extension + installed packages against a mock gateway
 #                (skipped when Pi or the profile packages are not installed)
 #   typecheck    tsc --strict against the installed Pi's declarations (--typecheck)
 #
-# Live checks with real credentials are separate: tests/pi/smoke.zsh [--claude].
 
 emulate -L zsh
 setopt no_unset pipe_fail null_glob
@@ -25,14 +24,14 @@ step() { print "\n== $1"; shift; "$@" || { rc=1; print "!! failed" } }
 syntax() {
   local f t out=$(mktemp)
   zsh -n $src/dot_local/bin/executable_pi || return 1
-  for f in $src/dot_config/fish/functions/{pi,__omp_profile,__memini_namespace_prefix}.fish; do
+  for f in $src/dot_config/fish/functions/{pi,__memini_namespace_prefix}.fish; do
     fish --no-execute $f || return 1
   done
   # config.fish renders for the laptop and for the Linux server.
   for os in darwin linux; do
     (cd $src && chezmoi execute-template --override-data "{\"chezmoi\":{\"os\":\"$os\"}}" < dot_config/fish/config.fish.tmpl) > $out && fish --no-execute $out || { rm -f $out; return 1 }
   done
-  for f in $src/dot_pi/shared/routing.json $src/dot_pi/private_agent/models.json $src/dot_pi/**/settings.json(.) $src/dot_omp/private_agent/mcp.json; do
+  for f in $src/dot_pi/private_agent/models.json $src/dot_pi/**/settings.json(.); do
     jq empty $f || return 1
   done
   for t in $src/dot_pi/**/modify_*.tmpl $src/.chezmoiscripts/run_onchange_after_configure-pi.sh.tmpl; do
@@ -54,17 +53,40 @@ merge() {
   local out=$(mktemp) got
   (cd $src && chezmoi execute-template < dot_pi/private_agent/modify_settings.json.tmpl) > $out || { rm -f $out; return 1 }
   got=$(print -r -- '{"packages": ["npm:pi-claude-bridge@0.9.1", "npm:@eleboucher/pi-memini@0.7.30", "npm:pi-extra@1.0.0",
-    {"source": "git:github.com/janpuc/pi-optchat@0000000"}], "lastChangelogVersion": "1.1.0"}' | zsh $out | jq -c '{
+    {"source": "git:github.com/janpuc/pi-optchat@0000000"}, "npm:pi-title-glyphs@0.1.1"], "lastChangelogVersion": "1.1.0"}' | zsh $out | jq -c '{
       bridge: [.packages[] | strings | select(test("pi-claude-bridge"))],
-      memini: [.packages[] | strings | select(test("pi-memini"))],
-      optchat: [.packages[] | objects | select(.source | test("pi-optchat")) | .extensions],
+      memini: [.packages[] | objects | select(.source | test("pi-memini")) | {source, extensions}],
+      packages: (.packages | length),
       extra: ([.packages[] | strings | select(. == "npm:pi-extra@1.0.0")] | length),
       kept: .lastChangelogVersion }')
   rm -f $out
   print -r -- $got | jq -e '(.bridge | length == 1 and (.[0] | startswith("git:github.com/janpuc/pi-claude-bridge@")))
-    and .memini == ["npm:@eleboucher/pi-memini@0.7.34"] and .optchat == [[]] and .extra == 1 and .kept == "1.1.0"' >/dev/null ||
+    and .memini == [{"source":"npm:@eleboucher/pi-memini@0.7.34", "extensions":[]}] and .packages == 4 and .extra == 1 and .kept == "1.1.0"' >/dev/null ||
     { print -r -- "unexpected merge: $got"; return 1 }
   print "ok"
+}
+
+# Render the actual Linux ignore rules into a temporary source state. Querying the managed
+# set proves a future aether apply cannot pick up the Mac-only Pi changes or installer.
+platforms() {
+  local tmp=$(mktemp -d) os managed
+  mkdir -p $tmp/source $tmp/target
+  cp -R $src/. $tmp/source/
+  print -n '' > $tmp/config.toml
+  for os in darwin linux; do
+    (cd $src && chezmoi execute-template --override-data "{\"chezmoi\":{\"os\":\"$os\"}}" < .chezmoiignore) > $tmp/source/.chezmoiignore
+    managed=$(chezmoi --config $tmp/config.toml --source $tmp/source --destination $tmp/target managed) || { rm -rf $tmp; return 1 }
+    if [[ $os == darwin ]]; then
+      [[ $managed == *'.pi/shared/extensions/memory/index.ts'* && $managed == *'.pi/agent/settings.json'* ]] || { rm -rf $tmp; return 1 }
+    else
+      if print -r -- $managed | grep -Eq '^\.pi/(agent/(settings|models)|profiles|shared/(extensions/(profile|subagent|memory)|routing|context/AGENTS|agents/(planner|reviewer|scout|worker)|prompts/|README))|configure-pi'; then
+        print 'Linux would receive a held-back Mac Pi resource'; rm -rf $tmp; return 1
+      fi
+      [[ $managed == *'.pi/agent/claude-bridge.json'* && $managed == *'.pi/shared/personal-policy.json'* ]] || { rm -rf $tmp; return 1 }
+    fi
+  done
+  rm -rf $tmp
+  print 'ok: Mac resources managed; existing aether runtime held unchanged; Work excluded on Linux'
 }
 
 retry_js() {
@@ -75,11 +97,11 @@ retry_js() {
   done
 }
 
-policy() { PI_AI_RETRY_JS=$(retry_js) node --test $here/policy.test.ts $here/permissions.test.ts $here/usage.test.ts $here/commit-trailers.test.ts $here/session-lock.test.ts }
+policy() { PI_AI_RETRY_JS=$(retry_js) node --test $here/memory-scope.test.ts $here/effects.test.ts $here/gate.test.ts $here/usage.test.ts $here/commit-trailers.test.ts $here/session-lock.test.ts $here/workers.test.ts $here/worker-store.test.ts $here/worker-fork.test.ts $here/worker-worktree.test.ts $here/memory.test.ts }
 
 integration() {
   if ! whence -pa pi | grep -qv "$HOME/.local/bin/pi"; then print "skipped: pi not installed"; return 0; fi
-  if [[ ! -d $HOME/.pi/agent/npm || ! -d $HOME/.pi/profiles/work/agent/npm || ! -d $HOME/.pi/agent/git/github.com/janpuc/pi-claude-bridge ]]; then
+  if [[ ! -d $HOME/.pi/agent/npm || ! -d $HOME/.pi/agent/git/github.com/janpuc/pi-claude-bridge ]]; then
     print "skipped: profile packages not installed (chezmoi apply)"; return 0
   fi
   zsh $here/integration.test.zsh
@@ -102,6 +124,7 @@ typecheck_ext() {
 
 step syntax syntax
 step merge merge
+step platforms platforms
 step policy policy
 step launcher zsh $here/launcher.test.zsh
 step integration integration

@@ -1,5 +1,5 @@
 // Fetch subscription usage and keep it in a per-profile cache (<agent-dir>/usage.json) that
-// routing reads synchronously. Every source reads usage with the credential its own client
+// the usage view reads synchronously. Every source reads usage with the credential its own client
 // already holds: Claude Code (Agent SDK, per CLAUDE_CONFIG_DIR), the Codex CLI's app-server,
 // and Pi's own OpenCode Go and MiniMax keys. Nothing is extracted from a credential store.
 
@@ -89,8 +89,8 @@ async function getJson(url: string, key: string | undefined, what: string): Prom
 	return r.json();
 }
 
-export const SOURCES: Record<string, (agentDir: string, profile: string) => Promise<SubUsage>> = {
-	claude: (agentDir, profile) => claude(agentDir, profile === "work" ? "Claude (enterprise)" : "Claude"),
+export const SOURCES: Record<string, (agentDir: string) => Promise<SubUsage>> = {
+	claude: (agentDir) => claude(agentDir, "Claude"),
 	chatgpt: () => chatgpt(),
 	"opencode-go": async () => fromOpencodeGo(await getJson("https://opencode.ai/zen/go/v1/usage", process.env.OPENCODE_API_KEY, "OpenCode Go"), new Date().toISOString()),
 	minimax: async () => fromMinimax(await getJson("https://api.minimax.io/v1/token_plan/remains", process.env.MINIMAX_API_KEY, "MiniMax"), new Date().toISOString()),
@@ -100,8 +100,8 @@ export const SOURCES: Record<string, (agentDir: string, profile: string) => Prom
  * Refresh the given subscriptions in parallel and merge into the cache file. A failed source
  * keeps its last good windows (marked with the error) so one outage never blanks the rest.
  */
-export async function refresh(file: string, agentDir: string, profile: string, subs: string[]): Promise<UsageCache> {
-	const results = await Promise.allSettled(subs.map((s) => SOURCES[s]?.(agentDir, profile) ?? Promise.reject(new Error(`no source for ${s}`))));
+export async function refresh(file: string, agentDir: string, subs: string[]): Promise<UsageCache> {
+	const results = await Promise.allSettled(subs.map((s) => SOURCES[s]?.(agentDir) ?? Promise.reject(new Error(`no source for ${s}`))));
 	const cache = readCache(file);
 	subs.forEach((s, i) => {
 		const r = results[i];

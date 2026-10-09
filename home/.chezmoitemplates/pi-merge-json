@@ -5,9 +5,10 @@
 # Resource lists (packages, extensions, prompts, skills, themes) are unions,
 # managed entries first; a managed package replaces any other pinned version
 # of the same package, an npm release and a git fork of it (same repo name) alike.
+retired=${retired:-'[]'}
 current=$(cat)
 [[ -n ${current//[[:space:]]/} ]] || current='{}'
-print -r -- $current | jq --argjson managed "$managed" '
+print -r -- $current | jq --argjson managed "$managed" --argjson retired "$retired" '
   def pkg: (if type == "object" then .source else . end) | tostring
     | if startswith("git:") then sub("^git:"; "") | split("@")[0] | split("/") | last | sub("\\.git$"; "")
       else sub("^npm:"; "")
@@ -18,6 +19,7 @@ print -r -- $current | jq --argjson managed "$managed" '
       .packages = $managed.packages + [($cur.packages // [])[]
         | select(pkg as $p | [$managed.packages[] | pkg] | index($p) | not)]
     else . end
+  | if .packages then .packages |= map(select(pkg as $p | $retired | index($p) | not)) else . end
   | reduce ("extensions", "prompts", "skills", "themes") as $k (.;
       if $managed[$k] then
         .[$k] = $managed[$k] + [($cur[$k] // [])[] | select(. as $e | $managed[$k] | index($e) | not)]

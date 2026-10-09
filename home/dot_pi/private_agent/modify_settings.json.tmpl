@@ -2,39 +2,34 @@
 # Personal Pi profile (~/.pi/agent, the default agent dir; `pi` outside the
 # Work tree). Managed keys only — see .chezmoitemplates/pi-merge-json.
 #
-# auto is the startup default (MiniMax picks fast/daily/deep per prompt);
-# Ctrl+P cycles auto/daily/deep/fast. Virtual models, chains and usage
-# budgets live in ~/.pi/shared/routing.json. Packages are
-# pinned and installed per profile into ~/.pi/agent/npm (git: ~/.pi/agent/git) by Pi itself
-# (and pre-fetched by run_onchange_after_configure-pi.sh). pi-claude-bridge is the janpuc fork
-# (0.9.2 plus cache marks on user text, for unii's view); pi-optchat is installed but loaded only
-# by `unii` (`extensions: []` here). pi-web-access (web_search, fetch_content,
-# GitHub clones) is Personal only; it needs no keys (Exa, or OpenAI search through the ChatGPT login).
-# Skills in ~/.pi/shared/skills (homelab workflows) are Personal only too.
+# Opus is the stable startup default. Worker models are chosen explicitly per assignment;
+# usage remains visible but does not replace the collaborator. Packages are pinned;
+# managed keys win while unrelated settings and manually added packages survive.
 #
-# maxRetries is 4 rather than 3 so a three-step fallback chain still gets a
-# transient retry. The local BC250 alias has a 24k window, so its compaction
-# reserve is scaled down to leave room for the conversation.
+# Retries are bounded transient recovery, not permission to downgrade the collaborator.
+# BC250 Qwen serves 128K (131072 tokens, up to 16384 output). Its overrides are set explicitly to
+# Pi's defaults because the settings merge cannot delete the old 24K-era values from a live file.
 set -euo pipefail
+# Retired package base names (JSON escaping keeps the removed identifier out of source searches).
+retired='["pi-optchat", "pi-title-glyphs"]'
 managed='{
-  "defaultProvider": "personal",
-  "defaultModel": "auto",
+  "defaultProvider": "claude-bridge",
+  "defaultModel": "claude-opus-5-5",
   "defaultThinkingLevel": "medium",
-  "enabledModels": ["personal/auto", "personal/daily", "personal/deep", "personal/fast"],
+  "enabledModels": ["claude-bridge/claude-opus-5-5", "openai/gpt-6.1-sol"],
   "retry": { "enabled": true, "maxRetries": 4 },
   "compaction": {
     "modelOverrides": {
-      "litellm/bc250-local/qwen3.6-35b-a3b": { "reserveTokens": 4096, "keepRecentTokens": 6000 },
-      "litellm/bc250/qwen3.6-35b-a3b": { "reserveTokens": 4096, "keepRecentTokens": 6000 }
+      "litellm/bc250-local/qwen3.6-35b-a3b": { "reserveTokens": 16384, "keepRecentTokens": 20000 },
+      "litellm/bc250/qwen3.6-35b-a3b": { "reserveTokens": 16384, "keepRecentTokens": 20000 }
     }
   },
   "packages": [
     "git:github.com/janpuc/pi-claude-bridge@4364066b26e846b49b9d2ac5a47a1e1fe6283df5",
-    "npm:@eleboucher/pi-memini@0.7.34",
-    "npm:pi-web-access@0.37.0",
-    { "source": "git:github.com/janpuc/pi-optchat@ed1e9e2e68c1667f3a806202783af302ca739610", "extensions": [] }
+    { "source": "npm:@eleboucher/pi-memini@0.7.34", "extensions": [] },
+    "npm:pi-web-access@0.37.0"
   ],
-  "extensions": ["~/.pi/shared/extensions/profile", "~/.pi/shared/extensions/subagent"],
+  "extensions": ["~/.pi/shared/extensions/profile", "~/.pi/shared/extensions/subagent", "~/.pi/shared/extensions/memory"],
   "prompts": ["~/.pi/shared/prompts"],
   "skills": ["~/.pi/shared/skills"]
 }'

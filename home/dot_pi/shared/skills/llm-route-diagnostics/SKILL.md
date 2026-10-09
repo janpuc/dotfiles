@@ -1,20 +1,20 @@
 ---
 name: llm-route-diagnostics
-description: Diagnose Jan's model routing and LiteLLM gateway. Use when a Pi virtual model picks an unexpected model, a model is unavailable or returns empty output, tool calls break, the BC250 local model misbehaves, or a LiteLLM model or fallback is being added or changed.
+description: Diagnose Jan's models and LiteLLM gateway. Use when a model is unavailable or returns empty output, tool calls break, the BC250 local model misbehaves, or a LiteLLM model or fallback is being added or changed.
 ---
 
 # Model routes and LiteLLM
 
 Two layers; find out which one is involved first.
 
-## 1. Pi's own routing
+## 1. Pi
 
-- Virtual models (`personal/auto|daily|deep|fast|local|qwen`): `~/.pi/shared/routing.json`; why
-  each chain looks the way it does: `~/.pi/shared/README.md`.
-- In a session: `/profile` (chains, policy), `/usage` and the `usage_status` tool (pool pressure,
-  stale data). The footer shows the virtual model and the model actually answering.
+- Pi uses native models only; there is no routing layer. The default is Opus
+  (`claude-bridge/claude-opus-5-5`); `/model` picks another explicitly.
+- In a session: `/profile`, `/usage` and the `usage_status` tool (pool usage, stale data).
 - Subscriptions (Claude via the bridge, ChatGPT, OpenCode Go, MiniMax) are **native Pi
-  providers**, not LiteLLM. Only `personal/local` and `personal/qwen` go through LiteLLM.
+  providers**, not LiteLLM. Only the BC250 models (`litellm/bc250-local/…`, `litellm/bc250/…`)
+  go through LiteLLM.
 - A Claude usage refresh that keeps failing with "answer without usage windows" means
   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` reached the probe; it is not Anthropic load.
 

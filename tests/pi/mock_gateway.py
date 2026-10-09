@@ -4,13 +4,18 @@ Behaviour per model comes from <dir>/gateway.json:
   {"<model>": {"status": 429, "message": "...", "fail_times": N}}   fail N times (default: always)
   {"<model>": {"script": [{"tool": "bash", "args": {...}}, ...]}}   one tool call per step; step = tool
                                                                     results so far, then "RESULT: <last result>"
-  {"<model>": {"reply": "text"}}                                      a fixed answer (e.g. a router's JSON)
+  {"<model>": {"batch": [{"tool": "worker", "args": {...}}, ...]}}  calls in one assistant message
+  {"<model>": {"reply": "text"}}                                      a fixed answer
 Models without an entry stream back "MOCK-OK <model>". Every request is appended to <dir>/gateway.log.
 """
 
 import json
 import os
 import sys
+import time
+
+# Markers trial harnesses look for in request text (tests/pi/trials).
+SENTINELS = ["SENTINEL_PARENT_CONTEXT", "SECRET_SENTINEL_VALUE", "synthetic recall evidence", "synthetic briefing evidence", "ORG_DENIED_RAN", "PUSH_RAN", "WORKER_OWN_HISTORY", "WORKER_STEER", "WORKER_RESUME", "FORK_PARENT_SENTINEL", "FORK_PARENT_OLD", "FORK_PARENT_LATER", "FORBIDDEN_MEMORY_SENTINEL", "FORBIDDEN_SYSTEM_SENTINEL", "FORBIDDEN_SUMMARY_SENTINEL"]
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DIR = sys.argv[1]
@@ -30,38 +35,33 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    def decisions(self, body):
-        """OpenAI Decisions API: gateway.json {"decisions": {"answer": {...}} | {"status": N}}."""
-        try:
-            rule = json.loads(open(os.path.join(DIR, "gateway.json")).read()).get("decisions", {})
-        except (OSError, ValueError):
-            rule = {}
-        with open(os.path.join(DIR, "gateway.log"), "a") as f:
-            q = (body.get("questions") or [{}])[0]
-            f.write(json.dumps({
-                "model": "decisions:" + body.get("model", "?"),
-                "auth": bool(self.headers.get("Authorization")),
-                "marker": "PI-SMOKE" in json.dumps(body.get("input", "")),
-                "message": str(body.get("input", "")).partition("New user message:\n")[2][:80],
-                "choices": [c.get("value") for c in q.get("choices", [])],
-            }) + "\n")
-        status = rule.get("status", 200 if "answer" in rule else 500)
-        payload = json.dumps({"answers": [rule["answer"]]} if status == 200 else {"error": {"message": "mock"}}).encode()
+    def json_response(self, payload, status=200):
+        data = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Content-Length", str(len(data)))
         self.end_headers()
-        self.wfile.write(payload)
+        self.wfile.write(data)
 
     def do_GET(self):
+        if self.path.startswith("/v1/namespaces/briefing"):
+            return self.json_response({"namespace": "homelab/plain", "scope_header": "Scope: homelab/plain",
+                "pinned": [{"id": "brief", "content": "PI-SMOKE synthetic briefing evidence", "tier": "semantic"}],
+                "facts": [], "procedures": [], "recent": []})
+        if self.path.startswith("/healthz"):
+            return self.json_response({"deps": {"llm": {"configured": False}}})
         self.send_response(404)
         self.end_headers()
 
     def do_POST(self):
         global rules_seen
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-        if self.path.rstrip("/").endswith("/decisions"):
-            return self.decisions(body)
+        if self.path == "/v1/handshake":
+            return self.json_response({"namespace": "homelab/plain", "namespace_source": "mock", "read_set": [], "settings": {}})
+        if self.path == "/v1/search":
+            with open(os.path.join(DIR, "gateway.log"), "a") as f:
+                f.write(json.dumps({"model": "memini-search"}) + "\n")
+            return self.json_response({"results": [{"memory": {"id": "recall", "content": "PI-SMOKE synthetic recall evidence", "tier": "semantic"}, "score": 0.99}]})
         model = body.get("model", "?")
         try:
             raw = open(os.path.join(DIR, "gateway.json")).read()
@@ -79,7 +79,11 @@ class Handler(BaseHTTPRequestHandler):
                 "images": has_image(body.get("messages", [])),
                 "reasoning_effort": body.get("reasoning_effort"),
                 "marker": "PI-SMOKE" in text,
+                "memory_context": "synthetic recall evidence" in text and "synthetic briefing evidence" in text,
+                "parent_context": "SENTINEL_PARENT_CONTEXT" in text,
                 "tools": sorted(t.get("function", {}).get("name", "") for t in body.get("tools", []) or []),
+                "t": time.time(),
+                "sentinels": [s for s in SENTINELS if s in text],
             }) + "\n")
         try:
             rules = json.loads(raw)
@@ -94,22 +98,25 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
             return
+        if (rule or {}).get("delay_ms"):
+            time.sleep(min(3000, rule["delay_ms"]) / 1000)
         messages = body.get("messages", [])
         results = [m for m in messages if m.get("role") == "tool"]
         script = (rule or {}).get("script")
+        batch = (rule or {}).get("batch")
+        steps = batch if batch is not None and not results else [script[len(results)]] if script is not None and len(results) < len(script) else []
         usage = {"prompt_tokens": 12, "completion_tokens": 3, "total_tokens": 15}
-        if script is not None and len(results) < len(script):
-            step = script[len(results)]
-            call = {"index": 0, "id": f"call_{len(results)}", "type": "function",
-                    "function": {"name": step["tool"], "arguments": json.dumps(step.get("args", {}))}}
+        if steps:
+            calls = [{"index": i, "id": f"call_{len(results) + i}", "type": "function",
+                      "function": {"name": step["tool"], "arguments": json.dumps(step.get("args", {}))}} for i, step in enumerate(steps)]
             chunks = (
-                {"choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": [call]}, "finish_reason": None}]},
+                {"choices": [{"index": 0, "delta": {"role": "assistant", "tool_calls": calls}, "finish_reason": None}]},
                 {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}], "usage": usage},
             )
         else:
             if (rule or {}).get("reply") is not None:
                 reply = rule["reply"]
-            elif script is not None:
+            elif script is not None or batch is not None:
                 last = results[-1].get("content", "") if results else ""
                 if isinstance(last, list):
                     last = " ".join(p.get("text", "") for p in last if isinstance(p, dict))
