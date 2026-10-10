@@ -10,6 +10,7 @@
 #   approvals {{ include ".system/pi-pocket-extensions/approvals.ts" | sha256sum }}
 #   skills  {{ include ".system/pi-pocket-skills/homelab-cluster/SKILL.md" | sha256sum }} {{ include ".system/pi-pocket-skills/home-assistant/SKILL.md" | sha256sum }} {{ include ".system/pi-pocket-skills/github/SKILL.md" | sha256sum }}
 set -eu
+repos="home-ops dotfiles BC250"
 version=v0.11.0
 commit=f93f2e4c772ff9fc8e615f167ea8390ad59ae948
 src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
@@ -34,6 +35,24 @@ as_pocket git -C "$home/pi-pocket" fetch --quiet --tags origin
 as_pocket git -C "$home/pi-pocket" checkout --quiet --detach "$version"
 test "$(as_pocket git -C "$home/pi-pocket" rev-parse HEAD)" = "$commit" || { echo "pi-pocket $version is not $commit" >&2; exit 1; }
 as_pocket sh -c "cd '$home' && mise install --yes && cd pi-pocket && mise exec -- npm ci --ignore-scripts --no-audit --no-fund"
+
+# Dev work: git as Jan through gh's token, commits signed with pocket's own key (registered on
+# GitHub as "pi-pocket (aether)"), repos in ~/work trusted by mise, scratch for the rest.
+sudo install -d -o pocket -g pocket -m 700 "$home/scratch" "$home/.ssh"
+sudo test -e "$home/.ssh/signing" || as_pocket ssh-keygen -q -t ed25519 -N "" -C "pi-pocket (aether)" -f "$home/.ssh/signing"
+as_pocket git config --global user.name janpuc
+as_pocket git config --global user.email contact@janpuc.com
+as_pocket git config --global gpg.format ssh
+as_pocket git config --global user.signingkey "$home/.ssh/signing.pub"
+as_pocket git config --global commit.gpgsign true
+as_pocket git config --global tag.gpgSign true
+as_pocket git config --global credential.https://github.com.helper '!mise exec -- gh auth git-credential'
+for repo in $repos; do
+    sudo test -d "$home/work/$repo/.git" || as_pocket sh -c "cd ~ && mise exec -- gh repo clone janpuc/$repo work/$repo -- --quiet"
+    as_pocket sh -c "cd ~/work/$repo && mise trust --all --quiet" || true
+done
+# home-ops' mise config points KUBECONFIG at the repo's own (git-ignored) kubeconfig.
+sudo test -e "$home/work/home-ops/kubeconfig" || as_pocket ln -s ../../.kube/config "$home/work/home-ops/kubeconfig"
 
 sudo install -m 644 "$src/pi-pocket.service" /etc/systemd/system/
 sudo systemctl daemon-reload

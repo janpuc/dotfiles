@@ -9,7 +9,7 @@ User=pocket
 Group=pocket
 WorkingDirectory=/home/pocket
 # Node and the model keys come from pocket's mise config (pi-pocket-mise.toml).
-ExecStart=/usr/bin/mise exec -- node /home/pocket/pi-pocket/bin/pi-pocket.js --host 127.0.0.1 --port 8787 --data /home/pocket/.pi-pocket --cwd /home/pocket/work
+ExecStart=/usr/bin/mise exec -- node /home/pocket/pi-pocket/bin/pi-pocket.js --host 127.0.0.1 --port 8787 --data /home/pocket/.pi-pocket --cwd /home/pocket/scratch
 Restart=on-failure
 RestartSec=5
 # No privilege gain, a read-only system, and of /home only pocket's own home: the ubuntu
