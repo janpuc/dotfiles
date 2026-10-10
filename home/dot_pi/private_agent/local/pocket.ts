@@ -76,7 +76,7 @@ export default function (pi: ExtensionAPI) {
 				} catch (error) {
 					throw new Error(`Session ${id} created (${link}), but start did not complete: ${error instanceof Error ? error.message : String(error)}. Check it before retrying.`);
 				}
-				return `Session ${id}\n${link}\nResults come back through pocket_check; risky commands wait for Jan's approval on his phone (Pocket's guard must be enabled).`;
+				return `Session ${id}\n${link}\nResults come back through pocket_check; risky commands wait for Jan's approval on his phone.`;
 			});
 		},
 	});
