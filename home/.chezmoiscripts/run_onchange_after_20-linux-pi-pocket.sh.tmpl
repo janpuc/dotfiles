@@ -7,6 +7,8 @@
 #   service {{ include ".system/pi-pocket.service" | sha256sum }}
 #   mise    {{ include ".system/pi-pocket-mise.toml" | sha256sum }}
 #   memini  {{ include ".system/pi-pocket-extensions/memini.ts" | sha256sum }}
+#   approvals {{ include ".system/pi-pocket-extensions/approvals.ts" | sha256sum }}
+#   skills  {{ include ".system/pi-pocket-skills/homelab-cluster/SKILL.md" | sha256sum }} {{ include ".system/pi-pocket-skills/home-assistant/SKILL.md" | sha256sum }} {{ include ".system/pi-pocket-skills/github/SKILL.md" | sha256sum }}
 set -eu
 version=v0.11.0
 commit=f93f2e4c772ff9fc8e615f167ea8390ad59ae948
@@ -15,7 +17,12 @@ home=/home/pocket
 as_pocket() { sudo -u pocket -H "$@"; }
 
 id pocket >/dev/null 2>&1 || sudo useradd --create-home --home-dir "$home" --shell /bin/bash pocket
-sudo install -d -o pocket -g pocket -m 700 "$home/.config" "$home/.config/mise" "$home/.config/pi-pocket" "$home/work"
+sudo install -d -o pocket -g pocket -m 700 "$home/.config" "$home/.config/mise" "$home/.config/pi-pocket" "$home/work" "$home/.kube"
+# Pi's skills, which Pi Pocket loads from Pi's own folder.
+for skill in homelab-cluster home-assistant github; do
+    sudo install -d -o pocket -g pocket -m 755 "$home/.pi" "$home/.pi/agent" "$home/.pi/agent/skills" "$home/.pi/agent/skills/$skill"
+    sudo install -m 644 -o pocket -g pocket "$src/pi-pocket-skills/$skill/SKILL.md" "$home/.pi/agent/skills/$skill/"
+done
 sudo install -m 644 -o pocket -g pocket "$src/pi-pocket-mise.toml" "$home/.config/mise/config.toml"
 sudo test -e "$home/.config/pi-pocket/secrets.env" || sudo install -m 600 -o pocket -g pocket /dev/null "$home/.config/pi-pocket/secrets.env"
 
@@ -35,15 +42,16 @@ sudo systemctl enable pi-pocket.service
 # Drop-in extensions are off until the owner turns them on; config.json exists after the first start.
 sudo systemctl stop pi-pocket.service
 sudo install -d -o pocket -g pocket -m 700 "$home/.pi-pocket" "$home/.pi-pocket/extensions"
-sudo install -m 644 -o pocket -g pocket "$src/pi-pocket-extensions/memini.ts" "$home/.pi-pocket/extensions/"
+sudo install -m 644 -o pocket -g pocket "$src/pi-pocket-extensions/memini.ts" "$src/pi-pocket-extensions/approvals.ts" "$home/.pi-pocket/extensions/"
 if sudo test -e "$home/.pi-pocket/config.json"; then
     as_pocket python3 -c '
 import json, os, sys
 path = sys.argv[1]
 config = json.load(open(path))
 on = config.setdefault("enabledExtensions", [])
-if "memini.ts" not in on:
-    on.append("memini.ts")
+missing = [m for m in ("memini.ts", "approvals.ts") if m not in on]
+if missing:
+    on.extend(missing)
     tmp = path + ".tmp"
     with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
         json.dump(config, f, indent=2)

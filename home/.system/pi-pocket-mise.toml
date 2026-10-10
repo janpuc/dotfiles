@@ -1,7 +1,15 @@
 # The pocket user's global mise config on aether (~pocket/.config/mise/config.toml): the tools
-# Pi Pocket runs on, and its model keys. ai-sync writes the keys file (0600, owned by pocket).
+# Pi Pocket and its agent run with, and its keys. ai-sync writes the keys file and the
+# kubeconfig (0600, owned by pocket).
 [tools]
 node = "24.21.0"
+gh = "2.102.0"
+kubectl = "1.37.1"
+flux2 = "2.9.6"
+jq = "1.8.2"
 
 [env]
 _.file = "{{env.HOME}}/.config/pi-pocket/secrets.env"
+# Read-only cluster access (the view role, no Secrets); see the homelab-cluster skill.
+KUBECONFIG = "{{env.HOME}}/.kube/config"
+HA_URL = "https://hass.janpuc.com"
