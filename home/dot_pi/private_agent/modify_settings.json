@@ -23,7 +23,8 @@ managed='{
     "git:github.com/janpuc/pi-usage@v0.1.0",
     "git:github.com/janpuc/pi-title-spinner@v0.1.0",
     "git:github.com/janpuc/pi-footer@v0.1.0",
-    "./local/bc250-quiet-hours.ts"
+    "./local/bc250-quiet-hours.ts",
+    "./local/pocket.ts"
   ],
   "subagents": {
     "modelScope": {

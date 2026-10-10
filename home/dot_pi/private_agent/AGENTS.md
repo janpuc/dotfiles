@@ -17,6 +17,10 @@ while agents run in the background and relay their results when they arrive.
   models, make separate async calls.
 - Each result is saved automatically and its path is in the result; don't ask agents to write
   a copy.
+- Long or background work that should keep going when the laptop sleeps or this session ends,
+  or that Jan wants to follow from his phone, goes to Pi Pocket on aether with `pocket_start`
+  (folder `~/work/<repo>` for home-ops, dotfiles and BC250, `~/scratch` otherwise), checked with
+  `pocket_check`. Its risky commands wait for Jan's approval on his phone.
 - Agents never push, deploy, apply config or change shared systems. Those stay with you,
   after Jan says yes. A guard in every agent blocks git push, GitHub writes, kubectl, flux,
   talosctl and helm changes and chezmoi apply; when an agent reports a blocked command, it is

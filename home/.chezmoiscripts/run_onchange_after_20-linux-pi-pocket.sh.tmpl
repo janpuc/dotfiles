@@ -70,8 +70,10 @@ path = sys.argv[1]
 config = json.load(open(path))
 on = config.setdefault("enabledExtensions", [])
 missing = [m for m in ("memini.ts", "approvals.ts", "web.ts") if m not in on]
-if missing:
+# Only someone else may allow a guest'"'"'s risky call: the laptop Pi (a guest) never approves its own.
+if missing or config.get("approvals") != "others":
     on.extend(missing)
+    config["approvals"] = "others"
     tmp = path + ".tmp"
     with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
         json.dump(config, f, indent=2)
