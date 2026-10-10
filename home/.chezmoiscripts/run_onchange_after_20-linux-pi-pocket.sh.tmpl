@@ -8,6 +8,7 @@
 #   mise    {{ include ".system/pi-pocket-mise.toml" | sha256sum }}
 #   memini  {{ include ".system/pi-pocket-extensions/memini.ts" | sha256sum }}
 #   approvals {{ include ".system/pi-pocket-extensions/approvals.ts" | sha256sum }}
+#   web     {{ include ".system/pi-pocket-extensions/web.ts" | sha256sum }}
 #   skills  {{ include ".system/pi-pocket-skills/homelab-cluster/SKILL.md" | sha256sum }} {{ include ".system/pi-pocket-skills/home-assistant/SKILL.md" | sha256sum }} {{ include ".system/pi-pocket-skills/github/SKILL.md" | sha256sum }}
 set -eu
 repos="home-ops dotfiles BC250"
@@ -61,14 +62,14 @@ sudo systemctl enable pi-pocket.service
 # Drop-in extensions are off until the owner turns them on; config.json exists after the first start.
 sudo systemctl stop pi-pocket.service
 sudo install -d -o pocket -g pocket -m 700 "$home/.pi-pocket" "$home/.pi-pocket/extensions"
-sudo install -m 644 -o pocket -g pocket "$src/pi-pocket-extensions/memini.ts" "$src/pi-pocket-extensions/approvals.ts" "$home/.pi-pocket/extensions/"
+sudo install -m 644 -o pocket -g pocket "$src/pi-pocket-extensions/memini.ts" "$src/pi-pocket-extensions/approvals.ts" "$src/pi-pocket-extensions/web.ts" "$home/.pi-pocket/extensions/"
 if sudo test -e "$home/.pi-pocket/config.json"; then
     as_pocket python3 -c '
 import json, os, sys
 path = sys.argv[1]
 config = json.load(open(path))
 on = config.setdefault("enabledExtensions", [])
-missing = [m for m in ("memini.ts", "approvals.ts") if m not in on]
+missing = [m for m in ("memini.ts", "approvals.ts", "web.ts") if m not in on]
 if missing:
     on.extend(missing)
     tmp = path + ".tmp"
