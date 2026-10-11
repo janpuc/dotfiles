@@ -86,6 +86,7 @@ packages:
           - ffuf
           - ghidra
           - httpx
+          - llvm   # Route B recompiler: pcode2llvm links LLVM C API, llc emits the lifted .o files
           - ninja
           - nmap
           - nuclei
