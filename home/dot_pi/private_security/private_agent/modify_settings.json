@@ -19,7 +19,7 @@ managed='{
   "packages": [
     "npm:pi-subagents@0.76.1",
     "npm:pi-web-access@0.37.0",
-    "git:github.com/janpuc/pi-usage@v0.2.0",
+    "git:github.com/janpuc/pi-usage@v0.2.1",
     "git:github.com/janpuc/pi-footer@v0.1.0"
   ],
   "subagents": {

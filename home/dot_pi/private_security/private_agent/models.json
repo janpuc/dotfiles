@@ -11,7 +11,7 @@
           "name": "GLM 5.3 Flash Cybersecurity (NanoGPT)",
           "reasoning": true,
           "input": ["text", "image"],
-          "contextWindow": 1048576,
+          "contextWindow": 196608,
           "maxTokens": 32768,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         },
@@ -20,7 +20,7 @@
           "name": "GLM 5.3 Flash Uncensored (NanoGPT, refusal fallback)",
           "reasoning": true,
           "input": ["text", "image"],
-          "contextWindow": 1048576,
+          "contextWindow": 196608,
           "maxTokens": 32768,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         },
@@ -29,7 +29,7 @@
           "name": "Qwen 3.8 27B Cybersecurity (NanoGPT)",
           "reasoning": true,
           "input": ["text", "image"],
-          "contextWindow": 262144,
+          "contextWindow": 196608,
           "maxTokens": 32768,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         },
@@ -38,8 +38,8 @@
           "name": "GLM 5.3 (NanoGPT)",
           "reasoning": true,
           "input": ["text", "image"],
-          "contextWindow": 1048576,
-          "maxTokens": 131072,
+          "contextWindow": 196608,
+          "maxTokens": 32768,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         },
         {
@@ -47,8 +47,8 @@
           "name": "DeepSeek V4 Pro (NanoGPT)",
           "reasoning": true,
           "input": ["text", "image"],
-          "contextWindow": 1048576,
-          "maxTokens": 131072,
+          "contextWindow": 196608,
+          "maxTokens": 32768,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         },
         {
@@ -56,8 +56,8 @@
           "name": "DeepSeek V4.1 Flash (NanoGPT)",
           "reasoning": true,
           "input": ["text", "image"],
-          "contextWindow": 1000000,
-          "maxTokens": 131072,
+          "contextWindow": 196608,
+          "maxTokens": 32768,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         }
       ]
