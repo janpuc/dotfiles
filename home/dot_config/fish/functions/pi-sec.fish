@@ -12,8 +12,18 @@ function pi-sec --description "Pi in the security-research profile, in ~/Securit
     set -l root $HOME/Security
     set -l agent_dir $HOME/.pi/security/agent
 
+    # Inside a project (or any directory below one) the project is implied, so `pi-sec -c`
+    # there continues its latest session. Pi keys sessions by directory, which is why Pi always
+    # starts from the project root, never from the subdirectory.
+    set -l here (string match -rg '^'(string escape --style=regex -- $root)'/([^/]+)' -- $PWD)
+    if test -n "$here"; and begin; test (count $argv) -eq 0; or string match -q -- '-*' $argv[1]; end
+        and not contains -- $argv[1] -h --help
+        set argv $here $argv
+    end
+
     if test (count $argv) -eq 0; or contains -- $argv[1] -h --help
         echo "Usage: pi-sec <project> [pi arguments…]"
+        echo "       pi-sec [pi arguments…]   (inside ~/Security/<project>)"
         echo "Projects in $root:"
         for d in $root/*/
             printf '  %s\n' (basename $d)
@@ -22,6 +32,10 @@ function pi-sec --description "Pi in the security-research profile, in ~/Securit
     end
 
     set -l project $argv[1]
+    if string match -q -- '-*' $project
+        echo "pi-sec: name a project first, or run it inside ~/Security/<project>" >&2
+        return 1
+    end
     if not string match -qr '^[A-Za-z0-9][A-Za-z0-9._-]*$' -- $project
         echo "pi-sec: '$project' is not a project name (letters, digits, . _ -)" >&2
         return 1
