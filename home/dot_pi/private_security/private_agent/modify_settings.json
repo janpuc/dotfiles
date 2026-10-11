@@ -1,0 +1,62 @@
+#!/bin/sh
+# Settings for the security-research profile (~/.pi/security/agent), started with `pi-sec`.
+# Pi writes the rest of settings.json itself (changelog, device id); those keys and anything
+# added with `pi install` survive. A managed package replaces an installed one of the same name.
+#
+# Deliberately NOT here, unlike the personal profile: memini (findings stay out of the homelab
+# memory), pi-claude-bridge and Pi Pocket (no Claude quota, no delegating engagement material to
+# aether). Models are NanoGPT on the subscription plus the two LAN M3 Pro aliases; `agent-guard`
+# is reused from the personal profile, the one managed copy of it.
+set -eu
+managed='{
+  "defaultProvider": "nanogpt",
+  "defaultModel": "z-ai/glm-5.3",
+  "enabledModels": [
+    "nanogpt/z-ai/glm-5.3",
+    "nanogpt/z-ai/glm-5.3-flash-cybersecurity",
+    "nanogpt/deepseek/deepseek-v4-pro"
+  ],
+  "packages": [
+    "npm:pi-subagents@0.76.1",
+    "npm:pi-web-access@0.37.0",
+    "git:github.com/janpuc/pi-usage@v0.2.0",
+    "git:github.com/janpuc/pi-footer@v0.1.0"
+  ],
+  "subagents": {
+    "modelScope": {
+      "enforce": true,
+      "strict": true,
+      "allow": ["nanogpt/*", "litellm/m3pro*"]
+    },
+    "agentOverrides": {
+      "scout": {
+        "model": "nanogpt/z-ai/glm-5.3-flash-cybersecurity",
+        "thinking": "medium",
+        "description": "Fast recon in a repo, a target artefact or the web (bash, web fetch); returns compressed context for handoff",
+        "tools": ["read", "grep", "find", "ls", "bash", "write", "contact_supervisor", "web_search", "fetch_content", "get_search_content"]
+      },
+      "researcher": { "model": "nanogpt/deepseek/deepseek-v4.1-flash", "thinking": "medium" },
+      "worker": { "model": "nanogpt/z-ai/glm-5.3-flash-cybersecurity", "thinking": "medium" },
+      "reviewer": { "model": "nanogpt/z-ai/glm-5.3", "thinking": "high" },
+      "oracle": { "model": "nanogpt/deepseek/deepseek-v4-pro", "thinking": "high", "defaultContext": "fresh" },
+      "delegate": { "disabled": true },
+      "evidence-auditor": { "disabled": true },
+      "claude-code": { "disabled": true },
+      "claude-code-writer": { "disabled": true },
+      "codex-exec": { "disabled": true },
+      "codex-exec-writer": { "disabled": true },
+      "cursor-agent": { "disabled": true },
+      "cursor-agent-writer": { "disabled": true }
+    }
+  }
+}'
+npm="$HOME/.pi/security/agent/npm/node_modules"
+input=$(cat)
+printf '%s' "${input:-"{}"}" | jq --argjson m "$managed" \
+  --arg web "$npm/pi-web-access/dist/index.js" \
+  --arg guard "$HOME/.pi/agent/local/agent-guard.ts" '
+  def id: (if type == "object" then .source else . end) | sub("^(npm|git):"; "") | sub("@[^@/]*$"; "");
+  ($m.packages | map(id)) as $ids
+  | . * ($m | del(.packages))
+  | .subagents.defaultExtensions = [$web, $guard]
+  | .packages = $m.packages + [(.packages // [])[] | select(id as $i | $ids | index($i) | not)]'

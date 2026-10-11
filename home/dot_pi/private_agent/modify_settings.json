@@ -20,7 +20,7 @@ managed='{
     "npm:@eleboucher/pi-memini@0.7.34",
     "npm:pi-subagents@0.76.1",
     "npm:pi-web-access@0.37.0",
-    "git:github.com/janpuc/pi-usage@v0.1.0",
+    "git:github.com/janpuc/pi-usage@v0.2.0",
     "git:github.com/janpuc/pi-title-spinner@v0.1.0",
     "git:github.com/janpuc/pi-footer@v0.1.0",
     "./local/bc250-quiet-hours.ts",

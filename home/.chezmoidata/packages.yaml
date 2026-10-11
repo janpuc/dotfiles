@@ -79,11 +79,22 @@ packages:
   hosts:
     hermes:
       darwin:
+        # The security-research tools (ffuf … trivy) are for the `pi-sec` profile; `brew bundle`
+        # runs with --force-cleanup, so they have to be listed here rather than installed by hand.
         brews:
           - dfu-util
+          - ffuf
+          - ghidra
+          - httpx
           - ninja
+          - nmap
+          - nuclei
           - opencode
+          - osv-scanner
           - platformio
+          - radare2
+          - semgrep
+          - trivy
         casks:
           - discord
           - prismlauncher

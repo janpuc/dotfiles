@@ -1,0 +1,30 @@
+{
+  "mcpServers": {
+    "rea": {
+      "command": "npx",
+      "args": ["-y", "rea-agents@6.4.0", "mcp"],
+      "description": "Reverse Engineer Anything: binaries, JS/Electron bundles, .NET assemblies, websites",
+      "timeout": 180
+    },
+    "radare2": {
+      "command": "r2pm",
+      "args": ["-r", "r2mcp"],
+      "description": "radare2: disassembly, strings, functions and cross-references",
+      "enabled": false,
+      "timeout": 120
+    },
+    "ghidra": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/LaurieWired/GhidraMCP",
+        "ghidra-mcp",
+        "--ghidra-server",
+        "http://127.0.0.1:8080/"
+      ],
+      "description": "Ghidra decompiler; needs the GhidraMCP extension installed and Ghidra running",
+      "enabled": false,
+      "timeout": 180
+    }
+  }
+}

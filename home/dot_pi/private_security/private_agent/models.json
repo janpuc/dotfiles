@@ -1,0 +1,92 @@
+{
+  "providers": {
+    "nanogpt": {
+      "name": "NanoGPT (subscription)",
+      "baseUrl": "https://nano-gpt.com/api/subscription/v1",
+      "api": "openai-completions",
+      "apiKey": "$NANOGPT_API_KEY",
+      "models": [
+        {
+          "id": "z-ai/glm-5.3-flash-cybersecurity",
+          "name": "GLM 5.3 Flash Cybersecurity (NanoGPT)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 1048576,
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "z-ai/glm-5.3-flash-uncensored",
+          "name": "GLM 5.3 Flash Uncensored (NanoGPT, refusal fallback)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 1048576,
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "qwen/qwen3.8-27b-cybersecurity",
+          "name": "Qwen 3.8 27B Cybersecurity (NanoGPT)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 262144,
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "z-ai/glm-5.3",
+          "name": "GLM 5.3 (NanoGPT)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 1048576,
+          "maxTokens": 131072,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "deepseek/deepseek-v4-pro",
+          "name": "DeepSeek V4 Pro (NanoGPT)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 1048576,
+          "maxTokens": 131072,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "deepseek/deepseek-v4.1-flash",
+          "name": "DeepSeek V4.1 Flash (NanoGPT)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 1000000,
+          "maxTokens": 131072,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    },
+    "litellm": {
+      "name": "LiteLLM (litellm.janpuc.com)",
+      "baseUrl": "https://litellm.janpuc.com/v1",
+      "api": "openai-completions",
+      "apiKey": "$LITELLM_API_KEY",
+      "models": [
+        {
+          "id": "m3pro-local/qwen3.6-35b-a3b",
+          "name": "Qwen3.6 35B A3B Heretic (M3 Pro, local only)",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 131072,
+          "maxTokens": 16384,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "m3pro/qwen3.6-35b-a3b",
+          "name": "Qwen3.6 35B A3B Heretic (M3 Pro, MiniMax M3 when down)",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 131072,
+          "maxTokens": 16384,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}
