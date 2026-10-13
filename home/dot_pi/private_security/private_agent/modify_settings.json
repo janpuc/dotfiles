@@ -5,8 +5,8 @@
 #
 # Deliberately NOT here, unlike the personal profile: memini (findings stay out of the homelab
 # memory), pi-claude-bridge and Pi Pocket (no Claude quota, no delegating engagement material to
-# aether). Models are NanoGPT on the subscription plus the two LAN M3 Pro aliases; `agent-guard`
-# is reused from the personal profile, the one managed copy of it.
+# aether). Models are NanoGPT and MiniMax on their subscriptions, with the two LAN M3 Pro aliases
+# as a last resort; `agent-guard` is reused from the personal profile, the one managed copy of it.
 set -eu
 managed='{
   "defaultProvider": "nanogpt",
@@ -26,7 +26,7 @@ managed='{
     "modelScope": {
       "enforce": true,
       "strict": true,
-      "allow": ["nanogpt/*", "litellm/m3pro*"]
+      "allow": ["nanogpt/*", "minimax/*", "litellm/m3pro*"]
     },
     "agentOverrides": {
       "scout": {

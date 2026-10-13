@@ -7,8 +7,8 @@ function pi-sec --description "Pi in the security-research profile, in ~/Securit
     # so it starts from there and reads that file next to the profile's shared rules. A new
     # project gets the scope template and the artefacts/, tools/ and reports/ layout.
     #
-    # ai-sync caches the NanoGPT subscription key under PI_NANOGPT_API_KEY; the provider reads the
-    # plain name, so it stays off in every other tool. Subagents inherit it from this process.
+    # ai-sync caches the NanoGPT and MiniMax subscription keys under PI_ names; the providers read
+    # the plain names, so they stay off in every other tool. Subagents inherit them from this process.
     set -l root $HOME/Security
     set -l agent_dir $HOME/.pi/security/agent
 
@@ -55,6 +55,7 @@ function pi-sec --description "Pi in the security-research profile, in ~/Securit
     pushd $dir
     PI_CODING_AGENT_DIR=$agent_dir \
         NANOGPT_API_KEY=$PI_NANOGPT_API_KEY \
+        MINIMAX_API_KEY=$PI_MINIMAX_API_KEY \
         GIT_EXTERNAL_DIFF=$HOME/.pi/agent/local/git-plain-diff \
         command pi $argv[2..-1]
     set -l status_code $status
