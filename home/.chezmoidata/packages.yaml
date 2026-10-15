@@ -85,6 +85,8 @@ packages:
           - dfu-util
           - ffuf
           - ghidra
+          - glslang # inFamous native port: Metal backend HLSL->MSL guest-shader translator (with spirv-cross)
+          - spirv-cross # inFamous native port shader translator companion of glslang
           - httpx
           - llvm   # Route B recompiler: pcode2llvm links LLVM C API, llc emits the lifted .o files
           - ninja
