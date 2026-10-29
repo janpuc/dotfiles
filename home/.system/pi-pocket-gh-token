@@ -73,5 +73,6 @@ github.com:
 EOF
 chmod 600 "$gh_config/hosts.yml"
 
-# Git over HTTPS takes the token from gh.
-gh auth setup-git
+# Git over HTTPS takes the token from gh through the credential helper the setup script sets
+# (`mise exec -- gh auth git-credential`). Not `gh auth setup-git`: it writes the path of this
+# gh version, which breaks when mise moves to the next one.

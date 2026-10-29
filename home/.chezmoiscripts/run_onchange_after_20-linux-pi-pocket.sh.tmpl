@@ -83,7 +83,8 @@ as_pocket git config --global gpg.format ssh
 as_pocket git config --global user.signingkey "$home/.ssh/signing.pub"
 as_pocket git config --global commit.gpgsign true
 as_pocket git config --global tag.gpgSign true
-as_pocket git config --global credential.https://github.com.helper '!mise exec -- gh auth git-credential'
+# --replace-all: an older `gh auth setup-git` left two values here.
+as_pocket git config --global --replace-all credential.https://github.com.helper '!mise exec -- gh auth git-credential'
 for repo in $repos; do
     sudo test -d "$home/work/$repo/.git" || as_pocket sh -c "cd ~ && mise exec -- gh repo clone janpuc/$repo work/$repo -- --quiet"
     as_pocket sh -c "cd ~/work/$repo && mise trust --all --quiet" || true
