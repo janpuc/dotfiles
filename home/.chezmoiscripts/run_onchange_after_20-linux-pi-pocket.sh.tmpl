@@ -14,6 +14,8 @@
 #   ghtoken {{ include ".system/pi-pocket-gh-token" | sha256sum }} {{ include ".system/pi-pocket-gh-token.service" | sha256sum }} {{ include ".system/pi-pocket-gh-token.timer" | sha256sum }}
 #   shepherd {{ include ".system/agent-push" | sha256sum }} {{ include ".system/pr-lane" | sha256sum }}
 #   prskill {{ include ".system/pi-pocket-skills/pr-shepherd/SKILL.md" | sha256sum }}
+#   upstream {{ include ".system/upstream-diff" | sha256sum }} {{ include ".system/upstream-sync.yaml" | sha256sum }} {{ include ".system/pi-pocket-skills/upstream-sync/SKILL.md" | sha256sum }}
+#   askjan  {{ include ".system/pi-pocket-extensions/ask-jan.ts" | sha256sum }}
 #   broker {{ include ".system/pr-broker" | sha256sum }}
 #   broker {{ include ".system/pr-broker-runtime.sh" | sha256sum }}
 #   broker {{ include ".system/pr-merge-request" | sha256sum }}
@@ -63,10 +65,16 @@ os.close(parent)
 PYHOME
 as_pocket install -d -m 700 "$home/.config" "$home/.config/mise" "$home/.config/pi-pocket" "$home/work" "$home/.kube"
 # Pi's skills, which Pi Pocket loads from Pi's own folder.
-for skill in homelab-cluster home-assistant github pr-shepherd; do
+for skill in homelab-cluster home-assistant github pr-shepherd upstream-sync; do
     as_pocket install -d -m 755 "$home/.pi" "$home/.pi/agent" "$home/.pi/agent/skills" "$home/.pi/agent/skills/$skill"
     pocket_install 644 "$src/pi-pocket-skills/$skill/SKILL.md" "$home/.pi/agent/skills/$skill/SKILL.md"
 done
+# The mapping that says which upstream paths matter to Jan's repo. It sits next to the
+# skill that reads it, and it is data: upstream-diff only parses it.
+pocket_install 644 "$src/upstream-sync.yaml" "$home/.pi/agent/skills/upstream-sync/upstream-sync.yaml"
+# The upstream diff tool: deterministic, no model. Root-owned like the other helpers,
+# run by pocket, and it writes only under pocket's own home.
+sudo install -o root -g root -m 755 "$src/upstream-diff" /usr/local/sbin/upstream-diff
 pocket_install 644 "$src/pi-pocket-mise.toml" "$home/.config/mise/config.toml"
 as_pocket test -e "$home/.config/pi-pocket/secrets.env" || as_pocket install -m 600 /dev/null "$home/.config/pi-pocket/secrets.env"
 # The GitHub App's key and client id, filled in by ai-sync from 1Password. The token helper
@@ -182,7 +190,7 @@ sudo systemctl enable pi-pocket.service
 # Drop-in extensions are off until the owner turns them on; config.json exists after the first start.
 sudo systemctl stop pi-pocket.service
 as_pocket install -d -m 700 "$home/.pi-pocket" "$home/.pi-pocket/extensions"
-for extension in memini.ts approvals.ts web.ts; do
+for extension in memini.ts approvals.ts web.ts ask-jan.ts; do
     pocket_install 644 "$src/pi-pocket-extensions/$extension" "$home/.pi-pocket/extensions/$extension"
 done
 if as_pocket test -e "$home/.pi-pocket/config.json"; then
@@ -193,7 +201,7 @@ config = json.load(open(path))
 on = config.setdefault("enabledExtensions", [])
 # The drop-ins and the built-ins the agent needs: Triggers (watches and webhooks) and
 # Scheduled messages.
-missing = [m for m in ("memini.ts", "approvals.ts", "web.ts", "triggers.ts", "schedules.ts") if m not in on]
+missing = [m for m in ("memini.ts", "approvals.ts", "web.ts", "ask-jan.ts", "triggers.ts", "schedules.ts") if m not in on]
 # Only someone else may allow a guest'"'"'s risky call: the laptop Pi (a guest) never approves its own.
 if missing or config.get("approvals") != "others":
     on.extend(missing)

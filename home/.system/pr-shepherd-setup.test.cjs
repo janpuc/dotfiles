@@ -16,6 +16,21 @@ test('pr-shepherd setup isolates broker account, spool, root code and secrets, r
     assert.ok(!/^.*(?:touch|install|tee|printf).*\/(?:requests|lane-a)\.enabled/m.test(setup));
     assert.ok(setup.indexOf('sudo systemctl stop "$unit"') < setup.indexOf('sudo /bin/sh "$src/pr-broker-runtime.sh"'));
 });
+test('pi-pocket setup installs upstream-diff root-owned, its mapping and skill as pocket, and the ask-jan drop-in', () => {
+    for (const text of [
+        'sudo install -o root -g root -m 755 "$src/upstream-diff" /usr/local/sbin/upstream-diff',
+        'pocket_install 644 "$src/upstream-sync.yaml" "$home/.pi/agent/skills/upstream-sync/upstream-sync.yaml"',
+        'for skill in homelab-cluster home-assistant github pr-shepherd upstream-sync; do',
+        'for extension in memini.ts approvals.ts web.ts ask-jan.ts; do',
+        '("memini.ts", "approvals.ts", "web.ts", "ask-jan.ts", "triggers.ts", "schedules.ts")'])
+        assert.ok(setup.includes(text), text);
+    for (const name of ['upstream-diff', 'upstream-sync.yaml', 'pi-pocket-skills/upstream-sync/SKILL.md',
+        'pi-pocket-extensions/ask-jan.ts'])
+        assert.ok(setup.includes(`include ".system/${name}" | sha256sum`), name);
+    // The tool is root-owned and writes nothing under pocket's home itself.
+    assert.ok(!setup.split('\n').some(line => /sudo (?:install|tee|cat)[^\n]*\$home/.test(line)));
+    assert.ok(!setup.includes('sudo install -o root -g root -m 755 "$src/upstream-diff" /home/pocket'));
+});
 test('pr-shepherd setup hashes every broker source and installs pinned root runtime independent of mise', () => {
     for (const name of ['pr-broker', 'pr-broker-runtime.sh', 'pr-merge-request', 'pr-broker.service', 'pr-broker.timer', 'pr-lane-merge', 'pr-lane-merge.service', 'pr-lane-merge.timer', 'pr-broker-lock'])
         assert.ok(setup.includes(`include ".system/${name}" | sha256sum`), name);

@@ -19,7 +19,7 @@ reach Linux unless deliberately added there.
 | `home/.system/aether-hosts-sync*` (installed by `05-linux-system`) | hourly: derive internal DNS names from public home-ops into `/etc/hosts`, because the UniFi gateway does not answer DNS from the tailnet |
 | `home/.system/xterm-ghostty.terminfo` (`06-linux-terminfo`) | Ghostty terminfo in `~/.terminfo`, absent from Ubuntu's ncurses |
 | `home/.system/aether-keepalive*` (installed by `05-linux-system`) | hold 25% of RAM without CPU load to avoid Oracle's idle-instance reclamation criteria |
-| `home/.system/pi-pocket*` (installed by `20-linux-pi-pocket`) | [Pi Pocket](https://github.com/TannerMidd/pi-pocket) at a pinned release, run by the `pocket` user (no sudo, sees only its own home) as the `pi-pocket` system service on 127.0.0.1:8787; `tailscale serve` publishes it at `https://aether.<tailnet>.ts.net` on the tailnet only. At home the same URL works without Tailscale: a UniFi DNS record (`aether.tail17d532.ts.net` → aether's tailnet address, 100.108.252.49) and bob, the router on the tailnet, carry it. Node comes from pocket's own mise config. `pi-pocket-extensions/memini.ts` gives it memory in memini namespace `homelab/assistant` (home `personal/jan`): a briefing per conversation, recall on each message, and `memory_recall`/`memory_remember` tools; test it with `node --test` on its `memini.test.ts`. `approvals.ts` asks Jan in the app (push notification) before a bash command changes a shared system: git push, GitHub writes, cluster, Flux, Talos or Helm changes, chezmoi apply, Home Assistant service calls. `web.ts` gives it `web_search` (the home SearXNG at search.janpuc.com) and `web_fetch` (pages as text, with a FlareSolverr fallback). `pi-pocket-skills/` holds Pi skills for the cluster (read-only `view` access, Alertmanager and Prometheus over HTTPS), Home Assistant (`$HA_URL`, `$HA_TOKEN`) and GitHub (`gh`, signed in with the App's installation token). pocket's mise config adds gh, kubectl, flux and jq. `pi-pocket-gh-token` (a systemd timer, as `pocket`, every half hour) mints an installation token of the agent's own GitHub App, janpuc-agent (only home-ops, dotfiles and BC250, no admin or workflow rights; key from op://Kubernetes/janpuc-agent), and writes it into gh's own config for `pocket`, because a running service cannot see new environment values; git over HTTPS reads it through the `mise exec -- gh auth git-credential` helper. For dev work pocket commits as `janpuc-agent[bot]` (never as `bot-atlas[bot]`, the Renovate and kritika App, or Renovate takes the branch for its own), signed locally with its own key (`~pocket/.ssh/signing`, on GitHub as "pi-pocket (aether)"), but publishes only through `agent-push` for GitHub-verified App commits (see the PR shepherd below); home-ops, dotfiles and BC250 are cloned into `~pocket/work/` and trusted by mise, and new sessions start in `~pocket/scratch` |
+| `home/.system/pi-pocket*` (installed by `20-linux-pi-pocket`) | [Pi Pocket](https://github.com/TannerMidd/pi-pocket) at a pinned release, run by the `pocket` user (no sudo, sees only its own home) as the `pi-pocket` system service on 127.0.0.1:8787; `tailscale serve` publishes it at `https://aether.<tailnet>.ts.net` on the tailnet only. At home the same URL works without Tailscale: a UniFi DNS record (`aether.tail17d532.ts.net` → aether's tailnet address, 100.108.252.49) and bob, the router on the tailnet, carry it. Node comes from pocket's own mise config. `pi-pocket-extensions/memini.ts` gives it memory in memini namespace `homelab/assistant` (home `personal/jan`): a briefing per conversation, recall on each message, and `memory_recall`/`memory_remember` tools; test it with `node --test` on its `memini.test.ts`. `approvals.ts` asks Jan in the app (push notification) before a bash command changes a shared system: git push, GitHub writes, cluster, Flux, Talos or Helm changes, chezmoi apply, Home Assistant service calls. `web.ts` gives it `web_search` (the home SearXNG at search.janpuc.com) and `web_fetch` (pages as text, with a FlareSolverr fallback). `pi-pocket-skills/` holds Pi skills for the cluster (read-only `view` access, Alertmanager and Prometheus over HTTPS), Home Assistant (`$HA_URL`, `$HA_TOKEN`) and GitHub (`gh`, signed in with the App's installation token). `ask-jan.ts` asks Jan a question on a card in the session, with the same push as an approval, and gives back only the option he chose. pocket's mise config adds gh, kubectl, flux and jq. `pi-pocket-gh-token` (a systemd timer, as `pocket`, every half hour) mints an installation token of the agent's own GitHub App, janpuc-agent (only home-ops, dotfiles and BC250, no admin or workflow rights; key from op://Kubernetes/janpuc-agent), and writes it into gh's own config for `pocket`, because a running service cannot see new environment values; git over HTTPS reads it through the `mise exec -- gh auth git-credential` helper. For dev work pocket commits as `janpuc-agent[bot]` (never as `bot-atlas[bot]`, the Renovate and kritika App, or Renovate takes the branch for its own), signed locally with its own key (`~pocket/.ssh/signing`, on GitHub as "pi-pocket (aether)"), but publishes only through `agent-push` for GitHub-verified App commits (see the PR shepherd below); home-ops, dotfiles and BC250 are cloned into `~pocket/work/` and trusted by mise, and new sessions start in `~pocket/scratch` |
 
 No user-level systemd services, AI dot-directories or `~/.local/bin` launchers are allowlisted.
 The infrastructure units above are system services, installed separately by the Linux script.
@@ -98,6 +98,85 @@ Do not remove the GitHub authentication, signing key, system helpers or shell ba
 Read-only checks include `chezmoi managed`, `mise ls`, `gh auth status`,
 `systemctl status aether-hosts-sync.timer aether-keepalive.service` and
 `systemctl --user list-unit-files`.
+
+## Upstream sync — onedr0p/home-ops into Jan's repo
+
+`janpuc/home-ops` grew out of `onedr0p/home-ops`, but it is not a copy: Jan's
+cluster is AMD, his apps sit in his own namespaces and his values are his.
+Upstream is a source of ideas; nothing of it is merged as it stands.
+
+`upstream-diff` (installed root-owned in `/usr/local/sbin`, run by pocket) is
+the deterministic half of it. There is no model in it.
+
+- It makes sure `~/work/home-ops` has the remote `upstream`
+  (`https://github.com/onedr0p/home-ops.git`) and fetches it.
+- It keeps its cursor in `~pocket/.local/state/upstream-sync/last-sha`. The
+  first run looks 14 days back; `--mark <sha>` moves the cursor forward, and
+  only to a commit on upstream/main.
+- `upstream-diff --json` lists the upstream commits after the cursor, bot
+  commits skipped, each with its sha, date, author, subject, PR number, the
+  files it changed, the path each file maps to in Jan's repo, whether that
+  path is there and whether the commit is relevant.
+- Relevance comes from `upstream-sync.yaml`, installed next to the skill as
+  pocket (`~/.pi/agent/skills/upstream-sync/upstream-sync.yaml`). It names the
+  shared structural paths (`talos/`, `bootstrap/`, `kubernetes/flux/`,
+  `kubernetes/components/`, `.github/`, `.renovaterc.json5`, `.mise*`,
+  `.justfile`, `mod.just`, `.taskfiles/`), the apps Jan does not follow and the
+  paths that are never relevant. The apps both repos have are not listed: the
+  tool computes that set from the two trees at run time, because the same app
+  sits in another namespace in each repo. The file is read as data (a strict
+  subset of YAML), never executed.
+- `upstream-diff --upgrade <talos|kubernetes> <version>` says whether
+  upstream/main has merged that version, with the upstream PR and the day it
+  landed, and lists the non-bot commits around that merge that touch `talos/`,
+  `kubernetes/apps/system-upgrade/`, `.mise*` or `.github/` as candidate
+  companions. `--window <days>` widens that window (7 days by default).
+
+The `upstream-sync` skill (`~/.pi/agent/skills/upstream-sync/SKILL.md`) is the
+other half: it decides what to port, one theme per PR, adapted to Jan's repo,
+never secrets, cluster-specific values or Intel-specific bits, published with
+`agent-push` and opened with `gh pr create` as
+`chore(upstream): port onedr0p <shortsha> <subject>`. Every PR it opens is
+lane C: Jan merges it himself.
+
+The standing instructions for the daily **Upstream** session are
+`home/.system/pi-pocket-sessions/upstream.md` in this repository. The
+installer does not create the session: the main agent creates it with them.
+
+### Talos and Kubernetes upgrades are gated on upstream
+
+The `pr-shepherd` skill owns a PR that names the `talos` or `kubernetes`
+group: it reads the target version from the PR body's own update table and
+asks `upstream-diff --upgrade`.
+
+- **Not merged upstream: hold.** Nothing is posted, on GitHub or in the
+  session; `holding #N for upstream` is remembered once, so later passes stay
+  quiet. Jan merges upstream first on purpose: if he has not taken the same
+  version, there is probably a reason.
+- **Merged upstream: port the companions.** The candidate companion changes
+  are read, and the ones that apply go onto the PR's own branch with
+  `agent-push`. Renovate stops rebasing a branch it no longer owns; that is
+  expected. Then the brief: what changes, the upstream PR and its day, the
+  companions ported, kritika on the new head, tuppr's rollout plan (from
+  `kubernetes/apps/system-upgrade/tuppr/upgrades/*`), the risk, and one line
+  `Jan: ready to schedule #N — reply with a time, or 'now'`.
+- When Jan replies with a time, the session schedules the reminder; when it
+  fires, it posts `Jan: merge #N now: <url>`. Jan merges the PR himself: the
+  agent cannot. After the merge, the TalosUpgrade and KubernetesUpgrade status
+  and the node versions are watched read-only, and reported once.
+
+### Reaching Jan: the ask-jan drop-in
+
+Jan has only Pi Pocket's "needs approval" push on, so a `Jan:` line in a
+session does not reach his phone. Pi Pocket 0.22.0 and newer can ask him
+properly: `host.ask` shows a card in the session, notifies him with that same
+push, and gives the answer to the extension alone.
+
+`ask-jan.ts` is a drop-in that does this: its tool `ask_jan` asks a question
+with the answers as options and returns only which option Jan chose, never
+what he wrote, which stays out of the transcript. If he answers with a time and
+the caller passed a reminder, that reminder is scheduled in the session for
+that time. Both skills use it for `Jan:` decisions only.
 
 ## PR shepherd — Step 2: separate merge broker
 
@@ -287,7 +366,7 @@ the broker ignores the submitter's claims, freshly classifies the numeric PR,
 and merges only **A or B with the exact requested head**. Lane A processing
 selects oldest first, at most five, reclassifies before each merge and stops
 at the first refusal/error. Both use only:
-`gh pr merge N -R janpuc/home-ops --squash --match-head-commit <sha>`.
+`gh api -X PUT repos/janpuc/home-ops/pulls/N/merge -f merge_method=squash -f sha=<sha>` (the REST merge, pinned to the head server-side; `gh pr merge` refuses client-side because every PR shows BLOCKED under the restrict-updates rule, which ignores the merger's bypass).
 
 **Both behaviours are off by default.** These regular, root-owned files
 (with no group/world write permission) independently permit real merging:

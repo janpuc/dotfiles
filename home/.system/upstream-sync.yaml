@@ -1,0 +1,40 @@
+# Which upstream paths matter to Jan's home-ops.
+#
+# upstream-diff reads this file as data (a strict subset of YAML: top-level keys with a
+# list of plain scalars, no nesting, no anchors). It decides which onedr0p/home-ops
+# commits are worth looking at; it never writes anything.
+#
+#   structural_paths  path prefixes that are always relevant, in either repo
+#   structural_files  file names that are relevant wherever they appear
+#   ignored_apps      app directories Jan does not follow, even though both repos have them
+#   ignored_paths     path prefixes that are never relevant
+#
+# The apps both repos have are not listed here: upstream-diff computes that set from the
+# two trees at run time, because an app can sit in another namespace in each repo.
+
+structural_paths:
+  - talos/
+  - bootstrap/
+  - kubernetes/flux/
+  - kubernetes/components/
+  - .github/
+  - .mise
+  - .taskfiles/
+
+structural_files:
+  - .renovaterc.json5
+  - .justfile
+  - mod.just
+  - .kritika.yaml
+  - .lefthook.toml
+  - .minijinja.toml
+  - .shellcheckrc
+  - .oxfmtrc.json
+  - .editorconfig
+
+# Jan runs Home Assistant outside the cluster. memini and kritika stay followed: he runs both.
+ignored_apps:
+  - home-assistant
+
+ignored_paths:
+  - kubernetes/apps/kube-system/intel-gpu-resource-driver/

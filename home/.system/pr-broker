@@ -146,7 +146,14 @@ async function runBroker(mode = 'requests', options = {}) {
                 cwd: o.state, stdio: ['ignore', 'pipe', 'pipe'],
                 env: { PATH: '/usr/bin:/bin', HOME: o.state, GH_CONFIG_DIR: join(o.state, 'gh'),
                     GH_TOKEN: token, GH_HOST: 'github.com', GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', LANG: 'C.UTF-8' } });
-        } catch { throw Error(`${file === o.gh ? 'gh merge' : 'pr-lane'} failed (details suppressed to protect credentials)`); }
+        } catch (error) {
+            // The journal is root/adm-only, so the real cause goes there, token redacted; the
+            // pocket-readable result keeps only the generic reason.
+            const redact = text => String(text ?? '').split(token).join('[token]').slice(0, 2000);
+            console.error(JSON.stringify({ failed: file === o.gh ? 'gh' : 'pr-lane', args: args.slice(0, 6),
+                status: error.status ?? null, stderr: redact(error.stderr), message: redact(error.message) }));
+            throw Error(`${file === o.gh ? 'gh merge' : 'pr-lane'} failed (details in the root-only journal)`);
+        }
     }
     const classify = async target => JSON.parse(await run(o.node, [o.lane, String(target), '--json', '--gh', o.gh]));
     function writeResult(name, result, log = true) {
@@ -163,7 +170,10 @@ async function runBroker(mode = 'requests', options = {}) {
                     ? lane.reasons.filter(r => typeof r === 'string').slice(0, 100).map(r => r.slice(0, 1000)) : [])] };
         if (!enabled(join(o.config, switchName))) return { ...request, lane: lane.lane, status: 'dry-run', reasons: [`${switchName} absent or not root-controlled`] };
         if (!reserveMerge(o.state, Date.now())) return { ...request, status: 'refused', reasons: ['rate limit: at most 10 merge attempts per rolling hour (shared by both runners)'] };
-        await run(o.gh, ['pr', 'merge', String(request.pr), '-R', REPO, '--squash', '--match-head-commit', request.head]);
+        // The REST merge with `sha` is pinned server-side (409 if the head moved) and lets GitHub
+        // apply the ruleset, the merger's bypass included. `gh pr merge` refuses client-side when
+        // mergeStateStatus is BLOCKED, which it is for every PR under the restrict-updates rule.
+        await run(o.gh, ['api', '-X', 'PUT', `repos/${REPO}/pulls/${request.pr}/merge`, '-f', 'merge_method=squash', '-f', `sha=${request.head}`]);
         return { ...request, lane: lane.lane, status: 'merged' };
     }
     if (mode === 'lane-a') {

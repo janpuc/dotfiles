@@ -45,7 +45,7 @@ test('pr-broker merges lanes A/B with exact pinned gh arguments and a child-only
         assert.equal(f.result(file).status, 'merged');
     }
     for (const call of f.calls().filter(c => c.tool === 'gh')) {
-        assert.deepEqual(call.args, ['pr', 'merge', '42', '-R', 'janpuc/home-ops', '--squash', '--match-head-commit', head]);
+        assert.deepEqual(call.args, ['api', '-X', 'PUT', 'repos/janpuc/home-ops/pulls/42/merge', '-f', 'merge_method=squash', '-f', `sha=${head}`]);
         assert.equal(call.tokenPresent, true);
     }
     for (const name of fs.readdirSync(f.o.state)) assert.ok(!fs.readFileSync(join(f.o.state, name), 'utf8').includes('test-token'));

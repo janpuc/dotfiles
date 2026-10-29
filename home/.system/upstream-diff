@@ -1,0 +1,483 @@
+#!/usr/bin/env node
+// upstream-diff: what onedr0p/home-ops did that janpuc/home-ops may want, and whether an
+// upstream Talos or Kubernetes upgrade is merged. Deterministic, no model, read-only except
+// for the cursor it keeps under pocket's own state directory.
+//   upstream-diff [--json] [--repo <path>] [--config <path>]
+//   upstream-diff --mark <sha>
+//   upstream-diff --upgrade <talos|kubernetes> <version> [--window <days>] [--json]
+'use strict';
+const { execFileSync } = require('node:child_process');
+const { existsSync, mkdirSync, readFileSync, writeFileSync } = require('node:fs');
+const { homedir } = require('node:os');
+const { join } = require('node:path');
+
+const UPSTREAM_URL = 'https://github.com/onedr0p/home-ops.git';
+const UPSTREAM_REF = 'refs/remotes/upstream/main';
+// The first run looks this far back; after that the cursor says where to continue.
+const FIRST_RUN_DAYS = 14;
+// How far around an upgrade merge companion changes are looked for.
+const COMPANION_WINDOW_DAYS = 7;
+const DAY = 24 * 60 * 60 * 1000;
+const STATE_DIR = join(homedir(), '.local', 'state', 'upstream-sync');
+const CURSOR_FILE = join(STATE_DIR, 'last-sha');
+const DEFAULT_REPO = join(homedir(), 'work', 'home-ops');
+const DEFAULT_CONFIG = join(homedir(), '.pi', 'agent', 'skills', 'upstream-sync', 'upstream-sync.yaml');
+// The mapping file's keys. Nothing else is read from it: it is data, never code.
+const CONFIG_KEYS = ['structural_paths', 'structural_files', 'ignored_apps', 'ignored_paths'];
+const GROUP_PATTERNS = {
+    talos: /talos group|siderolabs\/talos/i,
+    kubernetes: /kubernetes group/i,
+};
+const COMPANION_PATHS = ['talos/', 'kubernetes/apps/system-upgrade/', '.mise*', '.github/'];
+const FIELD = '\x1f';
+
+function run(file, args, options = {}) {
+    return execFileSync(file, args, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 300000, ...options });
+}
+function git(cwd, args, options = {}) {
+    return run('git', ['-C', cwd, ...args], options);
+}
+// git's exit status is the answer for questions git answers with a status.
+function gitOk(cwd, args) {
+    try {
+        git(cwd, args);
+        return true;
+    } catch {
+        return false;
+    }
+}
+function fail(message) {
+    throw new Error(message);
+}
+
+/* The mapping file: a strict subset of YAML, so a pocket-owned file stays data. */
+
+function scalar(text, line) {
+    let value = text.trim();
+    if (!value) return '';
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+    }
+    // A path prefix or a file name: no control characters, no comments, no surprises.
+    if (/[\u0000-\u001f]/.test(value)) fail(`mapping file line ${line}: control characters`);
+    if (value.includes('#')) fail(`mapping file line ${line}: '#' is not allowed in a value`);
+    if (value.length > 200) fail(`mapping file line ${line}: value longer than 200 characters`);
+    return value;
+}
+
+// Top-level keys with a list of plain scalars. No nesting, no anchors, no flow maps.
+function parseConfig(text) {
+    const config = {};
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.trim() || line.trim().startsWith('#')) continue;
+        const key = line.match(/^([A-Za-z][A-Za-z0-9_]*):[ \t]*(.*)$/);
+        if (!key) fail(`mapping file line ${i + 1}: expected a key, got ${JSON.stringify(line.trim())}`);
+        const name = key[1];
+        if (!CONFIG_KEYS.includes(name)) fail(`mapping file line ${i + 1}: unknown key ${name}`);
+        if (Object.hasOwn(config, name)) fail(`mapping file line ${i + 1}: duplicate key ${name}`);
+        const inline = key[2].trim();
+        const values = [];
+        if (inline) {
+            if (!inline.startsWith('[') || !inline.endsWith(']')) fail(`mapping file line ${i + 1}: ${name} must be a list`);
+            for (const item of inline.slice(1, -1).split(',')) {
+                const value = scalar(item, i + 1);
+                if (value) values.push(value);
+            }
+        } else {
+            while (i + 1 < lines.length) {
+                const next = lines[i + 1];
+                if (!next.trim()) { i++; continue; }
+                if (next.trim().startsWith('#')) { i++; continue; }
+                const item = next.match(/^[ \t]+-[ \t]+(.*)$/);
+                if (!item) break;
+                const value = scalar(item[1], i + 2);
+                if (value) values.push(value);
+                i++;
+            }
+        }
+        config[name] = values;
+    }
+    for (const name of CONFIG_KEYS) if (!Object.hasOwn(config, name)) config[name] = [];
+    return config;
+}
+
+/* The two trees. */
+
+function treePaths(repo, ref) {
+    const raw = git(repo, ['ls-tree', '-r', '--name-only', ref]);
+    return raw.split('\n').filter(Boolean);
+}
+
+// App directories: kubernetes/apps/<namespace>/<app>/. The namespace may differ between
+// the two repos for the same app, so apps are matched by name.
+function appNamespaces(paths) {
+    const apps = new Map();
+    for (const path of paths) {
+        const match = path.match(/^kubernetes\/apps\/([^/]+)\/([^/]+)\//);
+        if (!match) continue;
+        const [, namespace, app] = match;
+        if (!apps.has(app)) apps.set(app, new Set());
+        apps.get(app).add(namespace);
+    }
+    return apps;
+}
+
+function commonApps(upstreamApps, janApps) {
+    const common = new Map();
+    for (const [app, namespaces] of upstreamApps) {
+        if (!janApps.has(app)) continue;
+        common.set(app, {
+            upstream: [...namespaces].sort(),
+            jan: [...janApps.get(app)].sort(),
+        });
+    }
+    return common;
+}
+
+/* Relevance and paths. */
+
+function ignoredApp(config, app) {
+    return config.ignored_apps.includes(app);
+}
+
+// The file in Jan's repo that an upstream file maps to. Apps move to Jan's namespace;
+// everything else keeps its path.
+function mapPath(path, context) {
+    const app = path.match(/^kubernetes\/apps\/([^/]+)\/([^/]+)\/(.+)$/);
+    if (app) {
+        const common = context.common.get(app[2]);
+        if (common) return `kubernetes/apps/${common.jan[0]}/${app[2]}/${app[3]}`;
+    }
+    return path;
+}
+
+function relevantPath(path, context) {
+    const config = context.config;
+    if (config.ignored_paths.some((prefix) => path.startsWith(prefix))) return false;
+    if (config.structural_paths.some((prefix) => path.startsWith(prefix))) return true;
+    if (config.structural_files.some((name) => path === name || path.endsWith(`/${name}`))) return true;
+    const app = path.match(/^kubernetes\/apps\/([^/]+)\/([^/]+)\//);
+    if (!app) return false;
+    if (ignoredApp(config, app[2])) return false;
+    return context.common.has(app[2]);
+}
+
+/* Commits. */
+
+function isBot(author) {
+    return /\[bot\]/i.test(author) || /\b(?:renovate|dependabot|github-actions|trivy|mergify|semantic-release|imgbot)\b/i.test(author);
+}
+// A revert carries the version it undoes; it is not an upgrade.
+function isRevert(subject) {
+    return /^revert\b/i.test(subject.trim());
+}
+function prNumber(subject) {
+    const match = subject.match(/\(#(\d+)\)\s*$/);
+    return match ? Number(match[1]) : null;
+}
+// The version a commit moves to: the one after the arrow, or the only one there is.
+function targetVersion(subject) {
+    const arrow = subject.match(/➔\s*v?([0-9][0-9A-Za-z.\-+]*)/);
+    if (arrow) return arrow[1];
+    const version = subject.match(/\bv?([0-9]+(?:\.[0-9]+)+(?:[-+][0-9A-Za-z.\-+]+)?)/);
+    return version ? version[1] : null;
+}
+function sameVersion(a, b) {
+    if (!a || !b) return false;
+    return a.replace(/^v/, '') === b.replace(/^v/, '');
+}
+// A group commit whose subject names no version ("update talos group") moves to the
+// version its diff adds: some added line carries it as a whole token.
+function diffAddsVersion(repo, sha, wanted) {
+    const escaped = wanted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const token = new RegExp(`(^|[^0-9A-Za-z.])v?${escaped}($|[^0-9A-Za-z.\\-+])`);
+    return git(repo, ['show', '--format=', '--unified=0', sha])
+        .split('\n')
+        .some((line) => line.startsWith('+') && !line.startsWith('+++') && token.test(line));
+}
+
+// The files a commit changed, against its first parent (upstream merges are rare and old).
+function changedFiles(repo, sha) {
+    const parents = git(repo, ['rev-list', '--parents', '-n', '1', sha]).trim().split(/\s+/);
+    if (parents.length > 1) {
+        const raw = git(repo, ['diff', '--name-only', parents[1], sha]);
+        return raw.split('\n').filter(Boolean);
+    }
+    const raw = git(repo, ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', sha]);
+    return raw.split('\n').filter(Boolean);
+}
+
+function readCommits(repo, args) {
+    // The format comes first: after a `--` separator it would be a pathspec, not an option.
+    const raw = git(repo, ['log', `--pretty=format:%H${FIELD}%aI${FIELD}%an${FIELD}%ae${FIELD}%s`, ...args]);
+    return raw.split('\n').filter(Boolean).map((line) => {
+        const [sha, date, author, email, subject] = line.split(FIELD);
+        return { sha, date, author, email, subject };
+    });
+}
+
+function describeCommit(repo, commit, context) {
+    const files = changedFiles(repo, commit.sha).map((path) => {
+        const janPath = mapPath(path, context);
+        return {
+            path,
+            janPath,
+            exists: context.janFiles.has(janPath),
+            relevant: relevantPath(path, context),
+        };
+    });
+    return {
+        sha: commit.sha,
+        shortSha: commit.sha.slice(0, 9),
+        date: commit.date.slice(0, 10),
+        author: commit.author,
+        subject: commit.subject,
+        pr: prNumber(commit.subject),
+        relevant: files.some((file) => file.relevant),
+        files,
+    };
+}
+
+/* The run. */
+
+function ensureUpstream(repo, url) {
+    const wanted = url;
+    const current = gitOk(repo, ['remote', 'get-url', 'upstream'])
+        ? git(repo, ['remote', 'get-url', 'upstream']).trim()
+        : null;
+    if (current === null) git(repo, ['remote', 'add', 'upstream', wanted]);
+    else if (current !== wanted) git(repo, ['remote', 'set-url', 'upstream', wanted]);
+    git(repo, ['fetch', '--quiet', 'upstream', `+refs/heads/main:${UPSTREAM_REF}`]);
+    return { url: wanted, changed: current !== wanted && current !== null, added: current === null };
+}
+
+function readCursor(stateFile) {
+    if (!existsSync(stateFile)) return null;
+    const value = readFileSync(stateFile, 'utf8').trim();
+    return value || null;
+}
+
+function writeCursor(stateFile, sha) {
+    mkdirSync(join(stateFile, '..'), { recursive: true, mode: 0o700 });
+    writeFileSync(stateFile, `${sha}\n`, { mode: 0o600 });
+}
+
+function context(repo, configPath, options) {
+    if (!existsSync(repo)) fail(`no repository at ${repo}`);
+    if (!gitOk(repo, ['rev-parse', '--git-dir'])) fail(`${repo} is not a git repository`);
+    if (!existsSync(configPath)) fail(`no mapping file at ${configPath}`);
+    const config = parseConfig(readFileSync(configPath, 'utf8'));
+    const upstream = ensureUpstream(repo, options.upstream);
+    const janFiles = new Set(treePaths(repo, 'HEAD'));
+    const common = commonApps(appNamespaces(treePaths(repo, UPSTREAM_REF)), appNamespaces(janFiles));
+    return { repo, configPath, config, upstream, janFiles, common, stateFile: options.state };
+}
+
+function list(ctx) {
+    const cursor = readCursor(ctx.stateFile);
+    let args;
+    let since = null;
+    if (cursor) {
+        if (!gitOk(ctx.repo, ['cat-file', '-e', `${cursor}^{commit}`])) fail(`the cursor ${cursor} is not a commit in ${ctx.repo}`);
+        if (!gitOk(ctx.repo, ['merge-base', '--is-ancestor', cursor, UPSTREAM_REF])) {
+            fail(`the cursor ${cursor} is not on upstream/main; it cannot be used to list commits`);
+        }
+        args = [`${cursor}..${UPSTREAM_REF}`];
+    } else {
+        since = new Date(Date.now() - FIRST_RUN_DAYS * DAY).toISOString();
+        args = [UPSTREAM_REF, `--since=${since}`];
+    }
+    const commits = readCommits(ctx.repo, args).filter((commit) => !isBot(commit.author) && !isBot(commit.email));
+    const described = commits.map((commit) => describeCommit(ctx.repo, commit, ctx));
+    return {
+        repo: ctx.repo,
+        upstream: { url: ctx.upstream.url, head: git(ctx.repo, ['rev-parse', UPSTREAM_REF]).trim() },
+        config: ctx.configPath,
+        cursor: { path: ctx.stateFile, sha: cursor, since, days: cursor ? null : FIRST_RUN_DAYS },
+        counts: {
+            commits: described.length,
+            relevant: described.filter((commit) => commit.relevant).length,
+            irrelevant: described.filter((commit) => !commit.relevant).length,
+        },
+        commits: described,
+    };
+}
+
+function mark(ctx, sha) {
+    if (!/^[0-9a-f]{4,40}$/.test(sha)) fail(`--mark needs a commit sha, got ${JSON.stringify(sha)}`);
+    if (!gitOk(ctx.repo, ['cat-file', '-e', `${sha}^{commit}`])) fail(`${sha} is not a commit in ${ctx.repo}`);
+    const resolved = git(ctx.repo, ['rev-parse', `${sha}^{commit}`]).trim();
+    if (!gitOk(ctx.repo, ['merge-base', '--is-ancestor', resolved, UPSTREAM_REF])) {
+        fail(`${resolved} is not on upstream/main, so it cannot be the cursor`);
+    }
+    const cursor = readCursor(ctx.stateFile);
+    if (cursor && cursor !== resolved && !gitOk(ctx.repo, ['merge-base', '--is-ancestor', cursor, resolved])) {
+        fail(`the cursor only moves forward: ${cursor} is not an ancestor of ${resolved}`);
+    }
+    writeCursor(ctx.stateFile, resolved);
+    return { marked: resolved, previous: cursor, path: ctx.stateFile };
+}
+
+function upgrade(ctx, group, version, windowDays) {
+    const pattern = GROUP_PATTERNS[group];
+    const wanted = version.replace(/^v/, '');
+    const greps = [];
+    for (const source of pattern.source.split('|')) greps.push(`--grep=${source}`);
+    const candidates = readCommits(ctx.repo, [UPSTREAM_REF, '-E', '-i', ...greps])
+        // Upstream makes these upgrades with Renovate and by hand (bot-ross[bot],
+        // renovate[bot], the maintainer), so any author counts; a revert does not.
+        .filter((commit) => !isRevert(commit.subject))
+        .filter((commit) => {
+            const named = targetVersion(commit.subject);
+            return named ? sameVersion(named, wanted) : diffAddsVersion(ctx.repo, commit.sha, wanted);
+        });
+    const merges = candidates.map((commit) => ({
+        sha: commit.sha,
+        shortSha: commit.sha.slice(0, 9),
+        date: commit.date.slice(0, 10),
+        author: commit.author,
+        subject: commit.subject,
+        pr: prNumber(commit.subject),
+        files: changedFiles(ctx.repo, commit.sha).map((path) => ({
+            path,
+            janPath: mapPath(path, ctx),
+            exists: ctx.janFiles.has(mapPath(path, ctx)),
+            relevant: relevantPath(path, ctx),
+        })),
+    }));
+    const merged = merges.length > 0;
+    const companions = [];
+    if (merged) {
+        const when = new Date(merges[0].date).getTime();
+        const from = new Date(when - windowDays * DAY).toISOString();
+        const to = new Date(when + windowDays * DAY).toISOString();
+        const around = readCommits(ctx.repo, [UPSTREAM_REF, `--since=${from}`, `--until=${to}`, '--', ...COMPANION_PATHS])
+            .filter((commit) => !isBot(commit.author) && !isBot(commit.email))
+            .filter((commit) => !merges.some((merge) => merge.sha === commit.sha));
+        for (const commit of around) {
+            const files = changedFiles(ctx.repo, commit.sha)
+                .filter((path) => COMPANION_PATHS.some((prefix) => path.startsWith(prefix) || (prefix.endsWith('*') && path.startsWith(prefix.slice(0, -1)))))
+                .map((path) => ({
+                    path,
+                    janPath: mapPath(path, ctx),
+                    exists: ctx.janFiles.has(mapPath(path, ctx)),
+                    relevant: relevantPath(path, ctx),
+                }));
+            companions.push({
+                sha: commit.sha,
+                shortSha: commit.sha.slice(0, 9),
+                date: commit.date.slice(0, 10),
+                author: commit.author,
+                subject: commit.subject,
+                pr: prNumber(commit.subject),
+                files,
+            });
+        }
+        companions.sort((a, b) => a.date.localeCompare(b.date) || a.sha.localeCompare(b.sha));
+    }
+    return {
+        group,
+        version: wanted,
+        merged,
+        upstream: merged ? merges[0] : null,
+        window: { days: windowDays, around: merged ? merges[0].date.slice(0, 10) : null },
+        companions,
+    };
+}
+
+/* Output. */
+
+function printList(result) {
+    const counts = result.counts;
+    console.log(`upstream onedr0p/home-ops @ ${result.upstream.head.slice(0, 9)}, ${counts.commits} non-bot commits, ${counts.relevant} relevant`);
+    console.log(result.cursor.sha
+        ? `after cursor ${result.cursor.sha.slice(0, 9)}`
+        : `since ${result.cursor.since.slice(0, 10)} (${result.cursor.days} days, no cursor yet)`);
+    for (const commit of result.commits) {
+        console.log(`  ${commit.shortSha} ${commit.date} ${commit.author}  ${commit.subject}${commit.pr ? ` (#${commit.pr})` : ''}`);
+        console.log(`    ${commit.relevant ? 'relevant' : 'irrelevant'}`);
+        for (const file of commit.files) {
+            const where = file.janPath === file.path ? file.path : `${file.path} -> ${file.janPath}`;
+            console.log(`      ${file.relevant ? '*' : ' '} ${where}${file.exists ? '' : ' (missing in Jan\'s repo)'}`);
+        }
+    }
+    if (!result.commits.length) console.log('  (nothing to do)');
+}
+
+function printUpgrade(result) {
+    if (!result.merged) {
+        console.log(`${result.group} ${result.version}: not merged upstream. Hold; do not schedule it.`);
+        return;
+    }
+    const merge = result.upstream;
+    console.log(`${result.group} ${result.version}: merged upstream as ${merge.shortSha} on ${merge.date} (#${merge.pr ?? '?'})`);
+    console.log(`  ${merge.subject}`);
+    for (const file of merge.files) console.log(`  ${file.relevant ? '*' : ' '} ${file.janPath}${file.exists ? '' : ' (missing in Jan\'s repo)'}`);
+    console.log(`  companion candidates within ${result.window.days} days of ${result.window.around}:`);
+    if (!result.companions.length) console.log('    (none)');
+    for (const companion of result.companions) {
+        console.log(`    ${companion.shortSha} ${companion.date} ${companion.author}  ${companion.subject}${companion.pr ? ` (#${companion.pr})` : ''}`);
+        for (const file of companion.files) console.log(`      ${file.janPath}${file.exists ? '' : ' (missing in Jan\'s repo)'}`);
+    }
+}
+
+/* Entry point. */
+
+function parseArgs(argv) {
+    const options = { json: false, mode: 'list', repo: null, config: null, sha: null, group: null, version: null,
+        window: COMPANION_WINDOW_DAYS, upstream: UPSTREAM_URL, state: CURSOR_FILE };
+    for (let i = 0; i < argv.length; i++) {
+        const arg = argv[i];
+        if (arg === '--json') options.json = true;
+        else if (arg === '--mark') { options.mode = 'mark'; options.sha = argv[++i]; }
+        else if (arg === '--upgrade') { options.mode = 'upgrade'; options.group = argv[++i]; options.version = argv[++i]; }
+        else if (arg === '--repo') options.repo = argv[++i];
+        else if (arg === '--config') options.config = argv[++i];
+        else if (arg === '--window') options.window = Number(argv[++i]);
+        else if (arg === '--upstream') options.upstream = argv[++i];
+        else if (arg === '--state') options.state = argv[++i];
+        else fail(`unknown argument ${JSON.stringify(arg)}`);
+    }
+    if (options.upstream !== UPSTREAM_URL && !/^https?:\/\/|^\//.test(options.upstream)) {
+        fail(`--upstream needs an https URL or a path, got ${JSON.stringify(options.upstream)}`);
+    }
+    if (options.mode === 'mark' && !options.sha) fail('--mark needs a commit sha');
+    if (options.mode === 'upgrade') {
+        if (!Object.hasOwn(GROUP_PATTERNS, options.group)) fail(`--upgrade needs talos or kubernetes, got ${JSON.stringify(options.group)}`);
+        if (!options.version || !/^v?[0-9]/.test(options.version)) fail('--upgrade needs a version, such as 1.14.5');
+        if (!Number.isInteger(options.window) || options.window < 0 || options.window > 365) fail('--window needs a number of days');
+    }
+    return options;
+}
+
+function main() {
+    const options = parseArgs(process.argv.slice(2));
+    const repo = options.repo || process.env.UPSTREAM_DIFF_REPO || DEFAULT_REPO;
+    const configPath = options.config || process.env.UPSTREAM_DIFF_CONFIG || DEFAULT_CONFIG;
+    options.upstream = process.env.UPSTREAM_DIFF_UPSTREAM || options.upstream;
+    options.state = process.env.UPSTREAM_DIFF_STATE || options.state;
+    const ctx = context(repo, configPath, options);
+    if (options.mode === 'mark') {
+        const result = mark(ctx, options.sha);
+        if (options.json) console.log(JSON.stringify(result, null, 2));
+        else console.log(`Cursor moved to ${result.marked} (${result.path}).`);
+        return;
+    }
+    if (options.mode === 'upgrade') {
+        const result = upgrade(ctx, options.group, options.version, options.window);
+        if (options.json) console.log(JSON.stringify(result, null, 2));
+        else printUpgrade(result);
+        return;
+    }
+    const result = list(ctx);
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else printList(result);
+}
+try {
+    main();
+} catch (error) {
+    console.error(`upstream-diff: ${error.message}${error.stderr ? '\n' + error.stderr.toString().trim() : ''}`);
+    process.exitCode = 1;
+}
