@@ -21,7 +21,9 @@ const imports = registerHooks({
     },
 });
 const source = await readFile(new URL("./approvals.ts", import.meta.url), "utf8");
-const { default: create, sharedChange, pocketApi } = await import(dataUrl(stripTypeScriptTypes(source)));
+const { default: create, sharedChange, haServiceAllowed, pocketApi } = await import(
+    dataUrl(stripTypeScriptTypes(source))
+);
 imports.deregister();
 
 // Every verb in the laptop guard, plus option prefixes, shell separators and API writes.
@@ -29,20 +31,13 @@ const blocked = [
     "pr-merge-request 42 " + "a".repeat(40) + " && gh pr merge 42 --squash",
     "pr-merge-request 42 " + "a".repeat(40) + "; gh api repos/janpuc/home-ops/pulls/42/merge -X PUT",
     "git push origin main",
-    "agent-push",
-    "/usr/local/sbin/agent-push",
-    "cd repo && agent-push",
     "git -C /tmp/repo push",
     "git --git-dir=.git push",
     ...[
         "merge",
         "close",
         "reopen",
-        "comment",
         "review",
-        "create",
-        "edit",
-        "ready",
         "lock",
         "unlock",
     ].map((v) => `gh pr ${v} 42`),
@@ -170,13 +165,9 @@ const haBlocked = [
         `curl --request=${v} https://home-assistant.janpuc.com/api/states/light.test`,
         `curl -X${v} "$HA_URL/api/states/light.test"`,
     ]),
-    ...["-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "--json", "-F"].map(
-        (v) => `curl ${v} '{}' "\${HA_URL}/api/services/light/turn_on"`,
-    ),
-    "curl -d'{}' https://hass.janpuc.com/api/services/light/turn_on",
-    'curl -fsS -X POST -H "Authorization: Bearer $HA_TOKEN" \\\n  --data \'{"entity_id":"light.office"}\' "$HA_URL/api/services/light/turn_on"',
     "curl -X 'POST' http://localhost:8123/api/services/light/turn_on",
     'curl --request POST "$HA_URL/api/services/light/turn_on" --dry-run',
+    'curl --request POST "$HA_URL/api/services/script/turn_on" --dry-run',
     "wget --post-data='{}' https://home-assistant.janpuc.com/api/services/light/turn_on",
     "wget --method=POST --body-data='{}' https://hass.janpuc.com/api/states/light.test",
     "http POST $HA_URL/api/services/light/turn_on entity_id=light.test",
@@ -185,7 +176,41 @@ const haBlocked = [
     "http $HA_URL/api/states/light.test state:=true",
     "true && /usr/bin/curl -X POST https://hass.janpuc.com/api/services/light/turn_on",
 ];
+// The services that need no phone prompt: lights, scenes and the reload services.
+const haAllowedServices = [
+    "light.turn_on",
+    "light.turn_off",
+    "light.toggle",
+    "scene.turn_on",
+    "automation.reload",
+    "script.reload",
+    "scene.reload",
+    "homeassistant.reload_core_config",
+    "homeassistant.reload_all",
+    "group.reload",
+    "template.reload",
+    "input_boolean.reload",
+    "input_select.reload",
+    "input_number.reload",
+    "input_text.reload",
+    "input_datetime.reload",
+    "input_button.reload",
+    "timer.reload",
+    "zone.reload",
+];
+const haServiceCall = (service: string) =>
+    `curl -fsS -X POST -H "Authorization: Bearer $HA_TOKEN" -H 'Content-Type: application/json' --data '{"entity_id":"light.office"}' "$HA_URL/api/services/${service.replace(".", "/")}"`;
 const haAllowed = [
+    // A light, a scene or a reload: one simple curl, one service URL, no phone prompt.
+    ...haAllowedServices.map((service) => haServiceCall(service)),
+    ...["-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "--json", "-F"].map(
+        (v) => `curl ${v} '{}' "\${HA_URL}/api/services/light/turn_on"`,
+    ),
+    "curl -X POST \"$HA_URL/api/services/light/turn_on\"",
+    "curl -X POST https://hass.janpuc.com/api/services/light/turn_on",
+    "curl --request POST \"${HA_URL}/api/services/scene/turn_on\"",
+    "curl -d'{\"entity_id\":\"light.office\"}' https://hass.janpuc.com/api/services/light/turn_on",
+    'curl -fsS -X POST -H "Authorization: Bearer $HA_TOKEN" \\\n  --data \'{"entity_id":"light.office"}\' "$HA_URL/api/services/light/turn_on"',
     "curl https://hass.janpuc.com/api/states",
     "curl -X GET $HA_URL/api/states/light.test",
     "curl --request=HEAD ${HA_URL}/api/states",
@@ -215,7 +240,92 @@ test("approvals sharedChange: laptop shared-system writes and reads", () => {
 test("approvals sharedChange: Home Assistant writes and GET/HEAD reads", () => {
     for (const command of haBlocked) assert.ok(sharedChange(command), command);
     for (const command of haAllowed) assert.equal(sharedChange(command), undefined, command);
-    assert.equal(sharedChange(haBlocked[13]), "call a Home Assistant service");
+    assert.equal(
+        sharedChange('curl -X POST "$HA_URL/api/services/script/turn_on"'),
+        "call a Home Assistant service",
+    );
+});
+
+test("approvals sharedChange: lights, scenes and reloads need no phone prompt", () => {
+    for (const service of haAllowedServices) {
+        const command = haServiceCall(service);
+        assert.equal(sharedChange(command), undefined, command);
+        assert.equal(haServiceAllowed(command), true, command);
+    }
+    // The same call in the shapes an agent writes them.
+    for (const command of [
+        'curl -X POST "$HA_URL/api/services/light/turn_on"',
+        "curl -X POST https://hass.janpuc.com/api/services/light/turn_off",
+        "curl -X POST https://home-assistant.janpuc.com/api/services/light/toggle",
+        'curl --request POST "${HA_URL}/api/services/scene/turn_on"',
+        "curl --data '{}' $HA_URL/api/services/homeassistant/reload_all",
+    ]) {
+        assert.equal(sharedChange(command), undefined, command);
+        assert.equal(haServiceAllowed(command), true, command);
+    }
+});
+
+test("approvals sharedChange: every other Home Assistant call still asks Jan", () => {
+    for (const service of [
+        "script.turn_on",
+        "script.turn_off",
+        "script.reload_all",
+        "switch.turn_off",
+        "switch.turn_on",
+        "homeassistant.restart",
+        "homeassistant.stop",
+        "homeassistant.update_entity",
+        "homeassistant.toggle",
+        "fan.set_speed",
+        "climate.set_temperature",
+        "media_player.turn_on",
+        "input_boolean.turn_on",
+        "light.turn_on_with_brightness",
+        "notify.mobile_app",
+    ]) {
+        const command = haServiceCall(service);
+        assert.ok(sharedChange(command), command);
+        assert.equal(haServiceAllowed(command), false, command);
+    }
+});
+
+test("approvals sharedChange: the Home Assistant exemption needs one simple curl call", () => {
+    const ask = [
+        // Chained commands.
+        'curl -X POST "$HA_URL/api/services/light/turn_on" && curl -X POST "$HA_URL/api/services/script/turn_on"',
+        'curl -X POST "$HA_URL/api/services/light/turn_on"; curl -X POST "$HA_URL/api/services/script/turn_on"',
+        'curl -X POST "$HA_URL/api/services/light/turn_on" | tee /tmp/lights',
+        'curl -X POST "$HA_URL/api/services/light/turn_on" && git push',
+        // Two service URLs.
+        'curl -X POST "$HA_URL/api/services/light/turn_on" "$HA_URL/api/services/script/turn_on"',
+        'curl -X POST "$HA_URL/api/services/light/turn_on?next=/api/services/script/turn_on"',
+        // Substitution, also inside quotes.
+        'curl -X POST "$(echo $HA_URL)/api/services/light/turn_on"',
+        'curl -X POST "$HA_URL/api/services/light/turn_on" $(id)',
+        'curl -X POST "`id` $HA_URL/api/services/light/turn_on"',
+        // Quoting tricks.
+        'curl -X POST "$HA_URL/api/services/light/turn_on" "',
+        'curl -X POST "$HA_URL/api/services/light/turn_on\'; rm -rf /"',
+        'curl -X POST "$HA_URL/api/services/light/turn_on" > /tmp/lights',
+        // Another host, another tool, another request.
+        "curl -X POST http://localhost:8123/api/services/light/turn_on",
+        "curl -X POST https://example.com/api/services/light/turn_on",
+        "wget --post-data='{}' https://hass.janpuc.com/api/services/light/turn_on",
+        'curl -X POST --url "$HA_URL/api/services/light/turn_on"',
+        'curl -X POST --config /tmp/curlrc "$HA_URL/api/services/light/turn_on"',
+        'curl -X POST --next -X POST "$HA_URL/api/services/script/turn_on" "$HA_URL/api/services/light/turn_on"',
+        // Short and attached forms of --config and --next, and a GET that a config file could turn into a POST.
+        'curl -K /tmp/curlrc "$HA_URL/api/services/light/turn_on"',
+        'curl -sK /tmp/curlrc "$HA_URL/api/services/light/turn_on"',
+        'curl --config=/tmp/curlrc "$HA_URL/api/services/light/turn_on"',
+        'curl -X POST "$HA_URL/api/services/light/turn_on" -: -X POST "$HA_URL/api/states/x"',
+        // A dry-run flag is not a curl option: not a plain service call.
+        'curl -X POST "$HA_URL/api/services/light/turn_on" --dry-run',
+    ];
+    for (const command of ask) {
+        assert.ok(sharedChange(command), command);
+        assert.equal(haServiceAllowed(command), false, command);
+    }
 });
 
 function memoApi(callId: string, context: object, memos = new Map()) {
@@ -352,17 +462,17 @@ test('approvals: malformed merge dry-run/chaining cannot use the generic dry-run
 
 test('approvals sharedChange: dry-run cannot exempt chains or shell expansions', () => {
     for (const operator of [';', '&&', '||', '|', '&', '\n', '\r\n']) {
-        for (const command of [`agent-push ${operator} echo --dry-run`, `echo --dry-run ${operator} agent-push`])
+        for (const command of [`git push ${operator} echo --dry-run`, `echo --dry-run ${operator} git push`])
             assert.equal(sharedChange(command), 'push git commits', command);
     }
     for (const command of [
-        'agent-push $(echo --dry-run)', 'echo --dry-run $(agent-push)',
-        'agent-push `echo --dry-run`', 'echo --dry-run `agent-push`',
-        'agent-push <(echo --dry-run)', 'echo --dry-run <(agent-push)',
-        'agent-push >(echo --dry-run)', 'echo --dry-run >(agent-push)',
-        'agent-push # --dry-run', 'agent-push "text --dry-run"',
-        'agent-push --dry-run=none', 'agent-push --dry-run-not-a-flag',
-        'sh -c agent-push --dry-run', 'bash -c agent-push --dry-run',
+        'git push $(echo --dry-run)', 'echo --dry-run $(git push)',
+        'git push `echo --dry-run`', 'echo --dry-run `git push`',
+        'git push <(echo --dry-run)', 'echo --dry-run <(git push)',
+        'git push >(echo --dry-run)', 'echo --dry-run >(git push)',
+        'git push # --dry-run', 'git push "text --dry-run"',
+        'git push --dry-run=none', 'git push --dry-run-not-a-flag',
+        'sh -c git push --dry-run', 'bash -c git push --dry-run',
     ]) assert.equal(sharedChange(command), 'push git commits', command);
     for (const command of ['kubectl apply --dry-run=client --dry-run=none -f x',
         'kubectl apply --dry-run none -f x', 'helm upgrade app --dry-run=false'])
@@ -373,11 +483,22 @@ test('approvals sharedChange: dry-run cannot exempt chains or shell expansions',
 });
 
 test('approvals sharedChange: quotes and escapes do not hide writes', () => {
-    for (const command of ["'agent-push'", '"agent-push"', String.raw`ag\ent-push`,
+    for (const command of [
         '"git" push', "'git' push", String.raw`g\it push`, 'git "push"',
         '"gh" pr merge 42 --dry-run', "gh 'pr' merge 42", String.raw`gh pr m\erge 42`,
         '"kubectl" apply -f x', String.raw`kubectl a\pply -f x`,
         '"gh" api repos/janpuc/home-ops -X POST',
-        '"curl" -X POST "$HA_URL/api/services/light/turn_on"'])
+        // A quoted curl is still a curl: the exemption follows the service, not the spelling.
+        '"curl" -X POST "$HA_URL/api/services/script/turn_on"'])
+        assert.ok(sharedChange(command), command);
+});
+
+test('approvals sharedChange: branch pushes and PR authoring do not ask (Jan, 2026-10-29)', () => {
+    for (const command of ['agent-push', '/usr/local/sbin/agent-push', 'cd repo && agent-push',
+        'gh pr create -R janpuc/home-ops --base main --head agent/x --title t --body-file b.md',
+        'gh pr edit 42 --title t', 'gh pr comment 42 --body ok', 'gh pr ready 42'])
+        assert.equal(sharedChange(command), undefined, command);
+    for (const command of ['git push origin agent/x', 'gh pr merge 42 --squash', 'gh pr close 42',
+        'gh pr review 42 --approve', 'agent-push && git push', 'agent-push; kubectl delete pod x'])
         assert.ok(sharedChange(command), command);
 });

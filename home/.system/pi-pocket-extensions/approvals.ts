@@ -36,13 +36,14 @@ const cmd = (tool: string, verbs: string) =>
 const MERGE_GH_PR = cmd("gh", String.raw`pr\s+merge`);
 const RULES: [string, RegExp][] = [
     ["push git commits", cmd("git", "push")],
-    ["push git commits", /(?:^|[\s;&|(\x60/])agent-push(?=$|[\s;&|)\x60])/],
+    // agent-push is not asked about (Jan, 2026-10-29): it publishes a non-main branch as a
+    // verified commit, and GitHub rulesets keep every main branch out of the agent's reach.
     ["merge a GitHub PR", MERGE_GH_PR],
     [
         "write to GitHub",
         cmd(
             "gh",
-            String.raw`pr\s+(?:merge|close|reopen|comment|review|create|edit|ready|lock|unlock)|issue\s+(?:create|close|reopen|comment|edit|delete|transfer|lock|pin)|release\s+(?:create|delete|edit|upload)|repo\s+(?:create|delete|edit|rename|archive|fork|sync)|workflow\s+(?:run|enable|disable)|run\s+(?:rerun|cancel|delete)|(?:secret|variable|label)\s+(?:set|create|edit|delete)`,
+            String.raw`pr\s+(?:merge|close|reopen|review|lock|unlock)|issue\s+(?:create|close|reopen|comment|edit|delete|transfer|lock|pin)|release\s+(?:create|delete|edit|upload)|repo\s+(?:create|delete|edit|rename|archive|fork|sync)|workflow\s+(?:run|enable|disable)|run\s+(?:rerun|cancel|delete)|(?:secret|variable|label)\s+(?:set|create|edit|delete)`,
         ),
     ],
     [
@@ -70,6 +71,39 @@ const GH_API = /(?:^|[\s;&|(\x60/])gh\s+api\b([^;&|\n]*)/g;
 const HTTP = /(?:^|[\s;&|(\x60/])(curl|wget|http|https|httpie)\b([^;&|\n]*)/g;
 const HA_TARGET =
     /hass\.janpuc\.com|home-assistant\.janpuc\.com|\$HA_URL\b|\$\{HA_URL\}|\/api\/services\//i;
+/**
+ * The Home Assistant service calls that need no phone prompt: lights and scenes, and the
+ * reload services that apply a configuration change in place. Everything else - a script,
+ * a switch, a restart, the Supervisor - still asks Jan.
+ */
+const HA_ALLOWED_SERVICES = new Set([
+    "light.turn_on",
+    "light.turn_off",
+    "light.toggle",
+    "scene.turn_on",
+    "automation.reload",
+    "script.reload",
+    "scene.reload",
+    "homeassistant.reload_core_config",
+    "homeassistant.reload_all",
+    "group.reload",
+    "template.reload",
+    "input_boolean.reload",
+    "input_select.reload",
+    "input_number.reload",
+    "input_text.reload",
+    "input_datetime.reload",
+    "input_button.reload",
+    "timer.reload",
+    "zone.reload",
+]);
+/** A service URL on Jan's own Home Assistant: the host, then the domain and the service. */
+const HA_SERVICE_URL =
+    /^(?:https?:\/\/(?:hass|home-assistant)\.janpuc\.com|\$\{?HA_URL\}?)\/api\/services\/([^/?#\s]+)\/([^/?#\s]+)/;
+/** Curl options that can carry a second URL or a second request of their own. */
+const HA_AMBIGUOUS_OPTIONS = /^(?:--config|--next|--url|-[A-Za-z]*[K:].*)$/;
+/** A dry-run flag is not a curl option: such a command is not a plain service call. */
+const HA_DRY_RUN = /^--dry-run(?:=|$)/;
 
 /** What the command would change, or undefined for reads. */
 export function sharedChange(command: string): string | undefined {
@@ -81,12 +115,110 @@ export function sharedChange(command: string): string | undefined {
         !/(?:^|[ \t])--dry-run(?:=|[ \t]+)(?:none|false)(?=$|[ \t])/.test(command) &&
         /(?:^|[ \t])--dry-run(?:=(?:client|server|true))?(?=$|[ \t])/.test(command);
     const normalized = command.replace(/['"\\]/g, "");
-    return sharedChangeForm(command, dryRun) ?? sharedChangeForm(normalized, dryRun);
+    const change = sharedChangeForm(command, dryRun) ?? sharedChangeForm(normalized, dryRun);
+    // A light, a scene or a reload needs no phone prompt: it changes the home in place,
+    // the way Jan expects, and never restarts Home Assistant.
+    if (change === "call a Home Assistant service" && haServiceAllowed(command)) return undefined;
+    return change;
+}
+
+/**
+ * The tokens of one shell command, or undefined when the command uses shell syntax:
+ * chaining, substitution, redirection or an unclosed quote. Quoted text stays inside the
+ * token it belongs to, so a payload with spaces is one argument and not two commands.
+ */
+function shellTokens(command: string): string[] | undefined {
+    const tokens: string[] = [];
+    let token = "";
+    let quote = "";
+    for (let i = 0; i < command.length; i++) {
+        const ch = command[i]!;
+        if (quote) {
+            if (ch === quote) quote = "";
+            else token += ch;
+            continue;
+        }
+        if (ch === "'" || ch === '"') {
+            quote = ch;
+            continue;
+        }
+        if (ch === "\\") {
+            const next = command[i + 1];
+            if (next === "\n" || next === "\r") {
+                i++;
+                continue;
+            }
+            i++;
+            token += command[i] ?? "";
+            continue;
+        }
+        if (";&|()<>`\n\r".includes(ch)) return undefined;
+        if (ch === " " || ch === "\t") {
+            if (token) tokens.push(token);
+            token = "";
+            continue;
+        }
+        token += ch;
+    }
+    if (quote) return undefined;
+    if (token) tokens.push(token);
+    return tokens;
+}
+
+/**
+ * True when the command is one simple curl call to an allowed Home Assistant service: one
+ * command with no chaining and no substitution, exactly one service URL, on Jan's own
+ * Home Assistant, sent as a POST.
+ */
+export function haServiceAllowed(command: string): boolean {
+    // A substitution hides a second command, inside quotes too.
+    if (/\$\(|`/.test(command)) return false;
+    const tokens = shellTokens(command);
+    if (!tokens || tokens.length < 2) return false;
+    if (!/^(?:[A-Za-z0-9_./-]+\/)?curl$/.test(tokens[0]!)) return false;
+    if (tokens.some((token) => HA_AMBIGUOUS_OPTIONS.test(token) || HA_DRY_RUN.test(token)))
+        return false;
+    // Exactly one service URL in the whole command, not one token holding two of them.
+    if ((command.match(/\/api\/services\//g) ?? []).length !== 1) return false;
+    const url = tokens.find((token) => token.includes("/api/services/"));
+    if (!url) return false;
+    const service = HA_SERVICE_URL.exec(url);
+    if (!service) return false;
+    if (!HA_ALLOWED_SERVICES.has(`${service[1]}.${service[2]}`)) return false;
+    return isPostRequest(tokens);
+}
+
+/** True when a curl command sends a POST: an explicit method, or a body without a GET. */
+function isPostRequest(tokens: string[]): boolean {
+    let method = "";
+    let body = false;
+    for (let i = 1; i < tokens.length; i++) {
+        const token = tokens[i]!;
+        const request = token.match(/^(?:-X|--request|--method)(.*)$/);
+        if (request) {
+            const value = request[1]!.startsWith("=")
+                ? request[1]!.slice(1)
+                : request[1] || tokens[++i] || "";
+            method = value.toUpperCase();
+            continue;
+        }
+        if (/^(?:-[dF]|--(?:data[\w-]*|json|form(?:-string)?|post-data|post-file|body-data|body-file))/.test(token)) {
+            body = true;
+            continue;
+        }
+        if (token === "-G" || token === "--get") return false;
+    }
+    if (method) return method === "POST";
+    return body;
 }
 
 function sharedChangeForm(command: string, dryRun: boolean): string | undefined {
     for (const [, tool, args] of command.replace(/\\\r?\n/g, " ").matchAll(HTTP)) {
         if (!HA_TARGET.test(args!)) continue;
+        // A curl config file (-K/--config, short flags such as -sK included) or --next/-: can
+        // add a method, a body or more URLs that this line does not show: treat it as a write.
+        if (/\s(?:--config|--next)(?=$|[\s=])|\s-[A-Za-z]*[K:](?=$|\s|[^\s-])/.test(args!))
+            return "call a Home Assistant service";
         const writeMethod =
             /(?:-X|--request|--method)[\s=]*["']?(?:POST|PUT|PATCH|DELETE)\b/i.test(args!) ||
             /^\s+(?:POST|PUT|PATCH|DELETE)\b/i.test(args!);

@@ -27,6 +27,9 @@
 #   broker {{ include ".system/pr-broker-lock" | sha256sum }}
 set -eu
 repos="home-ops dotfiles BC250"
+# The Home Assistant config repo is new, and the App installation may not have it yet: a
+# failed clone is skipped (and retried on the next run) instead of failing the installer.
+optional_repos="home-assistant"
 version=v0.26.0
 commit=5e13a8b161226cbfef3e696c1bd31b8da110e381
 src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
@@ -133,8 +136,17 @@ as_pocket git config --global commit.gpgsign true
 as_pocket git config --global tag.gpgSign true
 # --replace-all: an older `gh auth setup-git` left two values here.
 as_pocket git config --global --replace-all credential.https://github.com.helper '!mise exec -- gh auth git-credential'
-for repo in $repos; do
-    as_pocket test -d "$home/work/$repo/.git" || as_pocket sh -c "cd ~ && mise exec -- gh repo clone janpuc/$repo work/$repo -- --quiet"
+for repo in $repos $optional_repos; do
+    if as_pocket test -d "$home/work/$repo/.git"; then
+        :
+    elif as_pocket sh -c "cd ~ && mise exec -- gh repo clone janpuc/$repo work/$repo -- --quiet"; then
+        :
+    else
+        case " $optional_repos " in
+            *" $repo "*) echo "Skipping the $repo clone: the repository or the App installation does not have it yet." ;;
+            *) echo "Cannot clone janpuc/$repo." >&2; exit 1 ;;
+        esac
+    fi
     as_pocket sh -c "cd ~/work/$repo && mise trust --all --quiet" || true
 done
 # home-ops' mise config points KUBECONFIG at the repo's own (git-ignored) kubeconfig.

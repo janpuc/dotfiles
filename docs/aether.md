@@ -19,7 +19,7 @@ reach Linux unless deliberately added there.
 | `home/.system/aether-hosts-sync*` (installed by `05-linux-system`) | hourly: derive internal DNS names from public home-ops into `/etc/hosts`, because the UniFi gateway does not answer DNS from the tailnet |
 | `home/.system/xterm-ghostty.terminfo` (`06-linux-terminfo`) | Ghostty terminfo in `~/.terminfo`, absent from Ubuntu's ncurses |
 | `home/.system/aether-keepalive*` (installed by `05-linux-system`) | hold 25% of RAM without CPU load to avoid Oracle's idle-instance reclamation criteria |
-| `home/.system/pi-pocket*` (installed by `20-linux-pi-pocket`) | [Pi Pocket](https://github.com/TannerMidd/pi-pocket) at a pinned release, run by the `pocket` user (no sudo, sees only its own home) as the `pi-pocket` system service on 127.0.0.1:8787; `tailscale serve` publishes it at `https://aether.<tailnet>.ts.net` on the tailnet only. At home the same URL works without Tailscale: a UniFi DNS record (`aether.tail17d532.ts.net` → aether's tailnet address, 100.108.252.49) and bob, the router on the tailnet, carry it. Node comes from pocket's own mise config. `pi-pocket-extensions/memini.ts` gives it memory in memini namespace `homelab/assistant` (home `personal/jan`): a briefing per conversation, recall on each message, and `memory_recall`/`memory_remember` tools; test it with `node --test` on its `memini.test.ts`. `approvals.ts` asks Jan in the app (push notification) before a bash command changes a shared system: git push, GitHub writes, cluster, Flux, Talos or Helm changes, chezmoi apply, Home Assistant service calls. `web.ts` gives it `web_search` (the home SearXNG at search.janpuc.com) and `web_fetch` (pages as text, with a FlareSolverr fallback). `pi-pocket-skills/` holds Pi skills for the cluster (read-only `view` access, Alertmanager and Prometheus over HTTPS), Home Assistant (`$HA_URL`, `$HA_TOKEN`) and GitHub (`gh`, signed in with the App's installation token). `ask-jan.ts` asks Jan a question on a card in the session, with the same push as an approval, and gives back only the option he chose. pocket's mise config adds gh, kubectl, flux and jq. `pi-pocket-gh-token` (a systemd timer, as `pocket`, every half hour) mints an installation token of the agent's own GitHub App, janpuc-agent (only home-ops, dotfiles and BC250, no admin or workflow rights; key from op://Kubernetes/janpuc-agent), and writes it into gh's own config for `pocket`, because a running service cannot see new environment values; git over HTTPS reads it through the `mise exec -- gh auth git-credential` helper. For dev work pocket commits as `janpuc-agent[bot]` (never as `bot-atlas[bot]`, the Renovate and kritika App, or Renovate takes the branch for its own), signed locally with its own key (`~pocket/.ssh/signing`, on GitHub as "pi-pocket (aether)"), but publishes only through `agent-push` for GitHub-verified App commits (see the PR shepherd below); home-ops, dotfiles and BC250 are cloned into `~pocket/work/` and trusted by mise, and new sessions start in `~pocket/scratch` |
+| `home/.system/pi-pocket*` (installed by `20-linux-pi-pocket`) | [Pi Pocket](https://github.com/TannerMidd/pi-pocket) at a pinned release, run by the `pocket` user (no sudo, sees only its own home) as the `pi-pocket` system service on 127.0.0.1:8787; `tailscale serve` publishes it at `https://aether.<tailnet>.ts.net` on the tailnet only. At home the same URL works without Tailscale: a UniFi DNS record (`aether.tail17d532.ts.net` → aether's tailnet address, 100.108.252.49) and bob, the router on the tailnet, carry it. Node comes from pocket's own mise config. `pi-pocket-extensions/memini.ts` gives it memory in memini namespace `homelab/assistant` (home `personal/jan`): a briefing per conversation, recall on each message, and `memory_recall`/`memory_remember` tools; test it with `node --test` on its `memini.test.ts`. `approvals.ts` asks Jan in the app (push notification) before a bash command changes a shared system: git push, GitHub writes, cluster, Flux, Talos or Helm changes, chezmoi apply, Home Assistant service calls (except the lights, scenes and reload services below, which are direct). `web.ts` gives it `web_search` (the home SearXNG at search.janpuc.com) and `web_fetch` (pages as text, with a FlareSolverr fallback). `pi-pocket-skills/` holds Pi skills for the cluster (read-only `view` access, Alertmanager and Prometheus over HTTPS), Home Assistant (`$HA_URL`, `$HA_TOKEN`, and Jan's Home Assistant configuration in `janpuc/home-assistant`) and GitHub (`gh`, signed in with the App's installation token). `ask-jan.ts` asks Jan a question on a card in the session, with the same push as an approval, and gives back only the option he chose. pocket's mise config adds gh, kubectl, flux and jq. `pi-pocket-gh-token` (a systemd timer, as `pocket`, every half hour) mints an installation token of the agent's own GitHub App, janpuc-agent (only home-ops, dotfiles, BC250 and home-assistant, with a fallback to the older three until Jan adds the new repository to the installation; no admin or workflow rights; key from op://Kubernetes/janpuc-agent), and writes it into gh's own config for `pocket`, because a running service cannot see new environment values; git over HTTPS reads it through the `mise exec -- gh auth git-credential` helper. For dev work pocket commits as `janpuc-agent[bot]` (never as `bot-atlas[bot]`, the Renovate and kritika App, or Renovate takes the branch for its own), signed locally with its own key (`~pocket/.ssh/signing`, on GitHub as "pi-pocket (aether)"), but publishes only through `agent-push` for GitHub-verified App commits (see the PR shepherd below); home-ops, dotfiles, BC250 and home-assistant are cloned into `~pocket/work/` (the last one skipped, without failing, while the repository or the App installation does not have it yet) and trusted by mise, and new sessions start in `~pocket/scratch` |
 
 No user-level systemd services, AI dot-directories or `~/.local/bin` launchers are allowlisted.
 The infrastructure units above are system services, installed separately by the Linux script.
@@ -178,6 +178,83 @@ what he wrote, which stays out of the transcript. If he answers with a time and
 the caller passed a reminder, that reminder is scheduled in the session for
 that time. Both skills use it for `Jan:` decisions only.
 
+## Home Assistant configuration in git
+
+Jan's Home Assistant runs on HAOS on another PC, at `https://hass.janpuc.com`
+(`$HA_URL` and `$HA_TOKEN` are in pocket's environment). Its configuration
+lives in the private repository `janpuc/home-assistant`: `configuration.yaml`,
+`automations.yaml`, `scripts.yaml`, `scenes.yaml`, `packages/` and
+`blueprints/`. Never `.storage`, `secrets.yaml` or a HACS-managed directory.
+The HAOS **Git pull** add-on pulls that repository every five minutes
+(`git_command: pull`, `auto_restart: false`); the pull only changes the files,
+so a merged change is live after the reload service that owns it has run. Jan
+merges every pull request to that repository himself.
+
+The agent's GitHub App (`janpuc-agent`) needs access to it. The token helper
+asks for `home-ops`, `dotfiles`, `BC250` and `home-assistant`, and falls back to
+the older three repositories, with a log line, when the installation does not
+have the new one yet, so `gh` keeps working until Jan adds
+`janpuc/home-assistant` to the App installation. The setup script clones the
+repository into `~pocket/work/home-assistant` and skips it, without failing,
+while the repository or the installation does not exist; the next run retries.
+
+### What runs without asking Jan
+
+`approvals.ts` asks Jan on his phone before a bash command changes a shared
+system. Home Assistant service calls are asked as well, with one exception: a
+single simple `curl` to one `/api/services/` URL on `hass.janpuc.com` or
+`$HA_URL` runs without a prompt when the service is one of
+
+- `light.turn_on`, `light.turn_off`, `light.toggle`, `scene.turn_on`;
+- the reload services: `automation.reload`, `script.reload`, `scene.reload`,
+  `homeassistant.reload_core_config`, `homeassistant.reload_all`,
+  `group.reload`, `template.reload`, `input_boolean.reload`,
+  `input_select.reload`, `input_number.reload`, `input_text.reload`,
+  `input_datetime.reload`, `input_button.reload`, `timer.reload`,
+  `zone.reload`.
+
+Everything else still asks: `script.*`, `switch.*`, `homeassistant.restart` and
+`homeassistant.stop`, every config-entry call and every Supervisor call (the
+token is no Supervisor admin: `/api/hassio/info` answers 401). The command has
+to be one invocation: no chaining, no substitution, one service URL, a POST.
+`home/.system/pi-pocket-extensions/approvals.test.ts` covers every allowed
+service and the asking cases.
+
+### The configuration loop
+
+The `home-assistant` skill owns it:
+
+1. branch `agent/<topic>` from `origin/main` in `~/work/home-assistant`;
+2. the smallest change that carries the topic;
+3. publish with `agent-push`, then `gh pr create -R janpuc/home-assistant`,
+   whose body names exactly which reload applies the change, or "needs a
+   restart" and why;
+4. wait for the CI of the pull request (`frenck/action-home-assistant`);
+5. ask Jan with `ask_jan` to merge it: the agent never merges that repository;
+6. after the merge, wait up to six minutes for the Git pull add-on, check that
+   the change is in Home Assistant (`GET /api/config/automation/config/<id>`
+   with the numeric id in the entity's attributes,
+   `GET /api/config/script/config/<script_id>`, or the state of the entity it
+   touches), then call the named reload service and verify the effect.
+
+A restart is a user-facing outage: eight of Jan's ten Shelly wall switches are
+in `detached` mode and drive smart bulbs through Home Assistant automations
+(Hall 1, Hall 2, Server Room, Bathroom 1, Office, Bedroom, and Living Room
+outputs 0 and 1; Bathroom 2 is in flip mode). While Home Assistant is down
+those eight switches do nothing at all. The agent never restarts Home
+Assistant without an `ask_jan` yes, and says why.
+
+### Jan's manual steps
+
+1. Create the private repository `janpuc/home-assistant` with the
+   configuration, and add `janpuc/home-assistant` to the `janpuc-agent` App
+   installation (contents and pull requests write).
+2. Add the **Git pull** add-on in Home Assistant OS, pointing at that
+   repository, with `git_command: pull`, `auto_restart: false` and the `main`
+   branch.
+3. Add a pull request workflow to that repository running
+   `frenck/action-home-assistant` on the configuration files.
+
 ## PR shepherd — Step 2: separate merge broker
 
 The **PRs** session uses `pr-shepherd/SKILL.md`. `pr-lane <N> [--json]` and
@@ -268,8 +345,10 @@ On refused/error/dry-run report and stop. A missing result is not permission to
 resubmit or assume success. Never retry with `gh pr merge` or merge APIs.
 
 `pr-merge-request` deliberately does **not** ask Jan: the separate broker
-makes the decision. Every other write still asks, including `agent-push`,
-direct `gh pr merge`, and API merges. Chaining a write onto a request does not
+makes the decision. `agent-push` and opening, editing, commenting on or
+marking a PR ready do not ask either (since 2026-10-29: the main branches are
+ruleset-protected). Every other write still asks, including direct
+`gh pr merge`, closing, reviews, and API merges. Chaining a write onto a request does not
 exempt the write. The approvals extension remains a mistake detector, not a
 sandbox. The **GitHub restrict-updates ruleset**, not that extension, prevents
 pocket's App from updating main. Do not use admin bypass or auto merge.
@@ -516,10 +595,11 @@ classification or serialize Renovate/Jan with the broker.
 ```sh
 node --test home/.system/*.test.cjs home/.system/pi-pocket-extensions/*.test.ts
 chezmoi --source "$PWD/home" --override-data '{"chezmoi":{"os":"linux"}}' execute-template < home/.chezmoiscripts/run_onchange_after_20-linux-pi-pocket.sh.tmpl > /tmp/pi-pocket-setup.sh
-shellcheck /tmp/pi-pocket-setup.sh home/.system/pr-broker-runtime.sh home/.system/pr-broker-lock
+shellcheck /tmp/pi-pocket-setup.sh home/.system/pr-broker-runtime.sh home/.system/pr-broker-lock home/.system/pi-pocket-gh-token
 sh -n /tmp/pi-pocket-setup.sh
 sh -n home/.system/pr-broker-runtime.sh
 sh -n home/.system/pr-broker-lock
+sh -n home/.system/pi-pocket-gh-token
 git diff --check
 ```
 
@@ -528,7 +608,8 @@ repos, fake gh/pr-lane paths and synthetic credentials/switch ownership, not
 shared-system writes. They cover validation, head/lane mismatch, dry-run,
 shared quota, malformed inputs, symlinks/FIFOs/hardlinks/races, flood bounds,
 result permissions, token scope, five/run and stop-first-failure semantics,
-approvals and installer/runtime invariants. Verify units with
+approvals (including the Home Assistant services that run without a prompt) and
+installer/runtime invariants. Verify units with
 `systemd-analyze verify` on Linux (passed on aether's systemd 255 with only
 unrelated existing executable-bit warnings on Oracle monitoring units). This
 checks unit syntax, not ExecStart arguments behind the lock wrapper. Actual App

@@ -31,6 +31,11 @@ test('pi-pocket setup installs upstream-diff root-owned, its mapping and skill a
     assert.ok(!setup.split('\n').some(line => /sudo (?:install|tee|cat)[^\n]*\$home/.test(line)));
     assert.ok(!setup.includes('sudo install -o root -g root -m 755 "$src/upstream-diff" /home/pocket'));
 });
+test('pi-pocket setup clones the Home Assistant config repo and skips it while it does not exist', () => {
+    for (const text of ['optional_repos="home-assistant"', 'for repo in $repos $optional_repos; do',
+        '*" $repo "*) echo "Skipping the $repo clone', '*) echo "Cannot clone janpuc/$repo." >&2; exit 1 ;;'])
+        assert.ok(setup.includes(text), text);
+});
 test('pr-shepherd setup hashes every broker source and installs pinned root runtime independent of mise', () => {
     for (const name of ['pr-broker', 'pr-broker-runtime.sh', 'pr-merge-request', 'pr-broker.service', 'pr-broker.timer', 'pr-lane-merge', 'pr-lane-merge.service', 'pr-lane-merge.timer', 'pr-broker-lock'])
         assert.ok(setup.includes(`include ".system/${name}" | sha256sum`), name);

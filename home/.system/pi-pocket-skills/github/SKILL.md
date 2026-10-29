@@ -44,8 +44,9 @@ plan; it refuses main/master, dirty trees, workflows, symlinks and mode changes
 work first; after publication it fetches and resets the equivalent local tree
 to the verified commit, then sets the upstream. Never push the old local SHAs.
 
-`agent-push`, closing, commenting and other GitHub/shared-system writes ask
-Jan on his phone. State the effect and repo/PR first. Never bypass a denial
+`agent-push` and opening, editing, commenting on or marking a PR ready do not ask
+(rulesets keep main out of reach). Merging, closing, reopening, reviews and other
+GitHub/shared-system writes ask Jan on his phone. State the effect and repo/PR first. Never bypass a denial
 through `gh api` or another tool. Direct merge paths still ask, but pocket's
 App cannot update home-ops main under its ruleset; do not use them.
 

@@ -65,7 +65,7 @@ Work in `~/work/home-ops` (a clone of `janpuc/home-ops`).
      the tree still resolves and which images it names.
    A validation that fails is fixed or the port is dropped; never published
    broken.
-4. **Publish** with `agent-push` (never `git push`; it asks Jan). Then open the
+4. **Publish** with `agent-push` (never `git push`; it does not ask Jan). Then open the
    PR with `gh pr create`:
    - title: `chore(upstream): port onedr0p <shortsha> <subject>`, with the
      subject of the newest commit of the group;

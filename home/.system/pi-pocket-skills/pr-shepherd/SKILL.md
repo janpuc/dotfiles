@@ -84,7 +84,7 @@ agent and never gets an A or B lane. It is gated on what upstream did:
    it is safe.
 2. If kritika flags something real, check out the PR branch, read repo
    instructions, fix the smallest issue and commit locally. Publish with
-   **`agent-push`**, never `git push`; it asks Jan before publishing. Do not
+   **`agent-push`**, never `git push`; it publishes without asking Jan. Do not
    bypass a denial with API calls. `agent-push --dry-run` previews the plan.
 3. After publishing, wait for kritika's **new head SHA** status and matching
    reviewed-commit comment, completed CI and fresh konflate. Run
@@ -109,5 +109,5 @@ Never fall back to `gh pr merge`, API merge calls, `--admin`, or `--auto`.
 GitHub restricts updates to main: pocket's App cannot merge. Only the broker
 can authorize an A/B merge, after its own fresh classification of that exact
 head. A lane result is not a substitute for B review. Other GitHub/shared-system
-writes still ask Jan, including `agent-push` and direct `gh pr merge` (which
+writes still ask Jan, including direct `gh pr merge` (which
 will fail under the ruleset). Never change the broker's switches or policy.
