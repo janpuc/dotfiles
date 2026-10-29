@@ -10,9 +10,10 @@ Group=pr-broker
 WorkingDirectory=/var/lib/pr-broker
 Environment=PATH=/usr/bin:/bin HOME=/var/lib/pr-broker GH_CONFIG_DIR=/var/lib/pr-broker/gh
 UnsetEnvironment=NODE_OPTIONS NODE_PATH GH_TOKEN GITHUB_TOKEN GH_HOST GH_CONFIG_DIR XDG_CONFIG_HOME LD_PRELOAD LD_LIBRARY_PATH
-# Both services share a lock and persistent rolling-hour quota. A busy lock is a no-op.
-ExecStart=/usr/bin/flock --nonblock --conflict-exit-code 0 /var/lib/pr-broker/merge.lock /opt/pr-broker/bin/node /usr/local/sbin/pr-lane-merge
-TimeoutStartSec=25min
+# Both services share a lock and persistent rolling-hour quota. pr-broker-lock
+# takes the lock and logs every skip: lane A waits 300s, then gives up loudly.
+ExecStart=/usr/local/sbin/pr-broker-lock lane-a
+TimeoutStartSec=30min
 UMask=0027
 NoNewPrivileges=yes
 PrivateTmp=yes

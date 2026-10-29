@@ -22,6 +22,7 @@
 #   broker {{ include ".system/pr-lane-merge" | sha256sum }}
 #   broker {{ include ".system/pr-lane-merge.service" | sha256sum }}
 #   broker {{ include ".system/pr-lane-merge.timer" | sha256sum }}
+#   broker {{ include ".system/pr-broker-lock" | sha256sum }}
 set -eu
 repos="home-ops dotfiles BC250"
 version=v0.26.0
@@ -165,7 +166,7 @@ sudo install -d -o root -g root -m 755 /var/spool/pr-broker
 sudo install -d -o pr-broker -g pr-requesters -m 3770 /var/spool/pr-broker/requests /var/spool/pr-broker/staging
 sudo install -d -o pr-broker -g pr-requesters -m 2750 /var/spool/pr-broker/results
 sudo /bin/sh "$src/pr-broker-runtime.sh"
-for tool in agent-push pr-lane pr-broker pr-merge-request pr-lane-merge; do
+for tool in agent-push pr-lane pr-broker pr-merge-request pr-lane-merge pr-broker-lock; do
     sudo install -o root -g root -m 755 "$src/$tool" "/usr/local/sbin/$tool"
 done
 sudo install -o root -g root -m 644 "$src/pr-broker.service" "$src/pr-broker.timer" "$src/pr-lane-merge.service" "$src/pr-lane-merge.timer" /etc/systemd/system/

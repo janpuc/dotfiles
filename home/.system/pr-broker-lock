@@ -1,0 +1,42 @@
+#!/bin/sh
+# Run one broker mode under the shared merge lock. Root-owned and static: it
+# decides who waits for the lock and says in the log what it did, so a skipped
+# run is never a silent success. It holds no merge policy of its own.
+#
+# Requests never wait: they skip a busy lock and the next timer run retries
+# them. Lane A waits a bounded time and then gives up with a line in the log.
+# Waiting never holds the lock, so neither runner can starve the other.
+set -eu
+lock=/var/lib/pr-broker/merge.lock
+node=/opt/pr-broker/bin/node
+# 75 is flock's conflict code. The broker itself exits 0 or 1 only, so 75
+# never hides a failed run.
+conflict=75
+mode=${1:-}
+case "$mode" in
+    requests) program=/usr/local/sbin/pr-broker; bound=0 ;;
+    lane-a) program=/usr/local/sbin/pr-lane-merge; bound=300 ;;
+    *) echo "pr-broker-lock: unknown mode" >&2; exit 2 ;;
+esac
+wait=${2:-$bound}
+case "$wait" in
+    ''|*[!0-9]*) echo "pr-broker-lock: invalid wait bound" >&2; exit 2 ;;
+esac
+[ "$wait" -le 3600 ] || { echo "pr-broker-lock: wait bound out of range" >&2; exit 2; }
+status=0
+if [ "$wait" -eq 0 ]; then
+    /usr/bin/flock --nonblock --conflict-exit-code "$conflict" "$lock" "$node" "$program" || status=$?
+else
+    /usr/bin/flock --timeout "$wait" --conflict-exit-code "$conflict" "$lock" "$node" "$program" || status=$?
+fi
+case "$status" in
+    0) exit 0 ;;
+    "$conflict")
+        if [ "$wait" -eq 0 ]; then
+            echo "pr-broker: skipped: lock held" >&2
+        else
+            echo "pr-lane-merge: gave up waiting ${wait}s for the merge lock; operator cleanup needed" >&2
+        fi
+        exit 0 ;;
+    *) exit "$status" ;;
+esac

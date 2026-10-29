@@ -133,6 +133,42 @@ test('pr-broker bounds hostile results per run and never republishes a reported 
     assert.match(log[3], /refused 0 hostile entries;/);
     assert.equal(f.pending().length, 50);
 });
+test('pr-broker never evicts a live leftover, so 501 leftovers are reported once each', async t => {
+    const f = fixture(t), log = [];
+    t.mock.method(console, 'error', line => log.push(line));
+    // More leftovers than the report may remember: the ones over the cap are
+    // never published, and the ones inside it are never published twice.
+    for (let i = 0; i < 501; i++) {
+        const dir = join(f.o.spool, 'requests', `bad-directory-${i}`);
+        fs.mkdirSync(dir); fs.writeFileSync(join(dir, 'child'), 'never traverse');
+    }
+    for (let run = 1; run <= 30; run++) {
+        log.length = 0;
+        await f.run();
+        assert.ok(f.results().length <= 500, `run ${run}: ${f.results().length} results`);
+        const report = JSON.parse(fs.readFileSync(join(f.o.state, 'hostile-report.json'), 'utf8'));
+        assert.ok(report.length <= 500, `run ${run}: ${report.length} remembered leftovers`);
+        for (const item of report)
+            assert.ok(fs.existsSync(join(f.o.spool, 'requests', item.name)), `run ${run}: ${item.name} was evicted`);
+    }
+    // Every remembered leftover was reported exactly once and never again.
+    assert.equal(f.results().length, 500);
+    const report = JSON.parse(fs.readFileSync(join(f.o.state, 'hostile-report.json'), 'utf8'));
+    assert.equal(report.length, 500);
+    assert.equal(new Set(report.map(item => item.name)).size, 500);
+    // The one leftover over the cap is reported as an aggregate warning, once
+    // per run, and never as a result.
+    assert.ok(log.some(line => /hostile leftovers over capacity: 1; operator cleanup needed/.test(line)), log.join('\n'));
+    assert.ok(!log.some(line => /over capacity/.test(line) && /refused/.test(line)));
+    // An identity whose entry is gone is pruned, and its room is free again.
+    fs.rmSync(join(f.o.spool, 'requests', 'bad-directory-0'), { recursive: true });
+    await f.run();
+    const pruned = JSON.parse(fs.readFileSync(join(f.o.state, 'hostile-report.json'), 'utf8'));
+    assert.equal(pruned.length, 500);
+    assert.ok(!pruned.some(item => item.name === 'bad-directory-0'));
+    // The freed room publishes the leftover that was over the cap, once.
+    assert.equal(f.results().length, 501);
+});
 test('pr-broker result cleanup advances through every entry over successive runs', async t => {
     const f = fixture(t), results = join(f.o.spool, 'results');
     const old = Date.now() - 8 * 86400000;

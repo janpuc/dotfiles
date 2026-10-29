@@ -145,7 +145,17 @@ function parseReview(pr, status, comments) {
 function tableCells(line) {
     const trimmed = line.trim();
     if (!trimmed.startsWith('|')) return null;
-    return trimmed.replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
+    // An escaped pipe belongs to the cell, it does not separate columns.
+    const body = trimmed.replace(/^\|/, '').replace(/\|$/, '');
+    const cells = [];
+    let cell = '';
+    for (let i = 0; i < body.length; i++) {
+        if (body[i] === '\\' && body[i + 1] === '|') { cell += '|'; i++; continue; }
+        if (body[i] === '|') { cells.push(cell); cell = ''; continue; }
+        cell += body[i];
+    }
+    cells.push(cell);
+    return cells.map(cell => cell.trim());
 }
 function cellText(cell) { return cell.replace(/[`*_]/g, '').trim(); }
 // The package name is the link text, never the URL behind it.
@@ -153,37 +163,63 @@ function packageName(cell) {
     const link = cell.match(/^\[([^\]]*)\]/);
     return cellText(link ? link[1] : cell);
 }
-// The Renovate body is bot-authored and edit-checked, so its update table is the
-// only trusted source for the update type. Labels can be renamed by an untrusted
-// actor and therefore never qualify a PR for a lane.
+// The release notes, the details blocks and the configuration section hold
+// upstream-controlled text that Renovate copies verbatim. The first table of
+// the body is Renovate's own summary table; every later table is not trusted.
+const RELEASE_SECTIONS = [/^\s{0,3}---\s*$/, /^\s{0,3}<details[\s>]/i,
+    /^#{1,6}\s+release notes\b/i, /^#{1,6}\s+configuration\b/i];
+// The first markdown table outside a fenced code block, but only before the
+// release notes. Fenced tables are not tables at all; the search never
+// continues past the first table it finds.
+function firstTableLine(lines) {
+    let fence = null;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+        if (marker) {
+            if (fence === null) fence = marker[1][0];
+            else if (marker[1][0] === fence) fence = null;
+            continue;
+        }
+        if (fence !== null) continue;
+        if (RELEASE_SECTIONS.some(section => section.test(line))) return -1;
+        if (tableCells(line)) return i;
+    }
+    return -1;
+}
+// The Renovate body is bot-authored and edit-checked, so its summary table is
+// the only trusted source for the update type. Labels can be renamed by an
+// untrusted actor and therefore never qualify a PR for a lane.
 function parseUpdateType(body) {
     const fail = error => ({ type: null, rows: [], packages: [], error });
     if (typeof body !== 'string' || !body.trim()) return fail('PR body is empty');
     const lines = body.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-        const header = tableCells(lines[i]);
-        if (!header) continue;
-        const index = header.findIndex(cell => cellText(cell).toLowerCase() === 'update');
-        if (index === -1) continue;
-        const separator = tableCells(lines[i + 1] ?? '');
-        if (!separator || separator.length !== header.length || !separator.every(cell => /^:?-+:?$/.test(cell)))
-            return fail('update table has no separator row');
-        const rows = [];
-        for (let j = i + 2; j < lines.length; j++) {
-            const row = tableCells(lines[j]);
-            if (!row) break;
-            if (row.length !== header.length) return fail('update table row has the wrong column count');
-            const raw = cellText(row[index]).toLowerCase();
-            const known = UPDATE_TYPES.get(raw);
-            if (!known) return fail(`update table has an unknown update type ${JSON.stringify(raw)}`);
-            rows.push({ type: known.name, severity: known.severity,
-                package: packageName(row[0]), change: row[row.length - 1] });
-        }
-        if (!rows.length) return fail('update table has no rows');
-        const worst = rows.reduce((a, b) => (b.severity > a.severity ? b : a));
-        return { type: worst.type, rows, packages: rows.map(row => row.package), error: null };
+    const start = firstTableLine(lines);
+    if (start === -1) return fail('no update table before the release notes in PR body');
+    const header = tableCells(lines[start]);
+    const names = header.map(cell => cellText(cell).toLowerCase());
+    const updates = names.map((name, index) => (name === 'update' ? index : -1)).filter(index => index !== -1);
+    if (!updates.length) return fail('update table has no Update column');
+    if (updates.length > 1) return fail('update table has more than one Update column');
+    if (!names.includes('package')) return fail('update table has no Package column');
+    const index = updates[0], packageIndex = names.indexOf('package');
+    const separator = tableCells(lines[start + 1] ?? '');
+    if (!separator || separator.length !== header.length || !separator.every(cell => /^:?-+:?$/.test(cell)))
+        return fail('update table has no separator row');
+    const rows = [];
+    for (let j = start + 2; j < lines.length; j++) {
+        const row = tableCells(lines[j]);
+        if (!row) break;
+        if (row.length !== header.length) return fail('update table row has the wrong column count');
+        const raw = cellText(row[index]).toLowerCase();
+        const known = UPDATE_TYPES.get(raw);
+        if (!known) return fail(`update table has an unknown update type ${JSON.stringify(raw)}`);
+        rows.push({ type: known.name, severity: known.severity,
+            package: packageName(row[packageIndex]), change: row[index + 1] ?? row[row.length - 1] });
     }
-    return fail('no update table in PR body');
+    if (!rows.length) return fail('update table has no rows');
+    const worst = rows.reduce((a, b) => (b.severity > a.severity ? b : a));
+    return { type: worst.type, rows, packages: rows.map(row => row.package), error: null };
 }
 function classify({ pr, files, statuses, checks, comments, entry, rendered, errors = [], actors = [], comparison = {} }) {
     const waiting = [...errors], caution = [...actors], automatic = [], notes = [];

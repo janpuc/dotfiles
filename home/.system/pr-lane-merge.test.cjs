@@ -29,3 +29,21 @@ test('pr-lane-merge stops on first merge failure, changed head, or lane no longe
         assert.ok(['error', 'refused'].includes(f.results()[0].status));
     }
 });
+test('pr-lane-merge logs its mode and candidate count at the start of every run', async t => {
+    const f = fixture(t), log = [];
+    t.mock.method(console, 'log', line => log.push(line));
+    candidates(f);
+    await f.run('lane-a');
+    const first = JSON.parse(log[0]);
+    assert.equal(first.run, 'lane-a'); assert.equal(first.mode, 'DRY-RUN');
+    assert.equal(first.candidates, 5); assert.equal(first.laneA, 7);
+    // An empty run is visible too.
+    log.length = 0; f.data.prs = []; f.save();
+    await f.run('lane-a');
+    const empty = JSON.parse(log[0]);
+    assert.equal(empty.candidates, 0); assert.equal(empty.mode, 'DRY-RUN');
+    // The root switch turns the mode into ENABLED.
+    log.length = 0; candidates(f); f.enable('lane-a');
+    await f.run('lane-a');
+    assert.equal(JSON.parse(log[0]).mode, 'ENABLED');
+});

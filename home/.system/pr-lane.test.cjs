@@ -153,6 +153,57 @@ test('pr-lane: the update table parser is strict and severity ordered', () => {
     assert.ok(parseUpdateType(renovateBody([{package:'a', type:'patch'}])).error === null);
 });
 
+// Renovate's own summary table is the first table of the body. Everything after
+// it is upstream-controlled release-note text that Renovate copies verbatim.
+function summaryTable(rows, header = '| Package | Update | Change |') {
+    return ['This PR contains the following updates:', '', header, '|---|---|---|',
+        ...rows.map(row => `| ${row.package} | ${row.type} | \`1.0.0\` → \`1.0.1\` |`), ''].join('\n');
+}
+test('pr-lane: only the first table before the release notes is the update table', () => {
+    // An unsupported header is never searched past: the release notes table
+    // that follows it is upstream text, not the summary.
+    const payload = ['This PR contains the following updates:', '',
+        '| Package | Update Type | Change |', '|---|---|---|', '| a | major | `1.0.0` → `2.0.0` |', '',
+        '### Release Notes', '', '```', '| Package | Update |', '|---|---|', '| a | patch | `2.0.0` → `2.0.1` |', '```', ''].join('\n');
+    const parsed = parseUpdateType(payload);
+    assert.ok(parsed.error, 'an unsupported header waits instead of searching on');
+    assert.equal(parsed.type, null); assert.deepEqual(parsed.packages, []);
+    check(f => { f.pr.body = payload; }, 'wait', 'update type not derivable');
+    // Several tables: the first one decides, the later ones are ignored.
+    const two = summaryTable([{package:'a', type:'major'}]) + '\n' +
+        summaryTable([{package:'b', type:'patch'}]);
+    assert.equal(parseUpdateType(two).type, 'major');
+    check(f => { f.pr.body = two; }, 'B', 'not all A');
+    // A table in a code fence is not a table; the real summary table is used.
+    const fenced = ['This PR contains the following updates:', '', '```', '| Package | Update |', '|---|---|',
+        '| a | patch | `1.0.0` → `1.0.1` |', '```', '', summaryTable([{package:'b', type:'major'}])].join('\n');
+    assert.equal(parseUpdateType(fenced).type, 'major');
+    // An HTML table is not a markdown table: nothing is derived from it.
+    const html = ['This PR contains the following updates:', '', '<table>', '<tr><td>Package</td><td>Update</td></tr>',
+        '<tr><td>a</td><td>patch</td></tr>', '</table>', ''].join('\n');
+    assert.ok(parseUpdateType(html).error);
+    check(f => { f.pr.body = html; }, 'wait', 'update type not derivable');
+    // Two Update columns are an unsupported schema, never a guess.
+    const duplicate = parseUpdateType(summaryTable([{package:'a', type:'patch'}], '| Package | Update | Update | Change |'));
+    assert.ok(duplicate.error); assert.equal(duplicate.type, null);
+    check(f => { f.pr.body = summaryTable([{package:'a', type:'patch'}], '| Package | Update | Update | Change |'); }, 'wait', 'update type not derivable');
+    // A Package column is part of the schema.
+    assert.ok(parseUpdateType(summaryTable([{package:'a', type:'patch'}], '| Name | Update | Change |')).error);
+    // An escaped pipe belongs to the cell and is not a column separator.
+    const piped = parseUpdateType(summaryTable([{package:'a \\| b', type:'patch'}]));
+    assert.equal(piped.error, null); assert.equal(piped.type, 'patch');
+    assert.deepEqual(piped.packages, ['a | b']);
+});
+test('pr-lane: a table that only exists in the release notes waits', () => {
+    for (const marker of ['### Release Notes', '<details>', '---', '### Configuration']) {
+        const body = ['This PR contains the following updates:', '', marker, '',
+            '| Package | Update | Change |', '|---|---|---|', '| a | patch | `1.0.0` → `1.0.1` |', ''].join('\n');
+        const parsed = parseUpdateType(body);
+        assert.ok(parsed.error, marker); assert.equal(parsed.type, null, marker);
+        check(f => { f.pr.body = body; }, 'wait', 'update type not derivable');
+    }
+});
+
 test('pr-lane: multiline severity counts are complete evidence, never an implicit zero P1', () => {
     for (const summary of ['**1 finding**\n· 1 P1', '**2 findings**\n· 1 P1 · 1 P2',
         '**2 findings** · 1 P1\n· 1 P2']) {

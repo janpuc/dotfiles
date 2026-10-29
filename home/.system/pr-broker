@@ -9,6 +9,8 @@ const REPO = 'janpuc/home-ops';
 const NAME = /^request-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
 // Bounded work per run: hostile entries handled, remembered reported leftovers and
 // result entries examined. Successive runs reach the entries a run had to skip.
+// The reported-leftover cap only stops new leftovers from being reported: a
+// remembered leftover is never evicted while its entry still exists.
 const HOSTILE_LIMIT = 20;
 const REPORTED_LIMIT = 500;
 const RESULT_LIMIT = 1000;
@@ -167,8 +169,14 @@ async function runBroker(mode = 'requests', options = {}) {
     if (mode === 'lane-a') {
         const prs = await classify('--all');
         if (!Array.isArray(prs)) throw Error('invalid pr-lane list');
-        const candidates = prs.filter(p => p.lane === 'A').sort((a, b) =>
+        const laneA = prs.filter(p => p.lane === 'A');
+        const candidates = laneA.sort((a, b) =>
             String(a.facts?.createdAt).localeCompare(String(b.facts?.createdAt)) || a.pr - b.pr).slice(0, 5);
+        // Every lane A run says what it was and what it found, so an empty run
+        // is visible in the log instead of a silent success.
+        console.log(JSON.stringify({ run: 'lane-a',
+            mode: enabled(join(o.config, 'lane-a.enabled')) ? 'ENABLED' : 'DRY-RUN',
+            candidates: candidates.length, laneA: laneA.length }));
         for (const pr of candidates) {
             const name = `lane-a-${randomUUID()}.json`;
             let result;
@@ -221,8 +229,16 @@ async function runBroker(mode = 'requests', options = {}) {
     if (!Array.isArray(stored) || stored.some(item => !item || typeof item.name !== 'string' ||
         !Number.isSafeInteger(item.ino) || !Number.isFinite(item.mtimeMs))) throw Error('hostile report invalid');
     const reported = new Map(stored.map(item => [item.name, item]));
+    // Prune the identities whose entry is gone. A live identity is never
+    // evicted: forgetting it would report the very same leftover again.
+    for (const name of [...reported.keys()]) {
+        // A directory entry name never holds a slash or a NUL byte.
+        if (name.includes('/') || name.includes('\0')) { reported.delete(name); continue; }
+        try { fs.lstatSync(join(requestsDir, name)); }
+        catch (error) { if (error.code === 'ENOENT') { reported.delete(name); continue; } throw error; }
+    }
     const cleanup = fs.opendirSync(requestsDir);
-    let refused = 0, leftovers = 0, repeated = 0, deferred = 0;
+    let refused = 0, leftovers = 0, repeated = 0, deferred = 0, overCapacity = 0;
     const leftoverNames = [];
     try {
         for (let entry; (entry = cleanup.readSync());) {
@@ -234,6 +250,10 @@ async function runBroker(mode = 'requests', options = {}) {
             catch (error) { if (error.code === 'ENOENT') continue; throw error; }
             const known = reported.get(name);
             if (known && known.ino === stat.ino && known.mtimeMs === stat.mtimeMs) { repeated++; continue; }
+            // A leftover that is new to the report needs an identity of its own.
+            // Without room in the report it could not be remembered, and the
+            // next run would publish it a second time: report it never.
+            if (!known && reported.size >= REPORTED_LIMIT) { overCapacity++; continue; }
             refused++;
             if (NAME.test(name)) reserveRequest(o.state, name);
             writeResult(NAME.test(name) ? name : `invalid-${randomUUID()}.json`, malformed, false);
@@ -251,9 +271,12 @@ async function runBroker(mode = 'requests', options = {}) {
             }
         }
     } finally { cleanup.closeSync(); }
-    while (reported.size > REPORTED_LIMIT) reported.delete(reported.keys().next().value);
+    // The report keeps every live identity: it is never trimmed to a cap, so an
+    // unchanged leftover is never reported twice. The cap only stops new
+    // leftovers from being reported, and says so once per run.
     atomicJSON(reportFile, [...reported.values()]);
     if (refused || repeated || deferred) console.error(`pr-broker: refused ${refused} hostile entries; ${leftovers} leftovers, ${repeated} already reported, ${deferred} deferred (no recursive traversal); first names ${JSON.stringify(leftoverNames)}`);
+    if (overCapacity) console.error(`pr-broker: hostile leftovers over capacity: ${overCapacity}; operator cleanup needed`);
     // Results are not secrets. Retain seven days; cap cleanup work just like input
     // work and rotate through every entry over successive runs.
     const cursorFile = join(o.state, 'result-cursor.json');

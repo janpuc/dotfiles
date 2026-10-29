@@ -128,9 +128,14 @@ confidence still come from its head-specific commit status; pocket only has
 statuses:read. PR text, labels and comment author/marker alone are not trusted.
 
 The update type comes from the PR body's Renovate update table, which is
-bot-authored and edit-checked. The table's `Update` column is read per row and
-the most severe type wins (major > minor > patch > digest); a missing,
-malformed or unknown value is **wait**. Repository labels can be renamed without
+bot-authored and edit-checked. Only the **first** table of the body is read,
+and only when it appears before the release notes (`---`, `<details>`,
+`### Release Notes`, `### Configuration`): every later table is upstream
+release-note text that Renovate copies verbatim, so it is never read. That
+table must have exactly one `Update` column and a `Package` column; the
+`Update` column is read per row and the most severe type wins
+(major > minor > patch > digest); a missing, malformed or unknown value is
+**wait**. Repository labels can be renamed without
 leaving a PR timeline event, so a label never qualifies a lane: only a
 conservative C trigger such as a `type/major` label may come from labels.
 
@@ -250,7 +255,11 @@ remote and local branch rather than retrying or force-pushing blindly.
   paths `/opt/pr-broker/bin/{node,gh}` point into root-owned versioned releases.
   `pr-lane` and both runners have that absolute Node shebang; the broker passes
   an absolute `--gh` path to the classifier. CLI `--node`/`--lane`/`--gh` path
-  overrides exist for testing; installed units never use overrides. Only root
+  overrides exist for testing; installed units never use overrides. The units
+  start `/usr/local/sbin/pr-broker-lock`, a root-owned static shell script that
+  takes the shared `flock` and runs one runner under it: requests never wait
+  and log `skipped: lock held`, lane A waits 300 s and logs when it gives up.
+  Only root
   can change the units or launch commands as pr-broker. Keep runtime pins in
   `pr-broker-runtime.sh` in step with `pi-pocket-mise.toml` (tested).
 
@@ -268,7 +277,12 @@ kernel protections. Node JIT requires executable mappings, so
 ### Deterministic merge path and switches
 
 `pr-broker.timer` runs requests every minute; `pr-lane-merge.timer` runs lane A
-on the half hour. Both run as pr-broker under the same `flock`. For requests,
+on the half hour. Both run as pr-broker under the same `flock`, taken by the
+root-owned `pr-broker-lock` wrapper: requests never wait and log
+`skipped: lock held` when they skip, lane A waits up to 300 s and logs when it
+gives up. Waiting never holds the lock, so neither runner starves the other.
+Every lane A run logs its mode (`DRY-RUN`/`ENABLED`) and its candidate count.
+For requests,
 the broker ignores the submitter's claims, freshly classifies the numeric PR,
 and merges only **A or B with the exact requested head**. Lane A processing
 selects oldest first, at most five, reclassifies before each merge and stops
@@ -423,9 +437,10 @@ classification or serialize Renovate/Jan with the broker.
 ```sh
 node --test home/.system/*.test.cjs home/.system/pi-pocket-extensions/*.test.ts
 chezmoi --source "$PWD/home" --override-data '{"chezmoi":{"os":"linux"}}' execute-template < home/.chezmoiscripts/run_onchange_after_20-linux-pi-pocket.sh.tmpl > /tmp/pi-pocket-setup.sh
-shellcheck /tmp/pi-pocket-setup.sh home/.system/pr-broker-runtime.sh
+shellcheck /tmp/pi-pocket-setup.sh home/.system/pr-broker-runtime.sh home/.system/pr-broker-lock
 sh -n /tmp/pi-pocket-setup.sh
 sh -n home/.system/pr-broker-runtime.sh
+sh -n home/.system/pr-broker-lock
 git diff --check
 ```
 
@@ -437,5 +452,5 @@ result permissions, token scope, five/run and stop-first-failure semantics,
 approvals and installer/runtime invariants. Verify units with
 `systemd-analyze verify` on Linux (passed on aether's systemd 255 with only
 unrelated existing executable-bit warnings on Oracle monitoring units). This
-checks unit syntax, not ExecStart arguments behind flock. Actual App
+checks unit syntax, not ExecStart arguments behind the lock wrapper. Actual App
 authentication and hardened runtime need the operator dry-run checks above.

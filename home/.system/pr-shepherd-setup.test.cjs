@@ -17,7 +17,7 @@ test('pr-shepherd setup isolates broker account, spool, root code and secrets, r
     assert.ok(setup.indexOf('sudo systemctl stop "$unit"') < setup.indexOf('sudo /bin/sh "$src/pr-broker-runtime.sh"'));
 });
 test('pr-shepherd setup hashes every broker source and installs pinned root runtime independent of mise', () => {
-    for (const name of ['pr-broker', 'pr-broker-runtime.sh', 'pr-merge-request', 'pr-broker.service', 'pr-broker.timer', 'pr-lane-merge', 'pr-lane-merge.service', 'pr-lane-merge.timer'])
+    for (const name of ['pr-broker', 'pr-broker-runtime.sh', 'pr-merge-request', 'pr-broker.service', 'pr-broker.timer', 'pr-lane-merge', 'pr-lane-merge.service', 'pr-lane-merge.timer', 'pr-broker-lock'])
         assert.ok(setup.includes(`include ".system/${name}" | sha256sum`), name);
     const runtime = source('pr-broker-runtime.sh'), mise = source('pi-pocket-mise.toml');
     for (const tool of ['node', 'gh']) {
@@ -32,13 +32,69 @@ test('pr-shepherd units share lock, empty capabilities, protect homes and explic
         const unit = source(`${name}.service`);
         for (const text of ['User=pr-broker', 'ProtectHome=yes', 'ProtectSystem=strict', 'NoNewPrivileges=yes',
             'PrivateTmp=yes', 'CapabilityBoundingSet=\n', 'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6',
-            '/usr/bin/flock --nonblock --conflict-exit-code 0 /var/lib/pr-broker/merge.lock',
-            '/opt/pr-broker/bin/node /usr/local/sbin/', 'ReadWritePaths=/var/lib/pr-broker /var/spool/pr-broker/requests /var/spool/pr-broker/results'])
+            'ExecStart=/usr/local/sbin/pr-broker-lock ',
+            'ReadWritePaths=/var/lib/pr-broker /var/spool/pr-broker/requests /var/spool/pr-broker/results'])
             assert.ok(unit.includes(text), `${name}: ${text}`);
         assert.ok(!unit.includes('BindPaths=')); assert.ok(!unit.includes('/home/pocket'));
     }
+    assert.match(source('pr-broker.service'), /ExecStart=\/usr\/local\/sbin\/pr-broker-lock requests/);
+    assert.match(source('pr-lane-merge.service'), /ExecStart=\/usr\/local\/sbin\/pr-broker-lock lane-a/);
+    // The lane A run waits for the lock, the request run never does.
+    assert.match(source('pr-lane-merge.service'), /TimeoutStartSec=30min/);
     assert.match(source('pr-broker.timer'), /OnUnitInactiveSec=1min/);
     assert.match(source('pr-lane-merge.timer'), /OnCalendar=\*:0\/30/);
+});
+test('pr-shepherd lock wrapper: a held lock is logged, a failed run keeps its status', t => {
+    const fs = require('node:fs'), cp = require('node:child_process'), os = require('node:os');
+    const root = fs.mkdtempSync(join(os.tmpdir(), 'broker-lock-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    // The wrapper's decision, not flock itself: the exit code is the contract.
+    const code = join(root, 'code'), fakeFlock = join(root, 'flock'), broker = join(root, 'broker');
+    fs.writeFileSync(code, '0');
+    fs.writeFileSync(fakeFlock, `#!/bin/sh
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --conflict-exit-code|--timeout) shift 2 ;;
+        -*) shift ;;
+        *) break ;;
+    esac
+done
+shift
+status=$(cat "${code}")
+[ "$status" -eq 0 ] && exec "$@"
+exit "$status"
+`, { mode: 0o755 });
+    fs.writeFileSync(broker, '#!/bin/sh\necho "broker ran"\n', { mode: 0o755 });
+    const wrapper = source('pr-broker-lock')
+        .replaceAll('/usr/bin/flock', fakeFlock)
+        .replaceAll('/var/lib/pr-broker/merge.lock', join(root, 'merge.lock'))
+        .replaceAll('/opt/pr-broker/bin/node', broker)
+        .replaceAll('/usr/local/sbin/pr-broker', broker)
+        .replaceAll('/usr/local/sbin/pr-lane-merge', broker);
+    fs.writeFileSync(join(root, 'pr-broker-lock'), wrapper, { mode: 0o755 });
+    const run = (...args) => cp.spawnSync(join(root, 'pr-broker-lock'), args, { encoding: 'utf8' });
+    // A free lock runs the broker.
+    let result = run('requests');
+    assert.equal(result.status, 0); assert.ok(result.stdout.includes('broker ran'));
+    // A held lock is a logged skip, never a silent success.
+    fs.writeFileSync(code, '75');
+    result = run('requests');
+    assert.equal(result.status, 0);
+    assert.match(result.stderr, /skipped: lock held/);
+    assert.ok(!result.stdout.includes('broker ran'));
+    // Lane A gives up on the same conflict and says so.
+    result = run('lane-a');
+    assert.equal(result.status, 0);
+    assert.match(result.stderr, /gave up waiting 300s for the merge lock/);
+    // A failed run keeps its exit status.
+    fs.writeFileSync(code, '1');
+    result = run('requests');
+    assert.equal(result.status, 1);
+    assert.ok(!result.stderr.includes('skipped: lock held'));
+    // An unknown mode or a bad bound is refused.
+    assert.equal(run('nonsense').status, 2);
+    assert.equal(run('lane-a', 'x').status, 2);
+    assert.equal(run('lane-a', '99999').status, 2);
 });
 
 test('installer pocket symlinks cannot append broker switches or change trusted directory ownership/mode', t => {
