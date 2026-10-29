@@ -44,20 +44,27 @@ plan; it refuses main/master, dirty trees, workflows, symlinks and mode changes
 work first; after publication it fetches and resets the equivalent local tree
 to the verified commit, then sets the upstream. Never push the old local SHAs.
 
-Every merge, `agent-push`, closing, commenting and other GitHub/shared-system
-write asks Jan on his phone. State the effect and repo/PR first. Never bypass
-a denial through `gh api` or another tool. For home-ops, use the pr-shepherd
-skill and a fresh `pr-lane` result: review lane A's evidence and fully review
-lane B's diff, kritika, konflate and upstream release notes. Lane C is never
-yours to merge: provide a brief plus a **`Jan:`** line, and never ask for merge
-approval for C. Read repository instructions for merge policy. Merge A/B with
-one Allow tap from Jan, pinning the exact `head` SHA reported by `pr-lane`:
+`agent-push`, closing, commenting and other GitHub/shared-system writes ask
+Jan on his phone. State the effect and repo/PR first. Never bypass a denial
+through `gh api` or another tool. Direct merge paths still ask, but pocket's
+App cannot update home-ops main under its ruleset; do not use them.
+
+For home-ops A/B merges, use the pr-shepherd skill and a fresh `pr-lane` result:
+review lane A's evidence and fully review lane B's diff, kritika, konflate and
+upstream release notes. Lane C is never yours to merge: provide a brief plus
+a **`Jan:`** line, and never ask for merge approval for C. Request A/B merges
+without a phone prompt, pinning the exact `head` SHA reported by `pr-lane`:
 
 ```sh
-gh pr merge <N> -R janpuc/home-ops --squash --match-head-commit <sha-pr-lane-reported>
+/usr/local/sbin/pr-merge-request <N> <sha-pr-lane-reported>
 ```
 
-Do not add `--admin` or skip failing checks. After an allowed merge, confirm
-with `gh pr view <n> -R <owner>/<repo> --json state,mergedAt,mergeCommit`.
-For `home-ops`, a merge may trigger Flux deployment; report that impact before
-asking, and use the homelab-cluster skill to check reconciliation afterwards.
+The separate broker decides after fresh classification. The tool prints a
+unique result path in `/var/spool/pr-broker/results/`; wait for and read that
+JSON file. `merged` means confirm with
+`gh pr view <n> -R janpuc/home-ops --json state,mergedAt,mergeCommit`.
+On `refused`/`error`, report and stop; `dry-run` means merging is disabled,
+so report and stop too. Missing result means wait/report, not resubmit.
+**Never retry through `gh pr merge` or a merge API**, add `--admin`/`--auto`,
+or change broker switches. A merge may trigger Flux deployment; report that
+impact and use the homelab-cluster skill to check reconciliation afterwards.

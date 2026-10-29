@@ -1,0 +1,25 @@
+#!/opt/pr-broker/bin/node
+// Unprivileged submission only. The broker distrusts even files created by this tool.
+'use strict';
+const fs = require('node:fs');
+const { randomUUID } = require('node:crypto');
+const { join } = require('node:path');
+const { validateRequest } = require('./pr-broker');
+function submit(args, spool = '/var/spool/pr-broker') {
+    if (args.length !== 2 || !/^[1-9]\d*$/.test(args[0])) throw Error('usage: pr-merge-request <N> <lowercase-40-hex-head>');
+    const request = validateRequest({ pr: Number(args[0]), head: args[1] });
+    const id = randomUUID(), name = `request-${id}.json`;
+    const tmp = join(spool, 'staging', `.pending-${id}`);
+    try {
+        fs.writeFileSync(tmp, JSON.stringify(request) + '\n', { flag: 'wx', mode: 0o644 });
+        // Content is public; broker must read it despite pocket's private umask.
+        fs.chmodSync(tmp, 0o644);
+        fs.renameSync(tmp, join(spool, 'requests', name));
+    } finally { try { fs.unlinkSync(tmp); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
+    return join(spool, 'results', name);
+}
+module.exports = { submit };
+if (require.main === module) {
+    try { console.log(submit(process.argv.slice(2))); }
+    catch (error) { console.error(`pr-merge-request: ${error.message}`); process.exitCode = 1; }
+}

@@ -1,51 +1,111 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { mkdtempSync, readFileSync, writeFileSync, rmSync } = require('node:fs');
-const { tmpdir } = require('node:os');
+const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
-const { spawnSync } = require('node:child_process');
+const source = name => readFileSync(join(__dirname, name), 'utf8');
+const setup = source('../.chezmoiscripts/run_onchange_after_20-linux-pi-pocket.sh.tmpl');
+test('pr-shepherd setup isolates broker account, spool, root code and secrets, restarts pocket for new group', () => {
+    for (const text of ['--system --user-group --no-create-home --home-dir /var/lib/pr-broker --shell /usr/sbin/nologin',
+        '--gid pr-broker --groups pr-requesters pr-broker', '--append --groups pr-requesters pocket',
+        'as_pocket chmod 700 "$home"', '-o root -g root -m 755 /etc/pr-broker',
+        '-o pr-broker -g pr-requesters -m 3770 /var/spool/pr-broker/requests',
+        '-o pr-broker -g pr-requesters -m 2750 /var/spool/pr-broker/results',
+        '-o pr-broker -g pr-broker -m 700 /var/lib/pr-broker',
+        'sudo install -o root -g root -m 755', 'sudo systemctl enable --now pr-broker.timer pr-lane-merge.timer']) assert.ok(setup.includes(text), text);
+    assert.ok(setup.indexOf('sudo systemctl start pi-pocket.service') > setup.indexOf('--append --groups pr-requesters pocket'));
+    assert.ok(!/^.*(?:touch|install|tee|printf).*\/(?:requests|lane-a)\.enabled/m.test(setup));
+    assert.ok(setup.indexOf('sudo systemctl stop "$unit"') < setup.indexOf('sudo /bin/sh "$src/pr-broker-runtime.sh"'));
+});
+test('pr-shepherd setup hashes every broker source and installs pinned root runtime independent of mise', () => {
+    for (const name of ['pr-broker', 'pr-broker-runtime.sh', 'pr-merge-request', 'pr-broker.service', 'pr-broker.timer', 'pr-lane-merge', 'pr-lane-merge.service', 'pr-lane-merge.timer'])
+        assert.ok(setup.includes(`include ".system/${name}" | sha256sum`), name);
+    const runtime = source('pr-broker-runtime.sh'), mise = source('pi-pocket-mise.toml');
+    for (const tool of ['node', 'gh']) {
+        const version = mise.match(new RegExp(`${tool} = "([^"]+)"`))[1];
+        assert.ok(runtime.includes(`${tool}_version=${version}`));
+    }
+    assert.ok(runtime.includes('sha256sum --check node-checksum')); assert.ok(runtime.includes('sha256sum --check gh-checksum'));
+    assert.ok(!runtime.includes('/home/pocket'));
+});
+test('pr-shepherd units share lock, empty capabilities, protect homes and explicit writable paths', () => {
+    for (const name of ['pr-broker', 'pr-lane-merge']) {
+        const unit = source(`${name}.service`);
+        for (const text of ['User=pr-broker', 'ProtectHome=yes', 'ProtectSystem=strict', 'NoNewPrivileges=yes',
+            'PrivateTmp=yes', 'CapabilityBoundingSet=\n', 'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6',
+            '/usr/bin/flock --nonblock --conflict-exit-code 0 /var/lib/pr-broker/merge.lock',
+            '/opt/pr-broker/bin/node /usr/local/sbin/', 'ReadWritePaths=/var/lib/pr-broker /var/spool/pr-broker/requests /var/spool/pr-broker/results'])
+            assert.ok(unit.includes(text), `${name}: ${text}`);
+        assert.ok(!unit.includes('BindPaths=')); assert.ok(!unit.includes('/home/pocket'));
+    }
+    assert.match(source('pr-broker.timer'), /OnUnitInactiveSec=1min/);
+    assert.match(source('pr-lane-merge.timer'), /OnCalendar=\*:0\/30/);
+});
 
-// Exercise only the cleanup/install seam with a fake sudo; never run the setup itself.
-const template = readFileSync(join(__dirname, '../.chezmoiscripts/run_onchange_after_20-linux-pi-pocket.sh.tmpl'), 'utf8');
-const seam = template.slice(template.indexOf('# Step 1:'), template.indexOf('sudo install -m 644 "$src/pi-pocket.service"'));
-function fixture(t) {
-    const dir = mkdtempSync(join(tmpdir(), 'pr-shepherd-setup-'));
-    t.after(() => rmSync(dir, { recursive: true, force: true }));
-    const log = join(dir, 'calls');
-    writeFileSync(join(dir, 'sudo'), `#!/usr/bin/env node
-const args = process.argv.slice(2);
-require('node:fs').appendFileSync(process.env.CALLS, args.join(' ') + '\\n');
-if (args[0] === 'systemctl' && args[1] === 'cat' && process.env.ABSENT) process.exit(1);
-if (args[0] === 'systemctl' && args[1] === 'disable' && process.env.FAIL_DISABLE) process.exit(1);
-`, { mode: 0o755 });
-    const env = { ...process.env, PATH: `${dir}:${process.env.PATH}`, CALLS: log };
-    return { env, run: () => spawnSync('sh', ['-eu', '-c', `src=/source\n${seam}`], { env, encoding: 'utf8' }),
-        calls: () => readFileSync(log, 'utf8').trim().split('\n') };
+test('installer pocket symlinks cannot append broker switches or change trusted directory ownership/mode', t => {
+    const fs = require('node:fs'), cp = require('node:child_process'), os = require('node:os');
+    const root = fs.mkdtempSync(join(os.tmpdir(), 'pocket-path-audit-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const home = join(root, 'pocket'), protectedDir = join(root, 'trusted');
+    fs.mkdirSync(home); fs.mkdirSync(protectedDir, { mode: 0o755 });
+    const enabled = join(protectedDir, 'requests.enabled'); fs.writeFileSync(enabled, 'unchanged');
+    fs.symlinkSync(enabled, join(home, '.profile')); fs.symlinkSync(protectedDir, join(home, '.kube'));
+    // Model sudo's credential boundary without needing root/a pocket account. Root-mode
+    // commands execute normally; pocket-mode commands cannot touch our root-owned model.
+    fs.writeFileSync(join(root, 'sudo'), `#!${process.execPath}
+const fs=require('node:fs'),cp=require('node:child_process');let a=process.argv.slice(2);
+if(a[0]==='-u') { if(a[1]!=='pocket'||a[2]!=='-H') process.exit(91); a=a.slice(3);
+ for(const p of a) { try { if(fs.realpathSync(p).startsWith(fs.realpathSync(process.env.PROTECTED))) process.exit(1); }catch{} }
 }
-test('pr-shepherd setup: retires a stale timer before installing only Step 1 tools', t => {
-    const f = fixture(t);
-    assert.equal(f.run().status, 0);
-    const calls = f.calls();
-    const disable = calls.indexOf('systemctl disable --now pr-lane-merge.timer');
-    const remove = calls.findIndex(c => c.startsWith('rm -f '));
-    assert.ok(disable >= 0 && disable < remove);
-    assert.ok(calls.includes('systemctl stop pr-lane-merge.service'));
-    for (const path of ['/etc/systemd/system/timers.target.wants/pr-lane-merge.timer',
-        '/etc/systemd/system/pr-lane-merge.timer', '/etc/systemd/system/pr-lane-merge.service',
-        '/usr/local/sbin/pr-lane-merge']) assert.ok(calls[remove].includes(path));
-    assert.deepEqual(calls.filter(c => c.startsWith('install ')), [
-        'install -m 755 /source/agent-push /usr/local/sbin/agent-push',
-        'install -m 755 /source/pr-lane /usr/local/sbin/pr-lane',
-    ]);
-    assert.ok(!calls.some(c => c.startsWith('systemctl enable')));
+else { a=a.filter((v,i)=>!['-o','-g'].includes(v)&&!['-o','-g'].includes(a[i-1])); }
+const r=cp.spawnSync(a[0],a.slice(1),{stdio:'inherit'});process.exit(r.status??1);
+`, { mode: 0o755 });
+    const env = { ...process.env, PATH: root + ':' + process.env.PATH, PROTECTED: protectedDir };
+    const functions = setup.match(/as_pocket\(\) \{[^\n]+/)[0];
+    const append = setup.split('\n').find(line => line.includes('tee -a "$home/.profile"'));
+    const mkdir = setup.split('\n').find(line => line.includes('install -d') && line.includes('"$home/.kube"'));
+    for (const command of [append, mkdir]) {
+        const run = cp.spawnSync('/bin/sh', ['-c', `${functions}\nhome="$1"\n${command}`, 'sh', home], { env });
+        assert.notEqual(run.status, 0, 'pocket cannot write through protected symlink');
+    }
+    assert.equal(fs.readFileSync(enabled, 'utf8'), 'unchanged');
+    assert.equal(fs.statSync(protectedDir).mode & 0o777, 0o755);
+    const sync = source('../dot_config/fish/functions/ai-sync.fish.tmpl');
+    assert.equal((sync.match(/sudo -u pocket -H sh -c 'umask 077; cat/g) || []).length, 3);
+    assert.ok(!setup.split('\n').some(line => /sudo (?:install|tee|chmod).*\$home/.test(line)));
+    assert.ok(!/sudo install[^\n]*\/home\/pocket/.test(sync));
+    fs.mkdirSync(join(home, '.config')); fs.mkdirSync(join(home, '.config/pi-pocket'));
+    fs.symlinkSync(enabled, join(home, '.config/pi-pocket/secrets.env'));
+    const secret = join(root, 'secret'); fs.writeFileSync(secret, 'agent-only');
+    const secretWrite = sync.split('\n').find(line => line.includes('sh /home/pocket/.config/pi-pocket/secrets.env'))
+        .replace('/home/pocket', home).replace('<$tmp', `<"${secret}"`);
+    assert.notEqual(cp.spawnSync('/bin/sh', ['-c', secretWrite], { env }).status, 0);
+    assert.equal(fs.readFileSync(enabled, 'utf8'), 'unchanged');
+
+    for (const text of ['os.O_NOFOLLOW', 'os.fchown(home', 'os.fchmod(home']) assert.ok(setup.includes(text));
 });
-test('pr-shepherd setup: first install tolerates absent retired units', t => {
-    const f = fixture(t); f.env.ABSENT = '1';
-    assert.equal(f.run().status, 0);
-    assert.ok(!f.calls().some(c => c.startsWith('systemctl disable') || c.startsWith('systemctl stop')));
-});
-test('pr-shepherd setup: cannot silently continue if disabling an installed timer fails', t => {
-    const f = fixture(t); f.env.FAIL_DISABLE = '1';
-    assert.notEqual(f.run().status, 0);
-    assert.ok(!f.calls().some(c => c.startsWith('install ')));
+test('pr-broker-runtime pinned archive mismatch aborts before extraction, with no checksum download', t => {
+    const fs = require('node:fs'), cp = require('node:child_process'), os = require('node:os');
+    const root = fs.mkdtempSync(join(os.tmpdir(), 'broker-runtime-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    // Sandbox absolute destinations and root/architecture probes; retain real sha256sum.
+    let runtime = source('pr-broker-runtime.sh').replace('PATH=/usr/bin:/bin', `PATH=${root}:${process.env.PATH}`)
+        .replaceAll('/opt/pr-broker', join(root, 'runtime')).replaceAll('-o root -g root', '');
+    fs.writeFileSync(join(root, 'runtime.sh'), runtime);
+    for (const [name, body] of Object.entries({ id: 'echo 0', uname: 'echo aarch64',
+        curl: 'echo "$*" >> "$CALLS"; for arg do archive=$arg; done; basename=${archive##*/}; printf corrupted > "$basename"',
+        tar: 'echo extracted >> "$CALLS"; exit 99' }))
+        fs.writeFileSync(join(root, name), '#!/bin/sh\n' + body + '\n', { mode: 0o755 });
+    const result = cp.spawnSync('/bin/sh', [join(root, 'runtime.sh')], { env: { ...process.env, CALLS: join(root, 'calls') }, encoding: 'utf8' });
+    assert.notEqual(result.status, 0); assert.match(result.stdout + result.stderr, /FAILED/);
+    const calls = fs.readFileSync(join(root, 'calls'), 'utf8');
+    assert.ok(!/SHASUMS|checksums|extracted/.test(calls));
+    assert.ok(runtime.includes('95c264150aceb7f3437a29fd6984924f5f8d1511ea3cbd6c508b83f6c555dae2'));
+    assert.ok(runtime.includes('7862c86c72f43df3a2d93ddde6f473285b4e2af61b494849846827e513ef6484'));
+    const nodeBin = join(root, 'runtime/releases/node-24.22.2/bin');
+    fs.mkdirSync(nodeBin, { recursive: true }); fs.writeFileSync(join(nodeBin, 'node'), '#!/bin/sh\n', { mode: 0o755 });
+    const ghMismatch = cp.spawnSync('/bin/sh', [join(root, 'runtime.sh')], { env: { ...process.env, CALLS: join(root, 'calls') }, encoding: 'utf8' });
+    assert.notEqual(ghMismatch.status, 0); assert.match(ghMismatch.stdout + ghMismatch.stderr, /FAILED/);
+    const allCalls = fs.readFileSync(join(root, 'calls'), 'utf8');
+    assert.ok(allCalls.includes('gh_2.102.0_linux_arm64.tar.gz')); assert.ok(!allCalls.includes('extracted'));
+
 });

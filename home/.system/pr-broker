@@ -1,0 +1,287 @@
+#!/opt/pr-broker/bin/node
+// Trusted home-ops merge boundary. No repository code, shell, or pocket configuration is loaded.
+'use strict';
+const fs = require('node:fs');
+const { join, isAbsolute, dirname, resolve } = require('node:path');
+const { randomUUID, createSign } = require('node:crypto');
+const { execFileSync } = require('node:child_process');
+const REPO = 'janpuc/home-ops';
+const NAME = /^request-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
+// Bounded work per run: hostile entries handled, remembered reported leftovers and
+// result entries examined. Successive runs reach the entries a run had to skip.
+const HOSTILE_LIMIT = 20;
+const REPORTED_LIMIT = 500;
+const RESULT_LIMIT = 1000;
+const defaults = { gh: '/opt/pr-broker/bin/gh', node: '/opt/pr-broker/bin/node',
+    lane: '/usr/local/sbin/pr-lane', config: '/etc/pr-broker', state: '/var/lib/pr-broker',
+    spool: '/var/spool/pr-broker' };
+function validateRequest(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) ||
+        Object.keys(value).sort().join(',') !== 'head,pr' ||
+        !Number.isSafeInteger(value.pr) || value.pr < 1 ||
+        typeof value.head !== 'string' || !/^[a-f0-9]{40}$/.test(value.head))
+        throw Error('invalid request: expected positive safe-integer pr and lowercase 40-hex head');
+    return value;
+}
+function enabled(file) {
+    try {
+        const stat = fs.lstatSync(file);
+        return stat.isFile() && stat.uid === 0 && (stat.mode & 0o022) === 0;
+    } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+}
+function atomicJSON(file, value, mode = 0o600) {
+    const tmp = `${file}.${randomUUID()}.tmp`;
+    try {
+        fs.writeFileSync(tmp, JSON.stringify(value) + '\n', { flag: 'wx', mode });
+        fs.chmodSync(tmp, mode);
+        fs.renameSync(tmp, file);
+    } finally { try { fs.unlinkSync(tmp); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
+}
+// Inspect both lexical ancestors and resolved symlink targets (runtime links are root-owned).
+function assertTrusted(paths) {
+    const seen = new Set();
+    function check(path) {
+        path = resolve(path);
+        if (seen.has(path)) return;
+        seen.add(path);
+        const stat = fs.lstatSync(path);
+        if (stat.uid !== 0 || (!stat.isSymbolicLink() && (stat.mode & 0o022)))
+            throw Error(`untrusted broker path: ${path}`);
+        if (path !== '/') check(dirname(path));
+        if (stat.isSymbolicLink()) check(resolve(dirname(path), fs.readlinkSync(path)));
+    }
+    paths.forEach(check);
+}
+function publishJSON(file, value) {
+    const tmp = `${file}.${randomUUID()}.tmp`;
+    try {
+        fs.writeFileSync(tmp, JSON.stringify(value) + '\n', { flag: 'wx', mode: 0o640 });
+        fs.chmodSync(tmp, 0o640);
+        try { fs.linkSync(tmp, file); return true; }
+        catch (error) { if (error.code === 'EEXIST') return false; throw error; }
+    } finally { fs.unlinkSync(tmp); }
+}
+function reserveRequest(state, name) {
+    const file = join(state, 'processed-requests.json');
+    let ids = [];
+    try { ids = JSON.parse(fs.readFileSync(file, 'utf8')); }
+    catch (error) { if (error.code !== 'ENOENT') throw Error('request ledger unreadable'); }
+    if (!Array.isArray(ids) || ids.some(id => !NAME.test(id))) throw Error('request ledger invalid');
+    if (ids.includes(name)) return false;
+    // Never evict IDs and make old requests replayable. Fail closed at the bounded cap.
+    if (ids.length >= 100000) throw Error('request ledger full; operator maintenance required');
+    atomicJSON(file, [...ids, name]);
+    return true;
+}
+function readState(file, fallback, label) {
+    try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+    catch (error) { if (error.code === 'ENOENT') return fallback; throw Error(`${label} unreadable`); }
+}
+function readRequest(file) {
+    const before = fs.lstatSync(file);
+    if (!before.isFile() || before.nlink !== 1 || before.size > 512) throw Error('request must be a single-link regular file of at most 512 bytes');
+    // lstat alone races a hostile replacement. Never follow a symlink or block on a FIFO.
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    try {
+        const after = fs.fstatSync(fd);
+        if (!after.isFile() || after.nlink !== 1 || after.size > 512 || after.ino !== before.ino || after.dev !== before.dev)
+            throw Error('request changed or is not a bounded regular file');
+        const buffer = Buffer.alloc(513);
+        const count = fs.readSync(fd, buffer, 0, buffer.length, 0);
+        if (count > 512) throw Error('request exceeds 512 bytes');
+        let value;
+        try { value = JSON.parse(buffer.subarray(0, count).toString('utf8')); }
+        catch { throw Error('request is not valid JSON'); }
+        return validateRequest(value);
+    } finally { fs.closeSync(fd); }
+}
+async function mintToken(config) {
+    const client = fs.readFileSync(join(config, 'client-id'), 'utf8').trim();
+    const key = fs.readFileSync(join(config, 'merger.pem'), 'utf8');
+    if (!client || !key) throw Error('merger credentials missing; run ai-sync');
+    const now = Math.floor(Date.now() / 1000);
+    const b64 = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+    const signing = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ iat: now - 60, exp: now + 540, iss: client })}`;
+    const jwt = `${signing}.${createSign('RSA-SHA256').update(signing).sign(key).toString('base64url')}`;
+    async function api(path, body) {
+        const response = await fetch(`https://api.github.com/${path}`, { method: body ? 'POST' : 'GET',
+            headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/vnd.github+json',
+                'X-GitHub-Api-Version': '2022-11-28', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+            ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(20000) });
+        if (!response.ok) throw Error(`GitHub App authentication HTTP ${response.status}`);
+        return response.json();
+    }
+    const installation = await api(`repos/${REPO}/installation`);
+    if (!Number.isSafeInteger(installation.id)) throw Error('invalid installation id');
+    const result = await api(`app/installations/${installation.id}/access_tokens`, {
+        repositories: ['home-ops'], permissions: { contents: 'write', pull_requests: 'write', checks: 'read', statuses: 'read' } });
+    if (typeof result.token !== 'string' || !result.token) throw Error('no installation token');
+    return result.token;
+}
+function reserveMerge(state, now) {
+    const file = join(state, 'merge-attempts.json');
+    let attempts = [];
+    try { attempts = JSON.parse(fs.readFileSync(file, 'utf8')); }
+    catch (error) { if (error.code !== 'ENOENT') throw Error('rate-limit state unreadable'); }
+    if (!Array.isArray(attempts) || attempts.some(n => !Number.isSafeInteger(n) || n < 0))
+        throw Error('rate-limit state invalid');
+    // Persist attempts before contacting GitHub: a timeout/crash must not reset the quota.
+    attempts = attempts.filter(n => n > now - 3600000);
+    if (attempts.length >= 10) return false;
+    atomicJSON(file, [...attempts, now]);
+    return true;
+}
+async function runBroker(mode = 'requests', options = {}) {
+    const o = { ...defaults, ...options };
+    for (const key of ['gh', 'node', 'lane', 'config', 'state', 'spool'])
+        if (!isAbsolute(o[key])) throw Error(`${key} must be absolute`);
+    assertTrusted([__filename, ...(process.argv[1] ? [process.argv[1]] : []), o.gh, o.node, o.lane, o.config]);
+    let token;
+    async function run(file, args) {
+        token ??= await (o.tokenProvider || mintToken)(o.config);
+        try {
+            return execFileSync(file, args, { encoding: 'utf8', timeout: 180000, maxBuffer: 32 * 1024 * 1024,
+                cwd: o.state, stdio: ['ignore', 'pipe', 'pipe'],
+                env: { PATH: '/usr/bin:/bin', HOME: o.state, GH_CONFIG_DIR: join(o.state, 'gh'),
+                    GH_TOKEN: token, GH_HOST: 'github.com', GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', LANG: 'C.UTF-8' } });
+        } catch { throw Error(`${file === o.gh ? 'gh merge' : 'pr-lane'} failed (details suppressed to protect credentials)`); }
+    }
+    const classify = async target => JSON.parse(await run(o.node, [o.lane, String(target), '--json', '--gh', o.gh]));
+    function writeResult(name, result, log = true) {
+        const file = join(o.spool, 'results', name);
+        publishJSON(file, { ...result, at: new Date().toISOString() });
+        if (log) console.log(JSON.stringify({ result: file, ...result }));
+        return result;
+    }
+    async function merge(request, allowed, switchName) {
+        const lane = await classify(request.pr);
+        if (!lane || lane.pr !== request.pr || lane.head !== request.head || !allowed.includes(lane.lane))
+            return { ...request, status: 'refused', lane: lane?.lane ?? null,
+                reasons: ['lane/head does not match permitted request', ...(Array.isArray(lane?.reasons)
+                    ? lane.reasons.filter(r => typeof r === 'string').slice(0, 100).map(r => r.slice(0, 1000)) : [])] };
+        if (!enabled(join(o.config, switchName))) return { ...request, lane: lane.lane, status: 'dry-run', reasons: [`${switchName} absent or not root-controlled`] };
+        if (!reserveMerge(o.state, Date.now())) return { ...request, status: 'refused', reasons: ['rate limit: at most 10 merge attempts per rolling hour (shared by both runners)'] };
+        await run(o.gh, ['pr', 'merge', String(request.pr), '-R', REPO, '--squash', '--match-head-commit', request.head]);
+        return { ...request, lane: lane.lane, status: 'merged' };
+    }
+    if (mode === 'lane-a') {
+        const prs = await classify('--all');
+        if (!Array.isArray(prs)) throw Error('invalid pr-lane list');
+        const candidates = prs.filter(p => p.lane === 'A').sort((a, b) =>
+            String(a.facts?.createdAt).localeCompare(String(b.facts?.createdAt)) || a.pr - b.pr).slice(0, 5);
+        for (const pr of candidates) {
+            const name = `lane-a-${randomUUID()}.json`;
+            let result;
+            try { result = await merge(validateRequest({ pr: pr.pr, head: pr.head }), ['A'], 'lane-a.enabled'); }
+            catch { result = { pr: pr.pr, status: 'error', reasons: ['classification, authentication, state or merge failed; inspect broker configuration'] }; }
+            writeResult(name, result);
+            if (!['merged', 'dry-run'].includes(result.status)) return false;
+        }
+        return true;
+    }
+    if (mode !== 'requests') throw Error('invalid broker mode');
+    const requestsDir = join(o.spool, 'requests');
+    const malformed = { status: 'refused', reasons: ['malformed request: invalid name, JSON, values, size or file type'] };
+    function regularRequest(name) {
+        if (!NAME.test(name)) return false;
+        try { return fs.lstatSync(join(requestsDir, name)).isFile(); }
+        catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+    }
+    // Scan without accumulating the directory in memory. Only correctly named regular
+    // files consume the 100-request budget: leftover hostile directories cannot starve it.
+    const dir = fs.opendirSync(requestsDir), entries = [];
+    try {
+        for (let entry; (entry = dir.readSync());) {
+            if (regularRequest(entry.name) && entries.length < 100) entries.push(entry.name);
+        }
+    } finally { dir.closeSync(); }
+    for (const name of entries) {
+        const file = join(requestsDir, name);
+        let request, result;
+        try {
+            if (!reserveRequest(o.state, name)) result = { status: 'refused', reasons: ['request ID already processed'] };
+            else request = readRequest(file);
+        }
+        catch { result = malformed; }
+        try {
+            if (!result) result = await merge(request, ['A', 'B'], 'requests.enabled');
+        } catch { result = { ...request, status: 'error', reasons: ['classification, authentication, state or merge failed; inspect broker configuration'] }; }
+        // Publish a result before unlinking. Replaced/non-regular entries are cleaned below.
+        writeResult(name, result);
+        try { fs.unlinkSync(file); }
+        catch (error) { if (!['ENOENT', 'EISDIR', 'EPERM'].includes(error.code)) throw error; }
+    }
+    // Handle non-request entries only AFTER valid requests and outside their budget.
+    // Never traverse a hostile directory. Aggregate logs, including leftovers, once/run.
+    // A leftover that was already reported is skipped: it is never published a
+    // second time and never retried, so a hostile directory cannot grow the
+    // result spool or the per-run work without bound.
+    const reportFile = join(o.state, 'hostile-report.json');
+    const stored = readState(reportFile, [], 'hostile report');
+    if (!Array.isArray(stored) || stored.some(item => !item || typeof item.name !== 'string' ||
+        !Number.isSafeInteger(item.ino) || !Number.isFinite(item.mtimeMs))) throw Error('hostile report invalid');
+    const reported = new Map(stored.map(item => [item.name, item]));
+    const cleanup = fs.opendirSync(requestsDir);
+    let refused = 0, leftovers = 0, repeated = 0, deferred = 0;
+    const leftoverNames = [];
+    try {
+        for (let entry; (entry = cleanup.readSync());) {
+            const name = entry.name, file = join(requestsDir, name);
+            if (regularRequest(name)) continue;
+            if (refused >= HOSTILE_LIMIT) { deferred++; continue; }
+            let stat;
+            try { stat = fs.lstatSync(file); }
+            catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+            const known = reported.get(name);
+            if (known && known.ino === stat.ino && known.mtimeMs === stat.mtimeMs) { repeated++; continue; }
+            refused++;
+            if (NAME.test(name)) reserveRequest(o.state, name);
+            writeResult(NAME.test(name) ? name : `invalid-${randomUUID()}.json`, malformed, false);
+            try {
+                if (stat.isDirectory()) fs.rmdirSync(file);
+                else fs.unlinkSync(file);
+            } catch (error) {
+                if (error.code !== 'ENOENT') {
+                    leftovers++;
+                    if (leftoverNames.length < 5) leftoverNames.push(name);
+                    // Remember the leftover by name, inode and mtime so later runs skip it.
+                    reported.delete(name);
+                    reported.set(name, { name, ino: stat.ino, mtimeMs: stat.mtimeMs });
+                }
+            }
+        }
+    } finally { cleanup.closeSync(); }
+    while (reported.size > REPORTED_LIMIT) reported.delete(reported.keys().next().value);
+    atomicJSON(reportFile, [...reported.values()]);
+    if (refused || repeated || deferred) console.error(`pr-broker: refused ${refused} hostile entries; ${leftovers} leftovers, ${repeated} already reported, ${deferred} deferred (no recursive traversal); first names ${JSON.stringify(leftoverNames)}`);
+    // Results are not secrets. Retain seven days; cap cleanup work just like input
+    // work and rotate through every entry over successive runs.
+    const cursorFile = join(o.state, 'result-cursor.json');
+    const cursorState = readState(cursorFile, { cursor: 0 }, 'result cursor');
+    if (!cursorState || !Number.isSafeInteger(cursorState.cursor) || cursorState.cursor < 0) throw Error('result cursor invalid');
+    let cursor = cursorState.cursor, skipped = 0, examined = 0, exhausted = true;
+    const results = fs.opendirSync(join(o.spool, 'results'));
+    try {
+        for (let entry; (entry = results.readSync());) {
+            if (skipped < cursor) { skipped++; continue; }
+            if (examined >= RESULT_LIMIT) { exhausted = false; break; }
+            examined++;
+            const file = join(o.spool, 'results', entry.name);
+            try { if (fs.lstatSync(file).mtimeMs < Date.now() - 7 * 86400000) fs.unlinkSync(file); }
+            catch (error) { if (error.code !== 'ENOENT') throw error; }
+        }
+    } finally { results.closeSync(); }
+    atomicJSON(cursorFile, { cursor: exhausted ? 0 : cursor + examined });
+    return true;
+}
+async function main(mode = 'requests') {
+    const args = process.argv.slice(2), options = {};
+    while (args.length) {
+        const key = args.shift();
+        if (!['--gh', '--lane', '--node'].includes(key) || !args.length) throw Error('usage: pr-broker [--gh /path] [--lane /path] [--node /path]');
+        options[key.slice(2)] = args.shift();
+    }
+    if (!await runBroker(mode, options)) process.exitCode = 1;
+}
+module.exports = { assertTrusted, publishJSON, reserveRequest, validateRequest, readRequest, enabled, mintToken, reserveMerge, runBroker, main };
+if (require.main === module) main().catch(() => { console.error('pr-broker: run failed; check credentials and trusted configuration'); process.exitCode = 1; });

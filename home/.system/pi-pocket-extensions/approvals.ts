@@ -27,6 +27,9 @@ type Host = {
 };
 
 // Ported from agent-guard.ts's sharedChange. A mistake detector, not a shell sandbox.
+// pr-merge-request deliberately has no write rule: it only submits hostile input to the
+// separate broker, which decides. Do not exempt a whole command containing it: chained
+// gh pr merge/API writes must still ask (and GitHub's ruleset denies pocket merges).
 const OPTS = String.raw`(?:\s+-{1,2}[A-Za-z][\w-]*(?:[= ][^\s;&|-]\S*)?)*`;
 const cmd = (tool: string, verbs: string) =>
     new RegExp(String.raw`(?:^|[\s;&|(\x60/])${tool}${OPTS}\s+(?:${verbs})(?=$|[\s;&|)\x60])`);

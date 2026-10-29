@@ -14,6 +14,14 @@
 #   ghtoken {{ include ".system/pi-pocket-gh-token" | sha256sum }} {{ include ".system/pi-pocket-gh-token.service" | sha256sum }} {{ include ".system/pi-pocket-gh-token.timer" | sha256sum }}
 #   shepherd {{ include ".system/agent-push" | sha256sum }} {{ include ".system/pr-lane" | sha256sum }}
 #   prskill {{ include ".system/pi-pocket-skills/pr-shepherd/SKILL.md" | sha256sum }}
+#   broker {{ include ".system/pr-broker" | sha256sum }}
+#   broker {{ include ".system/pr-broker-runtime.sh" | sha256sum }}
+#   broker {{ include ".system/pr-merge-request" | sha256sum }}
+#   broker {{ include ".system/pr-broker.service" | sha256sum }}
+#   broker {{ include ".system/pr-broker.timer" | sha256sum }}
+#   broker {{ include ".system/pr-lane-merge" | sha256sum }}
+#   broker {{ include ".system/pr-lane-merge.service" | sha256sum }}
+#   broker {{ include ".system/pr-lane-merge.timer" | sha256sum }}
 set -eu
 repos="home-ops dotfiles BC250"
 version=v0.26.0
@@ -22,32 +30,61 @@ src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
 home=/home/pocket
 as_pocket() { sudo -u pocket -H "$@"; }
 
-id pocket >/dev/null 2>&1 || sudo useradd --create-home --home-dir "$home" --shell /bin/bash pocket
-sudo install -d -o pocket -g pocket -m 700 "$home/.config" "$home/.config/mise" "$home/.config/pi-pocket" "$home/work" "$home/.kube"
+# Repair any permissions left by older installers before any privileged writes.
+# Refuse symlinked trust directories rather than repairing through an attacker path.
+for dir in / /usr /usr/local /usr/local/sbin /opt /opt/pr-broker /etc /etc/pr-broker; do
+    sudo test ! -L "$dir" || { echo "symlinked trust directory: $dir" >&2; exit 1; }
+    sudo install -d -o root -g root -m 755 "$dir"
+done
+pocket_install() {
+    mode=$1; source=$2; destination=$3
+    # Source remains readable only by the installer; pocket receives content, not root I/O.
+    # shellcheck disable=SC2016 # pocket shell expands positional parameters
+    cat "$source" | as_pocket sh -c 'umask 077; cat > "$1"; chmod "$2" "$1"' sh "$destination" "$mode"
+}
+
+id pocket >/dev/null 2>&1 || sudo useradd --no-create-home --home-dir "$home" --shell /bin/bash pocket
+# Only the home directory itself needs root bootstrap. Open /home without following
+# links, then create/open pocket relative to that descriptor; never chown a pathname.
+sudo python3 - <<'PYHOME'
+import os, pwd
+user = pwd.getpwnam("pocket")
+parent = os.open("/home", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    os.mkdir("pocket", 0o700, dir_fd=parent)
+except FileExistsError:
+    pass
+home = os.open("pocket", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+os.fchown(home, user.pw_uid, user.pw_gid)
+os.fchmod(home, 0o700)
+os.close(home)
+os.close(parent)
+PYHOME
+as_pocket install -d -m 700 "$home/.config" "$home/.config/mise" "$home/.config/pi-pocket" "$home/work" "$home/.kube"
 # Pi's skills, which Pi Pocket loads from Pi's own folder.
 for skill in homelab-cluster home-assistant github pr-shepherd; do
-    sudo install -d -o pocket -g pocket -m 755 "$home/.pi" "$home/.pi/agent" "$home/.pi/agent/skills" "$home/.pi/agent/skills/$skill"
-    sudo install -m 644 -o pocket -g pocket "$src/pi-pocket-skills/$skill/SKILL.md" "$home/.pi/agent/skills/$skill/"
+    as_pocket install -d -m 755 "$home/.pi" "$home/.pi/agent" "$home/.pi/agent/skills" "$home/.pi/agent/skills/$skill"
+    pocket_install 644 "$src/pi-pocket-skills/$skill/SKILL.md" "$home/.pi/agent/skills/$skill/SKILL.md"
 done
-sudo install -m 644 -o pocket -g pocket "$src/pi-pocket-mise.toml" "$home/.config/mise/config.toml"
-sudo test -e "$home/.config/pi-pocket/secrets.env" || sudo install -m 600 -o pocket -g pocket /dev/null "$home/.config/pi-pocket/secrets.env"
+pocket_install 644 "$src/pi-pocket-mise.toml" "$home/.config/mise/config.toml"
+as_pocket test -e "$home/.config/pi-pocket/secrets.env" || as_pocket install -m 600 /dev/null "$home/.config/pi-pocket/secrets.env"
 # The GitHub App's key and client id, filled in by ai-sync from 1Password. The token helper
 # mints installation tokens from the key; the helper reads the files, never the environment.
-sudo test -e "$home/.config/pi-pocket/github-app.pem" || sudo install -m 600 -o pocket -g pocket /dev/null "$home/.config/pi-pocket/github-app.pem"
-sudo test -e "$home/.config/pi-pocket/github-app-client-id" || sudo install -m 600 -o pocket -g pocket /dev/null "$home/.config/pi-pocket/github-app-client-id"
+as_pocket test -e "$home/.config/pi-pocket/github-app.pem" || as_pocket install -m 600 /dev/null "$home/.config/pi-pocket/github-app.pem"
+as_pocket test -e "$home/.config/pi-pocket/github-app-client-id" || as_pocket install -m 600 /dev/null "$home/.config/pi-pocket/github-app-client-id"
 # The aether token is dead (GitHub answers 401), so it leaves pocket's environment for good.
-if sudo test -e "$home/.config/pi-pocket/secrets.env" && sudo grep -q '^GH_TOKEN=' "$home/.config/pi-pocket/secrets.env"; then
+if as_pocket test -e "$home/.config/pi-pocket/secrets.env" && as_pocket grep -q '^GH_TOKEN=' "$home/.config/pi-pocket/secrets.env"; then
     as_pocket sh -c "grep -v '^GH_TOKEN=' '$home/.config/pi-pocket/secrets.env' > '$home/.config/pi-pocket/secrets.env.new' && mv '$home/.config/pi-pocket/secrets.env.new' '$home/.config/pi-pocket/secrets.env'"
 fi
 # mise's shims, so gh and node are on PATH in a login shell (the service gets them from
 # `mise exec`). The login shell reads .profile, not .bashrc, which returns early.
-if ! sudo grep -q 'mise/shims' "$home/.profile" 2>/dev/null; then
+if ! as_pocket grep -q 'mise/shims' "$home/.profile" 2>/dev/null; then
     # shellcheck disable=SC2016 # the line is written as it is, for pocket's shell to expand
-    printf '%s\n' 'export PATH="$HOME/.local/share/mise/shims:$PATH"' | sudo tee -a "$home/.profile" >/dev/null
+    printf '%s\n' 'export PATH="$HOME/.local/share/mise/shims:$PATH"' | as_pocket tee -a "$home/.profile" >/dev/null
 fi
 
 # The release, checked against its commit.
-if ! sudo test -d "$home/pi-pocket/.git"; then
+if ! as_pocket test -d "$home/pi-pocket/.git"; then
     as_pocket git clone --quiet https://github.com/TannerMidd/pi-pocket "$home/pi-pocket"
 fi
 as_pocket git -C "$home/pi-pocket" fetch --quiet --tags origin
@@ -55,14 +92,14 @@ current_commit=$(as_pocket git -C "$home/pi-pocket" rev-parse HEAD)
 # The data folder moves with the server: Pi Durable 1.4 rewrites pocket.sqlite the first time
 # it opens it, and older servers cannot read it again. Archive the old folder before the
 # upgrade, with the service stopped, so the copy is whole.
-if [ "$current_commit" != "$commit" ] && sudo test -d "$home/.pi-pocket"; then
+if [ "$current_commit" != "$commit" ] && as_pocket test -d "$home/.pi-pocket"; then
     sudo systemctl stop pi-pocket.service || true
-    sudo install -d -o pocket -g pocket -m 700 "$home/archive"
+    as_pocket install -d -m 700 "$home/archive"
     old=$(as_pocket git -C "$home/pi-pocket" show HEAD:package.json | sed -n 's/.*"version": "\([^"]*\)".*/\1/p')
     old=${old%.*}
     stamp=$(date +%F)
     archive="$home/archive/pi-pocket-$old-$stamp.tar.gz"
-    if sudo test -e "$archive"; then
+    if as_pocket test -e "$archive"; then
         archive="$home/archive/pi-pocket-$old-$stamp-$(date +%H%M%S).tar.gz"
     fi
     as_pocket tar -czf "$archive" -C "$home" .pi-pocket
@@ -75,8 +112,8 @@ as_pocket sh -c "cd '$home' && mise install --yes && cd pi-pocket && mise exec -
 # Dev work: local commits use pocket's SSH key, but publish only with agent-push below:
 # GitHub's API signs as the App (the SSH-signed bot commits are UNVERIFIED on GitHub).
 # Repos in ~/work are trusted by mise; scratch is for the rest.
-sudo install -d -o pocket -g pocket -m 700 "$home/scratch" "$home/.ssh"
-sudo test -e "$home/.ssh/signing" || as_pocket ssh-keygen -q -t ed25519 -N "" -C "pi-pocket (aether)" -f "$home/.ssh/signing"
+as_pocket install -d -m 700 "$home/scratch" "$home/.ssh"
+as_pocket test -e "$home/.ssh/signing" || as_pocket ssh-keygen -q -t ed25519 -N "" -C "pi-pocket (aether)" -f "$home/.ssh/signing"
 # The agent commits as its App's bot, so GitHub shows its work as its own. Never as
 # bot-atlas[bot]: Renovate would take the branch for its own and overwrite the agent's commits.
 as_pocket git config --global user.name "janpuc-agent[bot]"
@@ -88,11 +125,11 @@ as_pocket git config --global tag.gpgSign true
 # --replace-all: an older `gh auth setup-git` left two values here.
 as_pocket git config --global --replace-all credential.https://github.com.helper '!mise exec -- gh auth git-credential'
 for repo in $repos; do
-    sudo test -d "$home/work/$repo/.git" || as_pocket sh -c "cd ~ && mise exec -- gh repo clone janpuc/$repo work/$repo -- --quiet"
+    as_pocket test -d "$home/work/$repo/.git" || as_pocket sh -c "cd ~ && mise exec -- gh repo clone janpuc/$repo work/$repo -- --quiet"
     as_pocket sh -c "cd ~/work/$repo && mise trust --all --quiet" || true
 done
 # home-ops' mise config points KUBECONFIG at the repo's own (git-ignored) kubeconfig.
-sudo test -e "$home/work/home-ops/kubeconfig" || as_pocket ln -s ../../.kube/config "$home/work/home-ops/kubeconfig"
+as_pocket test -e "$home/work/home-ops/kubeconfig" || as_pocket ln -s ../../.kube/config "$home/work/home-ops/kubeconfig"
 
 # The installation-token helper: gh's own config, not an environment variable, because the
 # running service cannot see new environment values.
@@ -101,20 +138,41 @@ sudo install -m 644 "$src/pi-pocket-gh-token.service" "$src/pi-pocket-gh-token.t
 sudo systemctl daemon-reload
 sudo systemctl enable --now pi-pocket-gh-token.timer
 
-# Step 1: every merge asks Jan. Step 2 installs the merge runner and units under
-# a separate account, with a GitHub ruleset; nothing running as pocket authorizes merges.
-# Retire any earlier draft, even if it had already enabled the timer.
-if sudo systemctl cat pr-lane-merge.timer >/dev/null 2>&1; then
-    sudo systemctl disable --now pr-lane-merge.timer
-fi
-if sudo systemctl cat pr-lane-merge.service >/dev/null 2>&1; then
-    sudo systemctl stop pr-lane-merge.service
-fi
-sudo rm -f /etc/systemd/system/timers.target.wants/pr-lane-merge.timer /etc/systemd/system/pr-lane-merge.timer /etc/systemd/system/pr-lane-merge.service /usr/local/sbin/pr-lane-merge
-sudo systemctl daemon-reload
-for tool in agent-push pr-lane; do
-    sudo install -m 755 "$src/$tool" "/usr/local/sbin/$tool"
+# Step 2: isolate the merger key and runtime from pocket. The timers run in dry-run
+# until Jan creates root-owned opt-in files AFTER GitHub's restrict-updates rule is live.
+# Retire a potentially running pocket-owned draft before installing the broker units.
+for unit in pr-lane-merge.timer pr-broker.timer; do
+    if sudo systemctl cat "$unit" >/dev/null 2>&1; then
+        sudo systemctl disable --now "$unit"
+    fi
 done
+for unit in pr-lane-merge.service pr-broker.service; do
+    if sudo systemctl cat "$unit" >/dev/null 2>&1; then
+        sudo systemctl stop "$unit"
+    fi
+done
+sudo groupadd --system --force pr-requesters
+id pr-broker >/dev/null 2>&1 || sudo useradd --system --user-group --no-create-home --home-dir /var/lib/pr-broker --shell /usr/sbin/nologin pr-broker
+# Reset supplementary groups as well: this account must never have sudo membership.
+sudo usermod --home /var/lib/pr-broker --shell /usr/sbin/nologin --gid pr-broker --groups pr-requesters pr-broker
+sudo usermod --append --groups pr-requesters pocket
+as_pocket chmod 700 "$home"
+sudo install -d -o pr-broker -g pr-broker -m 700 /var/lib/pr-broker /var/lib/pr-broker/gh
+sudo install -d -o root -g root -m 755 /etc/pr-broker
+sudo install -d -o root -g root -m 755 /var/spool/pr-broker
+# The broker MUST own the sticky directory to delete pocket-owned inputs; root ownership
+# would prevent cleanup. setgid grants pr-requesters traversal; contents are not secret.
+sudo install -d -o pr-broker -g pr-requesters -m 3770 /var/spool/pr-broker/requests /var/spool/pr-broker/staging
+sudo install -d -o pr-broker -g pr-requesters -m 2750 /var/spool/pr-broker/results
+sudo /bin/sh "$src/pr-broker-runtime.sh"
+for tool in agent-push pr-lane pr-broker pr-merge-request pr-lane-merge; do
+    sudo install -o root -g root -m 755 "$src/$tool" "/usr/local/sbin/$tool"
+done
+sudo install -o root -g root -m 644 "$src/pr-broker.service" "$src/pr-broker.timer" "$src/pr-lane-merge.service" "$src/pr-lane-merge.timer" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now pr-broker.timer pr-lane-merge.timer
+# Never create requests.enabled or lane-a.enabled here. The stop/start below also refreshes
+# Pi Pocket's pr-requesters membership; an existing interactive pocket shell needs relogin.
 
 sudo install -m 644 "$src/pi-pocket.service" /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -122,9 +180,11 @@ sudo systemctl enable pi-pocket.service
 
 # Drop-in extensions are off until the owner turns them on; config.json exists after the first start.
 sudo systemctl stop pi-pocket.service
-sudo install -d -o pocket -g pocket -m 700 "$home/.pi-pocket" "$home/.pi-pocket/extensions"
-sudo install -m 644 -o pocket -g pocket "$src/pi-pocket-extensions/memini.ts" "$src/pi-pocket-extensions/approvals.ts" "$src/pi-pocket-extensions/web.ts" "$home/.pi-pocket/extensions/"
-if sudo test -e "$home/.pi-pocket/config.json"; then
+as_pocket install -d -m 700 "$home/.pi-pocket" "$home/.pi-pocket/extensions"
+for extension in memini.ts approvals.ts web.ts; do
+    pocket_install 644 "$src/pi-pocket-extensions/$extension" "$home/.pi-pocket/extensions/$extension"
+done
+if as_pocket test -e "$home/.pi-pocket/config.json"; then
     as_pocket python3 -c '
 import json, os, sys
 path = sys.argv[1]

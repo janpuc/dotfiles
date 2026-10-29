@@ -16,6 +16,25 @@ function ai-sync --description "{{ if eq .chezmoi.os "linux" }}Log gh into GitHu
         echo "  ! could not log gh in with op://Kubernetes/aether/GH_TOKEN (it answers 401); gh keeps its old token" >&2
     end
 
+    # The separate merger App never reaches pocket. Missing item is expected before Step 2
+    # provisioning: warn and retain existing credentials, without failing the rest of ai-sync.
+    if id pr-broker >/dev/null 2>&1
+        set -l merger_key (mktemp)
+        set -l merger_client (mktemp)
+        chmod 600 $merger_key $merger_client
+        if op read "op://Kubernetes/janpuc-merger/MERGER_APP_PRIVATE_KEY" >$merger_key 2>/dev/null; and test -s $merger_key; and op read "op://Kubernetes/janpuc-merger/MERGER_APP_CLIENT_ID" >$merger_client 2>/dev/null; and test -s $merger_client
+            sudo install -d -o root -g root -m 755 /etc/pr-broker
+            sudo install -o root -g pr-broker -m 640 $merger_key /etc/pr-broker/merger.pem
+            sudo install -o root -g pr-broker -m 640 $merger_client /etc/pr-broker/client-id
+            echo "Gave pr-broker its separate merger App credentials. Merge switches unchanged."
+        else
+            echo "  ! could not read op://Kubernetes/janpuc-merger MERGER_APP_PRIVATE_KEY / MERGER_APP_CLIENT_ID; broker credentials unchanged" >&2
+        end
+        rm -f $merger_key $merger_client
+    else
+        echo "  ! pr-broker not installed; skipping merger App credentials" >&2
+    end
+
     # Pi Pocket's model, memini and Home Assistant keys, for the pocket user only: a 0600 file its mise config loads into
     # the service. The 1Password token itself never reaches pocket.
     id pocket >/dev/null 2>&1; or return 0
@@ -32,7 +51,7 @@ function ai-sync --description "{{ if eq .chezmoi.os "linux" }}Log gh into GitHu
         end
         printf '%s=%s\n' $NAMES[$i] $value >>$tmp
     end
-    sudo install -m 600 -o pocket -g pocket $tmp /home/pocket/.config/pi-pocket/secrets.env
+    sudo -u pocket -H sh -c 'umask 077; cat > "$1"; chmod 600 "$1"' sh /home/pocket/.config/pi-pocket/secrets.env <$tmp
     rm -f $tmp
 
     # The agent's own GitHub App (janpuc-agent, only home-ops, dotfiles and BC250, no admin or
@@ -42,12 +61,12 @@ function ai-sync --description "{{ if eq .chezmoi.os "linux" }}Log gh into GitHu
     set -l id_tmp (mktemp)
     chmod 600 $key_tmp $id_tmp
     if op read "op://Kubernetes/janpuc-agent/AGENT_APP_PRIVATE_KEY" >$key_tmp 2>/dev/null; and test -s $key_tmp
-        sudo install -m 600 -o pocket -g pocket $key_tmp /home/pocket/.config/pi-pocket/github-app.pem
+        sudo -u pocket -H sh -c 'umask 077; cat > "$1"; chmod 600 "$1"' sh /home/pocket/.config/pi-pocket/github-app.pem <$key_tmp
     else
         echo "  ! could not read op://Kubernetes/janpuc-agent/AGENT_APP_PRIVATE_KEY" >&2
     end
     if op read "op://Kubernetes/janpuc-agent/AGENT_APP_CLIENT_ID" >$id_tmp 2>/dev/null; and test -s $id_tmp
-        sudo install -m 600 -o pocket -g pocket $id_tmp /home/pocket/.config/pi-pocket/github-app-client-id
+        sudo -u pocket -H sh -c 'umask 077; cat > "$1"; chmod 600 "$1"' sh /home/pocket/.config/pi-pocket/github-app-client-id <$id_tmp
     else
         echo "  ! could not read op://Kubernetes/janpuc-agent/AGENT_APP_CLIENT_ID" >&2
     end

@@ -1,0 +1,39 @@
+[Unit]
+Description=Classify and process untrusted home-ops merge requests (off unless root opts in)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pr-broker
+Group=pr-broker
+WorkingDirectory=/var/lib/pr-broker
+Environment=PATH=/usr/bin:/bin HOME=/var/lib/pr-broker GH_CONFIG_DIR=/var/lib/pr-broker/gh
+UnsetEnvironment=NODE_OPTIONS NODE_PATH GH_TOKEN GITHUB_TOKEN GH_HOST GH_CONFIG_DIR XDG_CONFIG_HOME LD_PRELOAD LD_LIBRARY_PATH
+# Both services share a lock and persistent rolling-hour quota. A busy lock is a no-op.
+ExecStart=/usr/bin/flock --nonblock --conflict-exit-code 0 /var/lib/pr-broker/merge.lock /opt/pr-broker/bin/node /usr/local/sbin/pr-broker
+TimeoutStartSec=15min
+UMask=0027
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pr-broker /var/spool/pr-broker/requests /var/spool/pr-broker/results
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+SystemCallArchitectures=native
+# Node's JIT needs executable mappings; MemoryDenyWriteExecute would break it.
+LimitCORE=0

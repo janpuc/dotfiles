@@ -1,45 +1,31 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } = require('node:fs');
-const { tmpdir } = require('node:os');
-const { join } = require('node:path');
-const { spawnSync } = require('node:child_process');
-function fixture(t) {
-    const root = mkdtempSync(join(tmpdir(), 'pr-lane-merge-'));
-    t.after(() => rmSync(root,{recursive:true,force:true}));
-    const bin = join(root,'bin'), config = join(root,'.config/pi-pocket'); mkdirSync(bin); mkdirSync(config,{recursive:true});
-    const env = {...process.env, HOME:root, PATH:bin+':'+process.env.PATH, CALLS:join(root,'calls')};
-    writeFileSync(join(bin,'pr-lane'), `#!/usr/bin/env node
-const args=process.argv.slice(2), fs=require('node:fs');
-fs.appendFileSync(process.env.CALLS, 'lane '+args.join(' ')+'\\n');
-const prs=Array.from({length:8},(_,i)=>({pr:i+1, head:'a'.repeat(40), lane:i===0?'B':'A',facts:{createdAt:'2026-01-0'+(9-i)}}));
-console.log(JSON.stringify(args[0]==='--all'?prs: {...prs.find(p=>p.pr===Number(args[0])), ...(process.env.STALE ? {head:'b'.repeat(40)} : {})}));
-`,{mode:0o755});
-    writeFileSync(join(bin,'gh'), `#!/usr/bin/env node
-require('node:fs').appendFileSync(process.env.CALLS,'gh '+process.argv.slice(2).join(' ')+'\\n');
-if(process.env.FAIL) process.exit(1);
-`,{mode:0o755});
-    return {root, config, env, run:()=>spawnSync(process.execPath,[join(__dirname,'pr-lane-merge')],{env,encoding:'utf8'}),
-        calls:()=>readFileSync(env.CALLS,'utf8').trim().split('\n')};
+const { fixture, head } = require('./pr-broker-test-fixture.cjs');
+function candidates(f) {
+    f.data.prs = Array.from({ length: 8 }, (_, i) => ({ pr: i + 1, head, lane: i === 0 ? 'B' : 'A',
+        facts: { createdAt: `2026-01-0${9 - i}` } })); f.save();
 }
-test('pr-lane-merge defaults dry-run; oldest first, at most five, never B', t => {
-    const f=fixture(t), r=f.run(); assert.equal(r.status,0,r.stderr); assert.match(r.stdout,/DRY-RUN/);
-    assert.equal(existsSync(join(f.config,'pr-lane-merge.enabled')),false);
-    assert.equal(f.calls().filter(s=>s.startsWith('gh ')).length,0);
-    assert.deepEqual(f.calls().slice(1),[8,7,6,5,4].map(n=>`lane ${n} --json`));
+test('pr-lane-merge dry-run, oldest first, at most five, never B', async t => {
+    const f = fixture(t); candidates(f);
+    assert.equal(await f.run('lane-a'), true);
+    assert.deepEqual(f.calls().map(c => c.args[0]), ['--all', '8', '7', '6', '5', '4']);
+    assert.ok(f.results().every(r => r.status === 'dry-run'));
 });
-test('pr-lane-merge opt-in merges exact command, stops at first failure', t => {
-    const f=fixture(t); writeFileSync(join(f.config,'pr-lane-merge.enabled'),''); f.env.FAIL='1';
-    assert.notEqual(f.run().status,0);
-    assert.deepEqual(f.calls(),['lane --all --json','lane 8 --json',`gh pr merge 8 -R janpuc/home-ops --squash --match-head-commit ${'a'.repeat(40)}`]);
+test('pr-lane-merge uses separate switch and same pinned merge path, at most five', async t => {
+    const f = fixture(t); candidates(f); f.enable();
+    assert.equal(await f.run('lane-a'), true);
+    assert.equal(f.calls().filter(c => c.tool === 'gh').length, 0);
+    f.enable('lane-a'); assert.equal(await f.run('lane-a'), true);
+    const merges = f.calls().filter(c => c.tool === 'gh'); assert.equal(merges.length, 5);
+    assert.deepEqual(merges.map(c => c.args[2]), ['8', '7', '6', '5', '4']);
+    assert.ok(merges.every(c => c.args.at(-1) === head && c.args.at(-2) === '--match-head-commit'));
 });
-test('pr-lane-merge opt-in merges at most five', t => {
-    const f=fixture(t); writeFileSync(join(f.config,'pr-lane-merge.enabled'),'');
-    assert.equal(f.run().status,0);
-    assert.deepEqual(f.calls().filter(c=>c.startsWith('gh ')),[8,7,6,5,4].map(n=>`gh pr merge ${n} -R janpuc/home-ops --squash --match-head-commit ${'a'.repeat(40)}`));
-});
-test('pr-lane-merge rechecks head/lane before merging', t => {
-    const f=fixture(t); writeFileSync(join(f.config,'pr-lane-merge.enabled'),''); f.env.STALE='1';
-    assert.equal(f.run().status,0);
-    assert.equal(f.calls().filter(s=>s.startsWith('gh ')).length,0);
+test('pr-lane-merge stops on first merge failure, changed head, or lane no longer A', async t => {
+    for (const change of [{ fail: true }, { fresh: { head: 'b'.repeat(40) } }, { fresh: { lane: 'B' } }]) {
+        const f = fixture(t); candidates(f); f.enable('lane-a'); Object.assign(f.data, change); f.save();
+        assert.equal(await f.run('lane-a'), false);
+        assert.deepEqual(f.calls().filter(c => c.tool === 'lane').map(c => c.args[0]), ['--all', '8']);
+        assert.equal(f.results().length, 1);
+        assert.ok(['error', 'refused'].includes(f.results()[0].status));
+    }
 });

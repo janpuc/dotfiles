@@ -26,6 +26,8 @@ imports.deregister();
 
 // Every verb in the laptop guard, plus option prefixes, shell separators and API writes.
 const blocked = [
+    "pr-merge-request 42 " + "a".repeat(40) + " && gh pr merge 42 --squash",
+    "pr-merge-request 42 " + "a".repeat(40) + "; gh api repos/janpuc/home-ops/pulls/42/merge -X PUT",
     "git push origin main",
     "agent-push",
     "/usr/local/sbin/agent-push",
@@ -123,6 +125,8 @@ const blocked = [
     "kubectl apply --dry-run=none -f app.yaml",
 ];
 const allowed = [
+    "pr-merge-request 42 " + "a".repeat(40),
+    "/usr/local/sbin/pr-merge-request 42 " + "a".repeat(40),
     "git status",
     "git diff",
     "git commit -m local",
