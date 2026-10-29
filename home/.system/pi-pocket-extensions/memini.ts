@@ -8,6 +8,9 @@ import {
     section,
 } from "@earendil-works/pi-durable";
 
+// Pi Pocket 0.19 renamed a tool result's `content` to `output`; this drop-in needs that.
+export const pocketApi = 2;
+
 const BRIEFING_PATH =
     "/v1/namespaces/briefing?per_section_pinned=5&per_section_facts=5&per_section_procedures=5&per_section_recent=3";
 const BACKGROUND =
@@ -48,7 +51,7 @@ export default function createMemini(host: { notice(level: "warning", message: s
     const clean = (value: string, cap: number) =>
         value.replaceAll(key, "[redacted]").replace(/[<>]/g, "").slice(0, cap);
     const text = (value: string) => ({
-        content: [{ type: "text" as const, text: value }],
+        output: [{ type: "text" as const, text: value }],
     });
 
     async function request(path: string, body?: object): Promise<Reply | undefined> {

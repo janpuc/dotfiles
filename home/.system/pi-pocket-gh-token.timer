@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh the pocket user's GitHub App installation token every half hour
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

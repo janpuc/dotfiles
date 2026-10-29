@@ -1,5 +1,5 @@
 // Run with Node >=22.19: node --test home/.system/pi-pocket-extensions/web.test.ts
-// Fakes mirror Pi Pocket v0.11.0 / pi-durable 1.0.2 (define.js and harness/types.d.ts).
+// Fakes mirror Pi Pocket v0.26.0 / pi-durable 1.4.0 (define.js and harness/types.d.ts).
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -27,10 +27,11 @@ const imports = registerHooks({
     },
 });
 const source = await readFile(new URL("./web.ts", import.meta.url), "utf8");
-const { default: create } = await import(dataUrl(stripTypeScriptTypes(source)));
+const { default: create, pocketApi } = await import(dataUrl(stripTypeScriptTypes(source)));
 imports.deregister();
 
-await test("web v0.11.0 drop-in: search, page reading, fallback, limits and timeouts", async (t) => {
+await test("web v0.26.0 drop-in: search, page reading, fallback, limits and timeouts", async (t) => {
+    assert.equal(pocketApi, 2, "the drop-in declares extension API 2 (results use `output`)");
     const saved = {
         SEARXNG_URL: process.env.SEARXNG_URL,
         FLARESOLVERR_URL: process.env.FLARESOLVERR_URL,
@@ -170,9 +171,9 @@ await test("web v0.11.0 drop-in: search, page reading, fallback, limits and time
         process.env.FLARESOLVERR_URL = base + "/";
         const extension = create();
         const [search, fetchPage] = extension.tools;
-        const searchText = async (args: object) => (await search.execute(args)).content[0].text;
+        const searchText = async (args: object) => (await search.execute(args)).output[0].text;
         const fetchText = async (path: string, args: object = {}) =>
-            (await fetchPage.execute({ url: base + path, ...args })).content[0].text;
+            (await fetchPage.execute({ url: base + path, ...args })).output[0].text;
 
         await t.test("tool schemas, replay safety and untrusted-source guidance", () => {
             assert.equal(extension.name, "web");

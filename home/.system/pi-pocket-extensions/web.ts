@@ -2,13 +2,16 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 
+// Pi Pocket 0.19 renamed a tool result's `content` to `output`; this drop-in needs that.
+export const pocketApi = 2;
+
 const MAX_BYTES = 5 * 1024 * 1024;
 const TIMEOUT = 20_000;
 const USER_AGENT =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const oneLine = (value: string) => value.replace(/\s+/g, " ").trim();
 const text = (value: string) => ({
-    content: [{ type: "text" as const, text: value }],
+    output: [{ type: "text" as const, text: value }],
 });
 
 function httpUrl(value: string): URL {

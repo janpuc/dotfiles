@@ -8,19 +8,19 @@ function ai-sync --description "{{ if eq .chezmoi.os "linux" }}Log gh into GitHu
         set -fx OP_SERVICE_ACCOUNT_TOKEN (string match -rg '^\s*(?:export\s+)?OP_SERVICE_ACCOUNT_TOKEN=(.*)$' <"$HOME/.config/op/aether.env" | string trim -c '"\'')[1]
     end
 
-    # git uses `gh auth git-credential`; gh stores its own token (0600).
+    # git uses `gh auth git-credential`; gh stores its own token (0600). The aether token is
+    # dead (GitHub answers 401), so this only warns: it must not stop the keys below.
     if op read "op://Kubernetes/aether/GH_TOKEN" 2>/dev/null | gh auth login --with-token 2>/dev/null
         echo "Logged gh into GitHub with the aether token."
     else
-        echo "  ! could not log gh in with op://Kubernetes/aether/GH_TOKEN" >&2
-        return 1
+        echo "  ! could not log gh in with op://Kubernetes/aether/GH_TOKEN (it answers 401); gh keeps its old token" >&2
     end
 
-    # Pi Pocket's model, memini, GitHub (aether's own token) and Home Assistant keys, for the pocket user only: a 0600 file its mise config loads into
+    # Pi Pocket's model, memini and Home Assistant keys, for the pocket user only: a 0600 file its mise config loads into
     # the service. The 1Password token itself never reaches pocket.
     id pocket >/dev/null 2>&1; or return 0
-    set -l NAMES OPENCODE_API_KEY MINIMAX_API_KEY ANTHROPIC_API_KEY MEMINI_API_KEY GH_TOKEN HA_TOKEN
-    set -l PATHS op://Kubernetes/opencode/OPENCODE_GO_API_KEY op://Kubernetes/minimax/MINIMAX_API_KEY op://Kubernetes/claude/CLAUDE_API_KEY op://Kubernetes/memini/MEMINI_API_KEY_jan op://Kubernetes/aether/GH_TOKEN op://Kubernetes/hass-mcp/HASS_MCP_TOKEN
+    set -l NAMES OPENCODE_API_KEY MINIMAX_API_KEY ANTHROPIC_API_KEY MEMINI_API_KEY HA_TOKEN
+    set -l PATHS op://Kubernetes/opencode/OPENCODE_GO_API_KEY op://Kubernetes/minimax/MINIMAX_API_KEY op://Kubernetes/claude/CLAUDE_API_KEY op://Kubernetes/memini/MEMINI_API_KEY_jan op://Kubernetes/hass-mcp/HASS_MCP_TOKEN
     set -l tmp (mktemp)
     chmod 600 $tmp
     for i in (seq (count $NAMES))
@@ -34,8 +34,31 @@ function ai-sync --description "{{ if eq .chezmoi.os "linux" }}Log gh into GitHu
     end
     sudo install -m 600 -o pocket -g pocket $tmp /home/pocket/.config/pi-pocket/secrets.env
     rm -f $tmp
+
+    # The GitHub App's key and client id for pocket, in place of the dead token: the token
+    # helper mints installation tokens from them and writes them into gh's own config.
+    set -l key_tmp (mktemp)
+    set -l id_tmp (mktemp)
+    chmod 600 $key_tmp $id_tmp
+    if op read "op://Kubernetes/github-bot/GITHUB_BOT_APP_PRIVATE_KEY" >$key_tmp 2>/dev/null; and test -s $key_tmp
+        sudo install -m 600 -o pocket -g pocket $key_tmp /home/pocket/.config/pi-pocket/github-app.pem
+    else
+        echo "  ! could not read op://Kubernetes/github-bot/GITHUB_BOT_APP_PRIVATE_KEY" >&2
+    end
+    if op read "op://Kubernetes/github-bot/GITHUB_BOT_APP_CLIENT_ID" >$id_tmp 2>/dev/null; and test -s $id_tmp
+        sudo install -m 600 -o pocket -g pocket $id_tmp /home/pocket/.config/pi-pocket/github-app-client-id
+    else
+        echo "  ! could not read op://Kubernetes/github-bot/GITHUB_BOT_APP_CLIENT_ID" >&2
+    end
+    rm -f $key_tmp $id_tmp
+
+    # Mint the first installation token now, so gh works without waiting for the timer.
+    if test -x /usr/local/sbin/pi-pocket-gh-token
+        sudo -u pocket -H /usr/local/sbin/pi-pocket-gh-token || true
+    end
+
     sudo systemctl try-restart pi-pocket.service
-    echo "Gave Pi Pocket its model keys ($NAMES)."
+    echo "Gave Pi Pocket its model keys ($NAMES) and the GitHub App key."
 {{- else }}
     set -q XDG_STATE_HOME; or set -l XDG_STATE_HOME "$HOME/.local/state"
     set -l CRED_FILE "$XDG_STATE_HOME/ai/credentials.fish"

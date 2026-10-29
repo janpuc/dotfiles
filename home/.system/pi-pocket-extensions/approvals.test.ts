@@ -1,5 +1,5 @@
 // Run with Node >=22.19: node --test home/.system/pi-pocket-extensions/approvals.test.ts
-// Fakes mirror Pi Pocket v0.11.0 / pi-durable 1.0.2's hook and per-call memo API.
+// Fakes mirror Pi Pocket v0.26.0 / pi-durable 1.4.0's hook and per-call memo API.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { registerHooks, stripTypeScriptTypes } from "node:module";
@@ -21,7 +21,7 @@ const imports = registerHooks({
     },
 });
 const source = await readFile(new URL("./approvals.ts", import.meta.url), "utf8");
-const { default: create, sharedChange } = await import(dataUrl(stripTypeScriptTypes(source)));
+const { default: create, sharedChange, pocketApi } = await import(dataUrl(stripTypeScriptTypes(source)));
 imports.deregister();
 
 // Every verb in the laptop guard, plus option prefixes, shell separators and API writes.
@@ -194,6 +194,10 @@ const haAllowed = [
     "curl $HA_URL/api/services/light/turn_on",
     "curl https://hass.janpuc.com/api/states; curl -X POST https://example.com/other",
 ];
+
+test("approvals drop-in declares extension API 2", () => {
+    assert.equal(pocketApi, 2);
+});
 
 test("approvals sharedChange: laptop shared-system writes and reads", () => {
     for (const command of blocked) assert.ok(sharedChange(command), command);

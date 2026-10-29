@@ -3,6 +3,9 @@ import type { Context } from "@earendil-works/chord";
 import { defineExtension, hook, section, ToolTask } from "@earendil-works/pi-durable";
 import type { ConversationId, TaskId } from "@earendil-works/pi-durable";
 
+// Pi Pocket 0.19 renamed a tool result's `content` to `output`; the drop-ins share one API level.
+export const pocketApi = 2;
+
 // Structural subset of PocketHost: a drop-in does not need a machine-specific host.ts path.
 type ApprovalAnswer = { allow: boolean; by: string };
 type Host = {

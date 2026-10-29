@@ -2,7 +2,9 @@
 # Pi Pocket and its agent run with, and its keys. ai-sync writes the keys file and the
 # kubeconfig (0600, owned by pocket).
 [tools]
-node = "24.21.0"
+# Pi Pocket 0.20 warns about Node.js without the security fixes of October 21, 2026: 24.22.1
+# or newer.
+node = "24.22.2"
 gh = "2.102.0"
 kubectl = "1.37.1"
 flux2 = "2.9.6"

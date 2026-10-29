@@ -1,0 +1,76 @@
+#!/bin/sh
+# Mint a GitHub App installation token for Jan's account and keep gh's own configuration in
+# step, so the pocket user's gh and git over HTTPS work without a token in the environment:
+# a running Pi Pocket service cannot see new environment values. The pi-pocket-gh-token.timer
+# runs this every half hour; an installation token lasts an hour.
+#
+# The App's private key and client id come from 1Password through ai-sync; this script never
+# prints either of them.
+set -eu
+home=/home/pocket
+conf=$home/.config/pi-pocket
+key=$conf/github-app.pem
+client_file=$conf/github-app-client-id
+# Where gh keeps its own config, the same place gh looks for it.
+gh_config=${XDG_CONFIG_HOME:-$HOME/.config}/gh
+account=janpuc
+api=https://api.github.com
+
+# mise's shims, so node, jq and gh are on PATH however this script is started.
+PATH="$HOME/.local/share/mise/shims:$PATH"
+export PATH
+
+say() { echo "pi-pocket-gh-token: $*" >&2; }
+
+[ -s "$key" ] || { say "no private key in $key; run ai-sync on aether"; exit 0; }
+[ -s "$client_file" ] || { say "no client id in $client_file; run ai-sync on aether"; exit 0; }
+
+# A JWT for the App: RS256 over the header and the claims, signed with the App's private key.
+jwt=$(node -e '
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const key = fs.readFileSync(process.argv[1], "utf8");
+const client = fs.readFileSync(process.argv[2], "utf8").trim();
+const now = Math.floor(Date.now() / 1000);
+const b64 = (value) => Buffer.from(value).toString("base64url");
+const signing = [
+    b64(JSON.stringify({ alg: "RS256", typ: "JWT" })),
+    b64(JSON.stringify({ iat: now - 60, exp: now + 540, iss: client })),
+].join(".");
+const signature = crypto.createSign("RSA-SHA256").update(signing).sign(key).toString("base64url");
+process.stdout.write(signing + "." + signature);
+' "$key" "$client_file")
+
+# The App's installation on Jan's account.
+installations=$(curl -fsS -H "Authorization: Bearer $jwt" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "$api/app/installations") ||
+    { say "cannot list the App's installations"; exit 0; }
+installation=$(printf '%s' "$installations" |
+    jq -r --arg a "$account" 'map(select(.account.login == $a)) | first | .id // empty')
+[ -n "$installation" ] || { say "the App has no installation on $account"; exit 0; }
+
+# A token for that installation, good for an hour, cut down to the agent's repositories and
+# to what it needs. The App can also write workflows (Renovate updates actions), but this token
+# cannot, so GitHub itself refuses any agent push that touches .github/workflows.
+scope='{"repositories":["home-ops","dotfiles","BC250"],"permissions":{"contents":"write","pull_requests":"write","issues":"write","checks":"read","statuses":"read"}}'
+token=$(curl -fsS -X POST -H "Authorization: Bearer $jwt" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" -d "$scope" "$api/app/installations/$installation/access_tokens" |
+    jq -r '.token // empty')
+[ -n "$token" ] || { say "no token for installation $installation"; exit 0; }
+
+# gh keeps its own token, so write it there. `gh auth login --with-token` asks GitHub which
+# user the token belongs to, and an installation token cannot answer that (the GraphQL API
+# needs a user token), so gh's own file is written here.
+umask 077
+mkdir -p "$gh_config"
+cat >"$gh_config/hosts.yml" <<EOF
+github.com:
+    oauth_token: $token
+    users:
+        bot-atlas[bot]:
+            oauth_token: $token
+    user: bot-atlas[bot]
+    git_protocol: https
+EOF
+chmod 600 "$gh_config/hosts.yml"
+
+# Git over HTTPS takes the token from gh.
+gh auth setup-git

@@ -3,17 +3,19 @@
 # Pi Pocket, Jan's assistant: a pocket user without sudo, Pi Pocket at a pinned release, its
 # service, and tailscale serve publishing it over HTTPS on the tailnet only (phone push needs
 # HTTPS), and the memini extension (switched on in Pi Pocket's config while the service is
-# stopped). Model and memini keys come from ai-sync. Re-runs when any of it changes.
+# stopped). Model and memini keys come from ai-sync, and so does the GitHub App key the
+# installation-token helper uses. Re-runs when any of it changes.
 #   service {{ include ".system/pi-pocket.service" | sha256sum }}
 #   mise    {{ include ".system/pi-pocket-mise.toml" | sha256sum }}
 #   memini  {{ include ".system/pi-pocket-extensions/memini.ts" | sha256sum }}
 #   approvals {{ include ".system/pi-pocket-extensions/approvals.ts" | sha256sum }}
 #   web     {{ include ".system/pi-pocket-extensions/web.ts" | sha256sum }}
 #   skills  {{ include ".system/pi-pocket-skills/homelab-cluster/SKILL.md" | sha256sum }} {{ include ".system/pi-pocket-skills/home-assistant/SKILL.md" | sha256sum }} {{ include ".system/pi-pocket-skills/github/SKILL.md" | sha256sum }}
+#   ghtoken {{ include ".system/pi-pocket-gh-token" | sha256sum }} {{ include ".system/pi-pocket-gh-token.service" | sha256sum }} {{ include ".system/pi-pocket-gh-token.timer" | sha256sum }}
 set -eu
 repos="home-ops dotfiles BC250"
-version=v0.11.0
-commit=f93f2e4c772ff9fc8e615f167ea8390ad59ae948
+version=v0.26.0
+commit=5e13a8b161226cbfef3e696c1bd31b8da110e381
 src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
 home=/home/pocket
 as_pocket() { sudo -u pocket -H "$@"; }
@@ -27,22 +29,56 @@ for skill in homelab-cluster home-assistant github; do
 done
 sudo install -m 644 -o pocket -g pocket "$src/pi-pocket-mise.toml" "$home/.config/mise/config.toml"
 sudo test -e "$home/.config/pi-pocket/secrets.env" || sudo install -m 600 -o pocket -g pocket /dev/null "$home/.config/pi-pocket/secrets.env"
+# The GitHub App's key and client id, filled in by ai-sync from 1Password. The token helper
+# mints installation tokens from the key; the helper reads the files, never the environment.
+sudo test -e "$home/.config/pi-pocket/github-app.pem" || sudo install -m 600 -o pocket -g pocket /dev/null "$home/.config/pi-pocket/github-app.pem"
+sudo test -e "$home/.config/pi-pocket/github-app-client-id" || sudo install -m 600 -o pocket -g pocket /dev/null "$home/.config/pi-pocket/github-app-client-id"
+# The aether token is dead (GitHub answers 401), so it leaves pocket's environment for good.
+if sudo test -e "$home/.config/pi-pocket/secrets.env" && sudo grep -q '^GH_TOKEN=' "$home/.config/pi-pocket/secrets.env"; then
+    as_pocket sh -c "grep -v '^GH_TOKEN=' '$home/.config/pi-pocket/secrets.env' > '$home/.config/pi-pocket/secrets.env.new' && mv '$home/.config/pi-pocket/secrets.env.new' '$home/.config/pi-pocket/secrets.env'"
+fi
+# mise's shims, so gh and node are on PATH in a login shell (the service gets them from
+# `mise exec`). The login shell reads .profile, not .bashrc, which returns early.
+if ! sudo grep -q 'mise/shims' "$home/.profile" 2>/dev/null; then
+    # shellcheck disable=SC2016 # the line is written as it is, for pocket's shell to expand
+    printf '%s\n' 'export PATH="$HOME/.local/share/mise/shims:$PATH"' | sudo tee -a "$home/.profile" >/dev/null
+fi
 
 # The release, checked against its commit.
 if ! sudo test -d "$home/pi-pocket/.git"; then
     as_pocket git clone --quiet https://github.com/TannerMidd/pi-pocket "$home/pi-pocket"
 fi
 as_pocket git -C "$home/pi-pocket" fetch --quiet --tags origin
+current_commit=$(as_pocket git -C "$home/pi-pocket" rev-parse HEAD)
+# The data folder moves with the server: Pi Durable 1.4 rewrites pocket.sqlite the first time
+# it opens it, and older servers cannot read it again. Archive the old folder before the
+# upgrade, with the service stopped, so the copy is whole.
+if [ "$current_commit" != "$commit" ] && sudo test -d "$home/.pi-pocket"; then
+    sudo systemctl stop pi-pocket.service || true
+    sudo install -d -o pocket -g pocket -m 700 "$home/archive"
+    old=$(as_pocket git -C "$home/pi-pocket" show HEAD:package.json | sed -n 's/.*"version": "\([^"]*\)".*/\1/p')
+    old=${old%.*}
+    stamp=$(date +%F)
+    archive="$home/archive/pi-pocket-$old-$stamp.tar.gz"
+    if sudo test -e "$archive"; then
+        archive="$home/archive/pi-pocket-$old-$stamp-$(date +%H%M%S).tar.gz"
+    fi
+    as_pocket tar -czf "$archive" -C "$home" .pi-pocket
+    echo "Archived the old data folder in $archive."
+fi
 as_pocket git -C "$home/pi-pocket" checkout --quiet --detach "$version"
 test "$(as_pocket git -C "$home/pi-pocket" rev-parse HEAD)" = "$commit" || { echo "pi-pocket $version is not $commit" >&2; exit 1; }
 as_pocket sh -c "cd '$home' && mise install --yes && cd pi-pocket && mise exec -- npm ci --ignore-scripts --no-audit --no-fund"
 
-# Dev work: git as Jan through gh's token, commits signed with pocket's own key (registered on
-# GitHub as "pi-pocket (aether)"), repos in ~/work trusted by mise, scratch for the rest.
+# Dev work: git as the agent through the App's installation token, commits signed with pocket's
+# own key (registered on GitHub as "pi-pocket (aether)"), repos in ~/work trusted by mise,
+# scratch for the rest.
 sudo install -d -o pocket -g pocket -m 700 "$home/scratch" "$home/.ssh"
 sudo test -e "$home/.ssh/signing" || as_pocket ssh-keygen -q -t ed25519 -N "" -C "pi-pocket (aether)" -f "$home/.ssh/signing"
-as_pocket git config --global user.name janpuc
-as_pocket git config --global user.email contact@janpuc.com
+# The agent commits as itself, never as bot-atlas[bot]: Renovate would take the branch for its
+# own and overwrite the agent's commits.
+as_pocket git config --global user.name janpuc-agent
+as_pocket git config --global user.email agent@janpuc.com
 as_pocket git config --global gpg.format ssh
 as_pocket git config --global user.signingkey "$home/.ssh/signing.pub"
 as_pocket git config --global commit.gpgsign true
@@ -54,6 +90,13 @@ for repo in $repos; do
 done
 # home-ops' mise config points KUBECONFIG at the repo's own (git-ignored) kubeconfig.
 sudo test -e "$home/work/home-ops/kubeconfig" || as_pocket ln -s ../../.kube/config "$home/work/home-ops/kubeconfig"
+
+# The installation-token helper: gh's own config, not an environment variable, because the
+# running service cannot see new environment values.
+sudo install -m 755 "$src/pi-pocket-gh-token" /usr/local/sbin/pi-pocket-gh-token
+sudo install -m 644 "$src/pi-pocket-gh-token.service" "$src/pi-pocket-gh-token.timer" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now pi-pocket-gh-token.timer
 
 sudo install -m 644 "$src/pi-pocket.service" /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -69,7 +112,9 @@ import json, os, sys
 path = sys.argv[1]
 config = json.load(open(path))
 on = config.setdefault("enabledExtensions", [])
-missing = [m for m in ("memini.ts", "approvals.ts", "web.ts") if m not in on]
+# The drop-ins and the built-ins the agent needs: Triggers (watches and webhooks) and
+# Scheduled messages.
+missing = [m for m in ("memini.ts", "approvals.ts", "web.ts", "triggers.ts", "schedules.ts") if m not in on]
 # Only someone else may allow a guest'"'"'s risky call: the laptop Pi (a guest) never approves its own.
 if missing or config.get("approvals") != "others":
     on.extend(missing)

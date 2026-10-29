@@ -1,5 +1,5 @@
 // Run with Node >=22.19: node --test home/.system/pi-pocket-extensions/memini.test.ts
-// Fakes mirror Pi Pocket v0.11.0 / pi-durable 1.0.2 (define.js and harness/types.d.ts).
+// Fakes mirror Pi Pocket v0.26.0 / pi-durable 1.4.0 (define.js and harness/types.d.ts).
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -30,7 +30,7 @@ const imports = registerHooks({
     },
 });
 const source = await readFile(new URL("./memini.ts", import.meta.url), "utf8");
-const { default: create } = await import(dataUrl(stripTypeScriptTypes(source)));
+const { default: create, pocketApi } = await import(dataUrl(stripTypeScriptTypes(source)));
 imports.deregister();
 
 function memoApi() {
@@ -48,7 +48,7 @@ function memoApi() {
 const user = (content: unknown) => ({ role: "user", content, timestamp: 123 });
 const context = {};
 
-await test("memini v0.11.0 drop-in: tools, cached briefing, request-only recall, failures and secrets", async () => {
+await test("memini v0.26.0 drop-in: tools, cached briefing, request-only recall, failures and secrets", async () => {
     const saved = Object.fromEntries(
         Object.entries(process.env).filter(([name]) => name.startsWith("MEMINI_")),
     );
@@ -97,6 +97,7 @@ await test("memini v0.11.0 drop-in: tools, cached briefing, request-only recall,
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as { port: number };
     try {
+        assert.equal(pocketApi, 2, "the drop-in declares extension API 2 (results use `output`)");
         for (const name of Object.keys(process.env).filter((name) => name.startsWith("MEMINI_")))
             delete process.env[name];
         const disabled = create({
@@ -186,7 +187,7 @@ await test("memini v0.11.0 drop-in: tools, cached briefing, request-only recall,
             query: "explicit",
             limit: 2,
         });
-        assert.equal((recalledTool.content[0].text.match(/^- /gm) || []).length, 2);
+        assert.equal((recalledTool.output[0].text.match(/^- /gm) || []).length, 2);
         const remembered = await extension.tools[1].execute({
             content: "Atomic fact",
             tags: ["test"],
@@ -210,11 +211,11 @@ await test("memini v0.11.0 drop-in: tools, cached briefing, request-only recall,
         assert.match(failedBriefing, /^<!-- memini-briefing-at:\d+ session:2 -->$/);
         assert.equal(await before(request, memoApi(), context), undefined);
         assert.equal(
-            (await extension.tools[0].execute({ query: "test" })).content[0].text,
+            (await extension.tools[0].execute({ query: "test" })).output[0].text,
             "Memini unavailable.",
         );
         assert.equal(
-            (await extension.tools[1].execute({ content: "test" })).content[0].text,
+            (await extension.tools[1].execute({ content: "test" })).output[0].text,
             "Memini unavailable; storage not confirmed.",
         );
         mode = "slow";
