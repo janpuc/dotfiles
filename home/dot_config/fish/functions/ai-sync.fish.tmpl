@@ -35,20 +35,21 @@ function ai-sync --description "{{ if eq .chezmoi.os "linux" }}Log gh into GitHu
     sudo install -m 600 -o pocket -g pocket $tmp /home/pocket/.config/pi-pocket/secrets.env
     rm -f $tmp
 
-    # The GitHub App's key and client id for pocket, in place of the dead token: the token
-    # helper mints installation tokens from them and writes them into gh's own config.
+    # The agent's own GitHub App (janpuc-agent, only home-ops, dotfiles and BC250, no admin or
+    # workflow rights): its key and client id for pocket. The token helper mints installation
+    # tokens from them and writes them into gh's own config.
     set -l key_tmp (mktemp)
     set -l id_tmp (mktemp)
     chmod 600 $key_tmp $id_tmp
-    if op read "op://Kubernetes/github-bot/GITHUB_BOT_APP_PRIVATE_KEY" >$key_tmp 2>/dev/null; and test -s $key_tmp
+    if op read "op://Kubernetes/janpuc-agent/AGENT_APP_PRIVATE_KEY" >$key_tmp 2>/dev/null; and test -s $key_tmp
         sudo install -m 600 -o pocket -g pocket $key_tmp /home/pocket/.config/pi-pocket/github-app.pem
     else
-        echo "  ! could not read op://Kubernetes/github-bot/GITHUB_BOT_APP_PRIVATE_KEY" >&2
+        echo "  ! could not read op://Kubernetes/janpuc-agent/AGENT_APP_PRIVATE_KEY" >&2
     end
-    if op read "op://Kubernetes/github-bot/GITHUB_BOT_APP_CLIENT_ID" >$id_tmp 2>/dev/null; and test -s $id_tmp
+    if op read "op://Kubernetes/janpuc-agent/AGENT_APP_CLIENT_ID" >$id_tmp 2>/dev/null; and test -s $id_tmp
         sudo install -m 600 -o pocket -g pocket $id_tmp /home/pocket/.config/pi-pocket/github-app-client-id
     else
-        echo "  ! could not read op://Kubernetes/github-bot/GITHUB_BOT_APP_CLIENT_ID" >&2
+        echo "  ! could not read op://Kubernetes/janpuc-agent/AGENT_APP_CLIENT_ID" >&2
     end
     rm -f $key_tmp $id_tmp
 

@@ -75,10 +75,10 @@ as_pocket sh -c "cd '$home' && mise install --yes && cd pi-pocket && mise exec -
 # scratch for the rest.
 sudo install -d -o pocket -g pocket -m 700 "$home/scratch" "$home/.ssh"
 sudo test -e "$home/.ssh/signing" || as_pocket ssh-keygen -q -t ed25519 -N "" -C "pi-pocket (aether)" -f "$home/.ssh/signing"
-# The agent commits as itself, never as bot-atlas[bot]: Renovate would take the branch for its
-# own and overwrite the agent's commits.
-as_pocket git config --global user.name janpuc-agent
-as_pocket git config --global user.email agent@janpuc.com
+# The agent commits as its App's bot, so GitHub shows its work as its own. Never as
+# bot-atlas[bot]: Renovate would take the branch for its own and overwrite the agent's commits.
+as_pocket git config --global user.name "janpuc-agent[bot]"
+as_pocket git config --global user.email "349816615+janpuc-agent[bot]@users.noreply.github.com"
 as_pocket git config --global gpg.format ssh
 as_pocket git config --global user.signingkey "$home/.ssh/signing.pub"
 as_pocket git config --global commit.gpgsign true

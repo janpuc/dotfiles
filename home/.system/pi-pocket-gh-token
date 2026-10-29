@@ -49,9 +49,10 @@ installation=$(printf '%s' "$installations" |
 [ -n "$installation" ] || { say "the App has no installation on $account"; exit 0; }
 
 # A token for that installation, good for an hour, cut down to the agent's repositories and
-# to what it needs. The App can also write workflows (Renovate updates actions), but this token
-# cannot, so GitHub itself refuses any agent push that touches .github/workflows.
-scope='{"repositories":["home-ops","dotfiles","BC250"],"permissions":{"contents":"write","pull_requests":"write","issues":"write","checks":"read","statuses":"read"}}'
+# to what it needs. The App has no more than this today; asking by name keeps the token this
+# narrow even if the App gets more rights later. No workflow rights, so GitHub itself refuses
+# any agent push that touches .github/workflows.
+scope='{"repositories":["home-ops","dotfiles","BC250"],"permissions":{"contents":"write","pull_requests":"write","issues":"write","checks":"read","statuses":"read","actions":"read"}}'
 token=$(curl -fsS -X POST -H "Authorization: Bearer $jwt" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" -d "$scope" "$api/app/installations/$installation/access_tokens" |
     jq -r '.token // empty')
 [ -n "$token" ] || { say "no token for installation $installation"; exit 0; }
@@ -65,9 +66,9 @@ cat >"$gh_config/hosts.yml" <<EOF
 github.com:
     oauth_token: $token
     users:
-        bot-atlas[bot]:
+        janpuc-agent[bot]:
             oauth_token: $token
-    user: bot-atlas[bot]
+    user: janpuc-agent[bot]
     git_protocol: https
 EOF
 chmod 600 "$gh_config/hosts.yml"

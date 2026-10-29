@@ -8,9 +8,9 @@ description: Read GitHub repositories and PRs, review bot updates, and propose a
 Use `gh`; it is signed in with a GitHub App installation token for Jan's
 account, kept in gh's own config (`~/.config/gh/hosts.yml`). There is no
 `GH_TOKEN` in the environment. Never print or persist the token.
-The token is the App's bot (`bot-atlas[bot]`), so commits it makes are the
-agent's own: commit as `janpuc-agent <agent@janpuc.com>`
-(`git config --global user.name`/`user.email`), never as the bot.
+The token is the agent's own App, `janpuc-agent[bot]`, and git commits as
+that bot (`git config --global user.name`/`user.email` are set). Renovate
+and kritika are a different App (`bot-atlas[bot]`).
 The user's repositories are under `janpuc`, including `home-ops`, `dotfiles`
 and others. Confirm the target repo rather than relying on the current folder.
 
