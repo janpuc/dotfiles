@@ -1,0 +1,32 @@
+#!/usr/bin/env node
+// Deferred Step 2 draft, not installed in Step 1. Requires a separate account and ruleset.
+'use strict';
+const { execFileSync } = require('node:child_process');
+const { existsSync } = require('node:fs');
+const { join } = require('node:path');
+const run = (file, args) => execFileSync(file, args, { encoding: 'utf8', timeout: 600000,
+    maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+function main() {
+    if (process.argv.length !== 2) throw Error('usage: pr-lane-merge');
+    const config = join(process.env.HOME, '.config/pi-pocket');
+    const enabled = existsSync(join(config, 'pr-lane-merge.enabled'));
+    console.log(`pr-lane-merge: ${enabled ? 'ENABLED' : 'DRY-RUN'} (at most 5 lane A PRs)`);
+    const prs = JSON.parse(run('pr-lane', ['--all', '--json']));
+    if (!Array.isArray(prs)) throw Error('invalid pr-lane list');
+    const candidates = prs.filter(p => p.lane === 'A')
+        .sort((a, b) => a.facts.createdAt.localeCompare(b.facts.createdAt) || a.pr - b.pr).slice(0, 5);
+    for (const pr of candidates) {
+        // Earlier merges can change CI/rendering. Re-evaluate immediately before each merge.
+        const fresh = JSON.parse(run('pr-lane', [String(pr.pr), '--json']));
+        if (fresh.pr !== pr.pr || fresh.head !== pr.head || fresh.lane !== 'A') {
+            console.log(`pr-lane-merge: #${pr.pr} changed or no longer A; skipping`); continue;
+        }
+        const args = ['pr', 'merge', String(pr.pr), '-R', 'janpuc/home-ops', '--squash', '--match-head-commit', fresh.head];
+        console.log(`pr-lane-merge: ${enabled ? 'merge' : 'DRY-RUN would run'} gh ${args.join(' ')} (head ${fresh.head})`);
+        if (enabled) console.log(run('gh', args).trim());
+    }
+}
+try { main(); } catch (error) {
+    console.error(`pr-lane-merge: stopped at first failure: ${error.message}`);
+    process.exitCode = 1;
+}

@@ -1,0 +1,18 @@
+[Unit]
+Description=Shepherd home-ops lane A PRs (dry-run unless pocket opts in)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pocket
+Group=pocket
+WorkingDirectory=/home/pocket
+Environment=PATH=/home/pocket/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/local/sbin/pr-lane-merge
+TimeoutStartSec=25min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=tmpfs
+BindPaths=/home/pocket

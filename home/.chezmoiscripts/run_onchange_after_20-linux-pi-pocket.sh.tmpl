@@ -12,6 +12,8 @@
 #   web     {{ include ".system/pi-pocket-extensions/web.ts" | sha256sum }}
 #   skills  {{ include ".system/pi-pocket-skills/homelab-cluster/SKILL.md" | sha256sum }} {{ include ".system/pi-pocket-skills/home-assistant/SKILL.md" | sha256sum }} {{ include ".system/pi-pocket-skills/github/SKILL.md" | sha256sum }}
 #   ghtoken {{ include ".system/pi-pocket-gh-token" | sha256sum }} {{ include ".system/pi-pocket-gh-token.service" | sha256sum }} {{ include ".system/pi-pocket-gh-token.timer" | sha256sum }}
+#   shepherd {{ include ".system/agent-push" | sha256sum }} {{ include ".system/pr-lane" | sha256sum }}
+#   prskill {{ include ".system/pi-pocket-skills/pr-shepherd/SKILL.md" | sha256sum }}
 set -eu
 repos="home-ops dotfiles BC250"
 version=v0.26.0
@@ -23,7 +25,7 @@ as_pocket() { sudo -u pocket -H "$@"; }
 id pocket >/dev/null 2>&1 || sudo useradd --create-home --home-dir "$home" --shell /bin/bash pocket
 sudo install -d -o pocket -g pocket -m 700 "$home/.config" "$home/.config/mise" "$home/.config/pi-pocket" "$home/work" "$home/.kube"
 # Pi's skills, which Pi Pocket loads from Pi's own folder.
-for skill in homelab-cluster home-assistant github; do
+for skill in homelab-cluster home-assistant github pr-shepherd; do
     sudo install -d -o pocket -g pocket -m 755 "$home/.pi" "$home/.pi/agent" "$home/.pi/agent/skills" "$home/.pi/agent/skills/$skill"
     sudo install -m 644 -o pocket -g pocket "$src/pi-pocket-skills/$skill/SKILL.md" "$home/.pi/agent/skills/$skill/"
 done
@@ -70,9 +72,9 @@ as_pocket git -C "$home/pi-pocket" checkout --quiet --detach "$version"
 test "$(as_pocket git -C "$home/pi-pocket" rev-parse HEAD)" = "$commit" || { echo "pi-pocket $version is not $commit" >&2; exit 1; }
 as_pocket sh -c "cd '$home' && mise install --yes && cd pi-pocket && mise exec -- npm ci --ignore-scripts --no-audit --no-fund"
 
-# Dev work: git as the agent through the App's installation token, commits signed with pocket's
-# own key (registered on GitHub as "pi-pocket (aether)"), repos in ~/work trusted by mise,
-# scratch for the rest.
+# Dev work: local commits use pocket's SSH key, but publish only with agent-push below:
+# GitHub's API signs as the App (the SSH-signed bot commits are UNVERIFIED on GitHub).
+# Repos in ~/work are trusted by mise; scratch is for the rest.
 sudo install -d -o pocket -g pocket -m 700 "$home/scratch" "$home/.ssh"
 sudo test -e "$home/.ssh/signing" || as_pocket ssh-keygen -q -t ed25519 -N "" -C "pi-pocket (aether)" -f "$home/.ssh/signing"
 # The agent commits as its App's bot, so GitHub shows its work as its own. Never as
@@ -98,6 +100,21 @@ sudo install -m 755 "$src/pi-pocket-gh-token" /usr/local/sbin/pi-pocket-gh-token
 sudo install -m 644 "$src/pi-pocket-gh-token.service" "$src/pi-pocket-gh-token.timer" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now pi-pocket-gh-token.timer
+
+# Step 1: every merge asks Jan. Step 2 installs the merge runner and units under
+# a separate account, with a GitHub ruleset; nothing running as pocket authorizes merges.
+# Retire any earlier draft, even if it had already enabled the timer.
+if sudo systemctl cat pr-lane-merge.timer >/dev/null 2>&1; then
+    sudo systemctl disable --now pr-lane-merge.timer
+fi
+if sudo systemctl cat pr-lane-merge.service >/dev/null 2>&1; then
+    sudo systemctl stop pr-lane-merge.service
+fi
+sudo rm -f /etc/systemd/system/timers.target.wants/pr-lane-merge.timer /etc/systemd/system/pr-lane-merge.timer /etc/systemd/system/pr-lane-merge.service /usr/local/sbin/pr-lane-merge
+sudo systemctl daemon-reload
+for tool in agent-push pr-lane; do
+    sudo install -m 755 "$src/$tool" "/usr/local/sbin/$tool"
+done
 
 sudo install -m 644 "$src/pi-pocket.service" /etc/systemd/system/
 sudo systemctl daemon-reload

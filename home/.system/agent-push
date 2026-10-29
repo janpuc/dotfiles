@@ -1,0 +1,81 @@
+#!/usr/bin/env node
+// Publish a branch's local commits as one GitHub-signed App commit, never git push.
+'use strict';
+const { execFileSync } = require('node:child_process');
+function run(file, args, options = {}) {
+    return execFileSync(file, args, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], ...options });
+}
+const git = (...args) => run('git', args).trim();
+const gh = (args, input) => JSON.parse(run('gh', args, input ? { input: JSON.stringify(input) } : {}));
+function main() {
+    const args = process.argv.slice(2);
+    if (args.some(a => a !== '--dry-run') || args.length > 1) throw Error('usage: agent-push [--dry-run]');
+    const dry = args.includes('--dry-run');
+    const branch = git('symbolic-ref', '--quiet', '--short', 'HEAD');
+    if (['main', 'master'].includes(branch)) throw Error('refusing to publish main/master');
+    if (git('status', '--porcelain')) throw Error('commit or stash all worktree/index changes first');
+    const localHead = git('rev-parse', 'HEAD');
+    const repo = gh(['repo', 'view', git('remote', 'get-url', 'origin'), '--json', 'nameWithOwner']).nameWithOwner;
+    if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw Error('cannot identify the GitHub repository');
+    git('fetch', '--quiet', 'origin', '+refs/heads/main:refs/remotes/origin/main');
+    const remote = git('ls-remote', '--heads', 'origin', `refs/heads/${branch}`);
+    const create = !remote;
+    let base;
+    if (create) base = git('merge-base', 'HEAD', 'origin/main');
+    else {
+        git('fetch', '--quiet', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
+        base = git('rev-parse', `refs/remotes/origin/${branch}`);
+        git('merge-base', '--is-ancestor', base, 'HEAD');
+    }
+    // NUL-delimited paths preserve spaces, tabs and newlines. Refuse unsupported tree modes.
+    const raw = run('git', ['diff', '--raw', '-z', '--no-renames', base, 'HEAD']).split('\0');
+    for (let i = 0; i < raw.length - 1; i += 2) {
+        const [oldMode, newMode] = raw[i].slice(1).split(' ');
+        const path = raw[i + 1];
+        if ([oldMode, newMode].some(m => !['000000', '100644', '100755'].includes(m)))
+            throw Error(`unsupported symlink/submodule/mode at ${JSON.stringify(path)}`);
+        if (oldMode !== '000000' && newMode !== '000000' && oldMode !== newMode)
+            throw Error(`mode changes are unsupported: ${JSON.stringify(path)}`);
+        if (oldMode === '000000' && newMode === '100755')
+            throw Error(`new executable mode cannot be represented by fileChanges: ${JSON.stringify(path)}`);
+        if (path === '.github/workflows' || path.startsWith('.github/workflows/'))
+            throw Error(`workflow writes are forbidden: ${JSON.stringify(path)}`);
+    }
+    const names = run('git', ['diff', '--name-status', '-z', '--no-renames', base, 'HEAD']).split('\0');
+    const additions = [], deletions = [];
+    for (let i = 0; i < names.length - 1; i += 2) {
+        const [status, path] = [names[i], names[i + 1]];
+        if (status === 'D') deletions.push({ path });
+        else if (['A', 'M'].includes(status)) additions.push({ path,
+            contents: run('git', ['show', `HEAD:${path}`], { encoding: 'buffer' }).toString('base64') });
+        else throw Error(`unsupported change ${status}: ${JSON.stringify(path)}`);
+    }
+    if (!additions.length && !deletions.length) throw Error('no file changes to publish');
+    const subjects = git('log', '--reverse', '--format=%s', `${base}..HEAD`).split('\n');
+    const input = { branch: { repositoryNameWithOwner: repo, branchName: branch },
+        expectedHeadOid: base, message: { headline: git('log', '-1', '--format=%s'),
+            body: 'Local commits:\n' + subjects.map(s => `- ${s}`).join('\n') },
+        fileChanges: { additions, deletions } };
+    console.log(JSON.stringify({ dryRun: dry, repo, branch, createBranchAt: create ? base : null,
+        expectedHeadOid: base, message: input.message,
+        additions: additions.map(a => a.path), deletions: deletions.map(d => d.path) }, null, 2));
+    if (dry) return;
+    if (create) gh(['api', `repos/${repo}/git/refs`, '--method', 'POST', '--input', '-'],
+        { ref: `refs/heads/${branch}`, sha: base });
+    const result = gh(['api', 'graphql', '--input', '-'], {
+        query: 'mutation($input:CreateCommitOnBranchInput!){createCommitOnBranch(input:$input){commit{oid}}}',
+        variables: { input } });
+    const oid = result.data?.createCommitOnBranch?.commit?.oid;
+    if (result.errors?.length || !oid) throw Error(`GitHub did not create the commit: ${JSON.stringify(result.errors)}`);
+    git('fetch', '--quiet', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`);
+    if (git('rev-parse', `origin/${branch}`) !== oid) throw Error('remote moved after publication; local commits kept');
+    if (git('rev-parse', 'HEAD') !== localHead) throw Error('local HEAD moved during publication; refusing reset');
+    git('diff', '--quiet', `origin/${branch}`, 'HEAD');
+    git('reset', '--keep', `origin/${branch}`);
+    git('branch', `--set-upstream-to=origin/${branch}`, branch);
+    console.log(`Published verified commit ${oid}; local branch now tracks origin/${branch}.`);
+}
+try { main(); } catch (error) {
+    console.error(`agent-push: ${error.message}${error.stderr ? '\n' + error.stderr.toString().trim() : ''}`);
+    process.exitCode = 1;
+}

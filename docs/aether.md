@@ -19,7 +19,7 @@ reach Linux unless deliberately added there.
 | `home/.system/aether-hosts-sync*` (installed by `05-linux-system`) | hourly: derive internal DNS names from public home-ops into `/etc/hosts`, because the UniFi gateway does not answer DNS from the tailnet |
 | `home/.system/xterm-ghostty.terminfo` (`06-linux-terminfo`) | Ghostty terminfo in `~/.terminfo`, absent from Ubuntu's ncurses |
 | `home/.system/aether-keepalive*` (installed by `05-linux-system`) | hold 25% of RAM without CPU load to avoid Oracle's idle-instance reclamation criteria |
-| `home/.system/pi-pocket*` (installed by `20-linux-pi-pocket`) | [Pi Pocket](https://github.com/TannerMidd/pi-pocket) at a pinned release, run by the `pocket` user (no sudo, sees only its own home) as the `pi-pocket` system service on 127.0.0.1:8787; `tailscale serve` publishes it at `https://aether.<tailnet>.ts.net` on the tailnet only. At home the same URL works without Tailscale: a UniFi DNS record (`aether.tail17d532.ts.net` → aether's tailnet address, 100.108.252.49) and bob, the router on the tailnet, carry it. Node comes from pocket's own mise config. `pi-pocket-extensions/memini.ts` gives it memory in memini namespace `homelab/assistant` (home `personal/jan`): a briefing per conversation, recall on each message, and `memory_recall`/`memory_remember` tools; test it with `node --test` on its `memini.test.ts`. `approvals.ts` asks Jan in the app (push notification) before a bash command changes a shared system: git push, GitHub writes, cluster, Flux, Talos or Helm changes, chezmoi apply, Home Assistant service calls. `web.ts` gives it `web_search` (the home SearXNG at search.janpuc.com) and `web_fetch` (pages as text, with a FlareSolverr fallback). `pi-pocket-skills/` holds Pi skills for the cluster (read-only `view` access, Alertmanager and Prometheus over HTTPS), Home Assistant (`$HA_URL`, `$HA_TOKEN`) and GitHub (`gh`, signed in with the App's installation token). pocket's mise config adds gh, kubectl, flux and jq. `pi-pocket-gh-token` (a systemd timer, as `pocket`, every half hour) mints an installation token of the agent's own GitHub App, janpuc-agent (only home-ops, dotfiles and BC250, no admin or workflow rights; key from op://Kubernetes/janpuc-agent), and writes it into gh's own config for `pocket`, because a running service cannot see new environment values; git over HTTPS reads it through the `mise exec -- gh auth git-credential` helper. For dev work pocket commits as `janpuc-agent[bot]` (never as `bot-atlas[bot]`, the Renovate and kritika App, or Renovate takes the branch for its own), signed with its own key (`~pocket/.ssh/signing`, on GitHub as "pi-pocket (aether)"); home-ops, dotfiles and BC250 are cloned into `~pocket/work/` and trusted by mise, and new sessions start in `~pocket/scratch` |
+| `home/.system/pi-pocket*` (installed by `20-linux-pi-pocket`) | [Pi Pocket](https://github.com/TannerMidd/pi-pocket) at a pinned release, run by the `pocket` user (no sudo, sees only its own home) as the `pi-pocket` system service on 127.0.0.1:8787; `tailscale serve` publishes it at `https://aether.<tailnet>.ts.net` on the tailnet only. At home the same URL works without Tailscale: a UniFi DNS record (`aether.tail17d532.ts.net` → aether's tailnet address, 100.108.252.49) and bob, the router on the tailnet, carry it. Node comes from pocket's own mise config. `pi-pocket-extensions/memini.ts` gives it memory in memini namespace `homelab/assistant` (home `personal/jan`): a briefing per conversation, recall on each message, and `memory_recall`/`memory_remember` tools; test it with `node --test` on its `memini.test.ts`. `approvals.ts` asks Jan in the app (push notification) before a bash command changes a shared system: git push, GitHub writes, cluster, Flux, Talos or Helm changes, chezmoi apply, Home Assistant service calls. `web.ts` gives it `web_search` (the home SearXNG at search.janpuc.com) and `web_fetch` (pages as text, with a FlareSolverr fallback). `pi-pocket-skills/` holds Pi skills for the cluster (read-only `view` access, Alertmanager and Prometheus over HTTPS), Home Assistant (`$HA_URL`, `$HA_TOKEN`) and GitHub (`gh`, signed in with the App's installation token). pocket's mise config adds gh, kubectl, flux and jq. `pi-pocket-gh-token` (a systemd timer, as `pocket`, every half hour) mints an installation token of the agent's own GitHub App, janpuc-agent (only home-ops, dotfiles and BC250, no admin or workflow rights; key from op://Kubernetes/janpuc-agent), and writes it into gh's own config for `pocket`, because a running service cannot see new environment values; git over HTTPS reads it through the `mise exec -- gh auth git-credential` helper. For dev work pocket commits as `janpuc-agent[bot]` (never as `bot-atlas[bot]`, the Renovate and kritika App, or Renovate takes the branch for its own), signed locally with its own key (`~pocket/.ssh/signing`, on GitHub as "pi-pocket (aether)"), but publishes only through `agent-push` for GitHub-verified App commits (see Step 1 below); home-ops, dotfiles and BC250 are cloned into `~pocket/work/` and trusted by mise, and new sessions start in `~pocket/scratch` |
 
 No user-level systemd services, AI dot-directories or `~/.local/bin` launchers are allowlisted.
 The infrastructure units above are system services, installed separately by the Linux script.
@@ -98,3 +98,113 @@ Do not remove the GitHub authentication, signing key, system helpers or shell ba
 Read-only checks include `chezmoi managed`, `mise ls`, `gh auth status`,
 `systemctl status aether-hosts-sync.timer aether-keepalive.service` and
 `systemctl --user list-unit-files`.
+
+## PR shepherd — Step 1
+
+The **PRs** session uses `pr-shepherd/SKILL.md`. `pr-lane <N> [--json]` and
+`pr-lane --all [--json]` read home-ops from GitHub and konflate without caching.
+Every result includes the head SHA, lane, fired rules and supporting facts.
+It reads paginated files (including old rename paths), head-specific statuses
+and check runs, and bot-atlas' marked kritika comment. The comment's last
+reviewed commit must match the head; its confidence, risk and findings must
+parse. Severity counts may wrap across lines, but must be parseable and sum
+to the findings total; missing counts for positive findings mean **wait**, not
+zero P1. Explicit “No findings” means zero. Konflate's list and rendered diff
+must both be ready for that head. Rendered CSS is not included in the output.
+
+- **wait** takes priority: draft, pending/missing/stale/unparseable evidence.
+  C reasons remain visible even when waiting. Explicit null namespaces mean
+  empty only for a zero-resource impact; this normalization is reported.
+- **C**: non-Renovate author (including Jan and the agent), Talos/Kubernetes
+  groups, protected paths/namespaces, CRDs, blocking/render failures, high risk,
+  any P1, confidence below 3, unsuccessful kritika, or failed/cancelled/timed-out/
+  action-required CI. Kritika `error` is C, “review incomplete”, not wait.
+  SKIPPED and NEUTRAL checks are acceptable. Major `.renovaterc.json5` and
+  root `.mise*` changes (including `.mise/`) are C. Never merge C as the agent
+  or ask for merge approval: send a one-screen brief plus a **`Jan:`** line.
+  A later phase owns Talos/Kubernetes groups.
+- **A**: digest/patch, routine render without caution, confidence at least 4,
+  low risk and no P1, with no wait/C rule. Review the evidence, then ask Jan.
+- **B**: everything else that is not wait/C. Review the diff, kritika, konflate
+  and upstream release notes; repair real findings, wait for the new head's
+  evidence, and classify again before asking Jan. Two PRs at a time, oldest first.
+
+For both A and B, the agent merges with the exact fresh `pr-lane` head:
+
+```sh
+gh pr merge <N> -R janpuc/home-ops --squash --match-head-commit <sha-pr-lane-reported>
+```
+
+**Every merge asks Jan on his phone, with one Allow tap.** There is no lane
+exception in `approvals.ts`. Pinning the head makes GitHub reject a merge if
+it changed after review. Reclassify and review before asking again; never use
+admin bypass or auto merge. Shared writes, including **`agent-push`**, also ask.
+Dry-run exemptions apply only to simple bare invocations, never shell chains,
+substitutions, comments or quoted payloads. Rules check both original and
+quote/backslash-stripped commands. This guard remains a mistake detector,
+not a shell sandbox or a security boundary: pocket is untrusted and still
+holds a merge-capable token. Step 1 preserves today's human-approval workflow;
+it does not claim to prevent a malicious pocket process from using that token.
+
+### Verified publishing
+
+Local commits use pocket's SSH key but are **UNVERIFIED as the bot on GitHub**;
+those pushed with git cannot satisfy home-ops' signatures rule. Always publish
+with `/usr/local/sbin/agent-push`, never `git push`. From a clean feature branch,
+`agent-push --dry-run` previews the operation. The real command creates a remote
+branch at the merge-base with origin/main if needed, then creates one GitHub-
+signed commit using GraphQL `createCommitOnBranch`, with a compare-and-swap
+`expectedHeadOid`. It preserves binary file bytes and deletions, refuses
+main/master, diverged remote history, workflows, symlinks/submodules and mode
+changes (also new executables, unsupported by fileChanges). The headline is
+the last local subject and the body lists all local subjects. Only after fetching
+and verifying tree equivalence does it `reset --keep` to the API commit and set
+the upstream. Old local commit SHAs are replaced; do not push them afterwards.
+If publication succeeds but verification/reset fails, stop and inspect the
+remote and local branch rather than retrying or force-pushing blindly.
+
+### Merge runner deferred to Step 2
+
+The setup installs only `agent-push` and `pr-lane` into `/usr/local/sbin`.
+It does **not** install `pr-lane-merge`, its service or its timer. On re-run it
+disables/stops any earlier draft timer, stops the service, and removes those
+units, the timer's enable symlink and the installed runner. The retained runner,
+units and tests are drafts, not approved for deployment. Do not enable them or
+use the old pocket-owned opt-in file. Step 2 will install a merge broker under
+a **separate account** and add a **GitHub ruleset**; nothing running as pocket
+can authorize automatic merges. Those security controls are not part of Step 1.
+
+### Apply and verify (operator steps, not performed while preparing changes)
+
+After review and separate approval to transfer the uncommitted source changes
+to aether's chezmoi source, an operator can run:
+
+```sh
+chezmoi diff
+chezmoi apply
+sudo systemctl is-enabled pr-lane-merge.timer
+sudo systemctl is-active pr-lane-merge.timer
+sudo -u pocket -H env PATH=/home/pocket/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin pr-lane --all --json
+```
+
+The timer must be absent/disabled and inactive (the two `is-*` checks should
+return nonzero). Verify the runner and its unit files are absent. Normal setup
+restarts Pi Pocket to load the changed approvals and installs the skills.
+A merge still needs Jan's phone approval regardless of the reported lane.
+
+Local checks, with Node >=22.19, gh, chezmoi and shellcheck:
+
+```sh
+node --test home/.system/*.test.cjs home/.system/pi-pocket-extensions/*.test.ts
+chezmoi --source "$PWD/home" --override-data '{"chezmoi":{"os":"linux"}}' execute-template < home/.chezmoiscripts/run_onchange_after_20-linux-pi-pocket.sh.tmpl > /tmp/pi-pocket-setup.sh
+shellcheck /tmp/pi-pocket-setup.sh
+sh -n /tmp/pi-pocket-setup.sh
+git diff --check
+```
+
+Render only: do not execute the setup during validation. Tests use local bare
+repos and fake GitHub/system commands, not shared-system writes. They cover
+dry-run/quoting evasions, per-call merge approval, multiline/incomplete severity
+counts and stale timer cleanup. Retained merge-runner tests are not deployment
+approval. A live `pr-lane --all --json` needs only read access; keep tokens out
+of logs.

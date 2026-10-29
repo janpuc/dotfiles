@@ -27,6 +27,9 @@ imports.deregister();
 // Every verb in the laptop guard, plus option prefixes, shell separators and API writes.
 const blocked = [
     "git push origin main",
+    "agent-push",
+    "/usr/local/sbin/agent-push",
+    "cd repo && agent-push",
     "git -C /tmp/repo push",
     "git --git-dir=.git push",
     ...[
@@ -153,6 +156,7 @@ const allowed = [
     "kubectl apply --dry-run=client -f app.yaml",
     "helm upgrade --dry-run app",
     "git push --dry-run",
+    "agent-push --dry-run",
     "mygit push",
     "echo git-push",
 ];
@@ -311,4 +315,65 @@ test("approvals beforeTool: approval errors propagate instead of letting a write
         ),
         /cancelled/,
     );
+});
+
+test('approvals hook: each lane A/B merge call asks Jan', async () => {
+    let asked = 0;
+    const extension = create({ approvals: { request: async () => { asked++; return {allow: false, by: 'Jan'}; } } });
+    const before = extension.hooks[0].handlers.beforeTool, context = {};
+    for (const id of ['A', 'B']) {
+        const call = { id, name: 'bash', arguments: {
+            command: `gh pr merge 42 -R janpuc/home-ops --squash --match-head-commit ${'a'.repeat(40)}`,
+        } };
+        assert.match((await before(call, memoApi(id, context), context)).block, /Jan denied/);
+    }
+    assert.equal(asked, 2, 'no lane exception: distinct merge calls each ask');
+});
+
+test('approvals: malformed merge dry-run/chaining cannot use the generic dry-run exemption', async () => {
+    const commands = [
+        'gh pr merge 42 -R janpuc/home-ops --squash --dry-run',
+        'gh pr merge 42 -R janpuc/home-ops --squash --admin; echo --dry-run',
+    ];
+    let asked = 0;
+    const extension = create({ approvals: { request: async () => { asked++; return {allow:false,by:'Jan'}; } } });
+    for (const [i, command] of commands.entries()) {
+        assert.equal(sharedChange(command), 'merge a GitHub PR');
+        const context = {};
+        assert.match((await extension.hooks[0].handlers.beforeTool({id:String(i),name:'bash',arguments:{command}},
+            memoApi(String(i),context),context)).block, /Jan denied/);
+    }
+    assert.equal(asked,2);
+});
+
+test('approvals sharedChange: dry-run cannot exempt chains or shell expansions', () => {
+    for (const operator of [';', '&&', '||', '|', '&', '\n', '\r\n']) {
+        for (const command of [`agent-push ${operator} echo --dry-run`, `echo --dry-run ${operator} agent-push`])
+            assert.equal(sharedChange(command), 'push git commits', command);
+    }
+    for (const command of [
+        'agent-push $(echo --dry-run)', 'echo --dry-run $(agent-push)',
+        'agent-push `echo --dry-run`', 'echo --dry-run `agent-push`',
+        'agent-push <(echo --dry-run)', 'echo --dry-run <(agent-push)',
+        'agent-push >(echo --dry-run)', 'echo --dry-run >(agent-push)',
+        'agent-push # --dry-run', 'agent-push "text --dry-run"',
+        'agent-push --dry-run=none', 'agent-push --dry-run-not-a-flag',
+        'sh -c agent-push --dry-run', 'bash -c agent-push --dry-run',
+    ]) assert.equal(sharedChange(command), 'push git commits', command);
+    for (const command of ['kubectl apply --dry-run=client --dry-run=none -f x',
+        'kubectl apply --dry-run none -f x', 'helm upgrade app --dry-run=false'])
+        assert.ok(sharedChange(command), command);
+    for (const command of ['agent-push --dry-run', 'git push --dry-run',
+        'kubectl apply --dry-run=client -f x', 'kubectl apply --dry-run=server -f x'])
+        assert.equal(sharedChange(command), undefined, command);
+});
+
+test('approvals sharedChange: quotes and escapes do not hide writes', () => {
+    for (const command of ["'agent-push'", '"agent-push"', String.raw`ag\ent-push`,
+        '"git" push', "'git' push", String.raw`g\it push`, 'git "push"',
+        '"gh" pr merge 42 --dry-run', "gh 'pr' merge 42", String.raw`gh pr m\erge 42`,
+        '"kubectl" apply -f x', String.raw`kubectl a\pply -f x`,
+        '"gh" api repos/janpuc/home-ops -X POST',
+        '"curl" -X POST "$HA_URL/api/services/light/turn_on"'])
+        assert.ok(sharedChange(command), command);
 });

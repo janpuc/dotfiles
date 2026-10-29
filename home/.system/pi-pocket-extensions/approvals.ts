@@ -29,10 +29,12 @@ type Host = {
 // Ported from agent-guard.ts's sharedChange. A mistake detector, not a shell sandbox.
 const OPTS = String.raw`(?:\s+-{1,2}[A-Za-z][\w-]*(?:[= ][^\s;&|-]\S*)?)*`;
 const cmd = (tool: string, verbs: string) =>
-    new RegExp(String.raw`(?:^|[\s;&|(\x60/])${tool}${OPTS}\s+(?:${verbs})(?=$|[\s;&|)])`);
+    new RegExp(String.raw`(?:^|[\s;&|(\x60/])${tool}${OPTS}\s+(?:${verbs})(?=$|[\s;&|)\x60])`);
+const MERGE_GH_PR = cmd("gh", String.raw`pr\s+merge`);
 const RULES: [string, RegExp][] = [
     ["push git commits", cmd("git", "push")],
-    ["merge a GitHub PR", cmd("gh", String.raw`pr\s+merge`)],
+    ["push git commits", /(?:^|[\s;&|(\x60/])agent-push(?=$|[\s;&|)\x60])/],
+    ["merge a GitHub PR", MERGE_GH_PR],
     [
         "write to GitHub",
         cmd(
@@ -68,6 +70,18 @@ const HA_TARGET =
 
 /** What the command would change, or undefined for reads. */
 export function sharedChange(command: string): string | undefined {
+    // Only bare, simple invocations qualify: no shell syntax, quoted payloads,
+    // comments or substitutions can lend a dry-run flag to another command.
+    // Require the guarded executable itself, not an interpreter/wrapper's argument.
+    const dryRun = /^[A-Za-z0-9_./=:@,+% \t-]+$/.test(command) &&
+        /^[ \t]*(?:[A-Za-z0-9_./-]+\/)?(?:agent-push|git|gh|kubectl|flux|talosctl|helm|chezmoi)[ \t]/.test(command) &&
+        !/(?:^|[ \t])--dry-run(?:=|[ \t]+)(?:none|false)(?=$|[ \t])/.test(command) &&
+        /(?:^|[ \t])--dry-run(?:=(?:client|server|true))?(?=$|[ \t])/.test(command);
+    const normalized = command.replace(/['"\\]/g, "");
+    return sharedChangeForm(command, dryRun) ?? sharedChangeForm(normalized, dryRun);
+}
+
+function sharedChangeForm(command: string, dryRun: boolean): string | undefined {
     for (const [, tool, args] of command.replace(/\\\r?\n/g, " ").matchAll(HTTP)) {
         if (!HA_TARGET.test(args!)) continue;
         const writeMethod =
@@ -88,8 +102,10 @@ export function sharedChange(command: string): string | undefined {
                 ? "call a Home Assistant service"
                 : "change Home Assistant";
     }
-    // Preserve the laptop guard's dry-run exemption for its original rules.
-    if (/--dry-run(?!=none)\b/.test(command)) return undefined;
+    // gh pr merge has no dry-run flag. Never let a stray --dry-run elsewhere in a
+    // command exempt a merge (especially a malformed/chained lane command).
+    if (MERGE_GH_PR.test(command)) return "merge a GitHub PR";
+    if (dryRun) return undefined;
     for (const [what, re] of RULES) if (re.test(command)) return what;
     for (const [, args] of command.matchAll(GH_API)) {
         if (/(?:-X|--method)[\s=]*(?:GET|HEAD)\b/i.test(args!)) continue;
