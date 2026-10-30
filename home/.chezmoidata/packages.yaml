@@ -120,7 +120,8 @@ packages:
           - redhat.vscode-yaml
     sisyphus:
       darwin:
-        brews: []
+        brews:
+          - tailscale # the CLI tailscaled system daemon (`sudo brew services start tailscale`), up before any GUI login
         casks: []
         vscode: []
   # The aether server (Ubuntu): only what mise cannot provide. Everything else is in
