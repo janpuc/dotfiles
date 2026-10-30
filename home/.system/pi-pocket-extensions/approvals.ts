@@ -1,5 +1,6 @@
 /** Ask Jan on his phone before bash commands change shared systems. */
 import type { Context } from "@earendil-works/chord";
+import { execFile } from "node:child_process";
 import { defineExtension, hook, section, ToolTask } from "@earendil-works/pi-durable";
 import type { ConversationId, TaskId } from "@earendil-works/pi-durable";
 
@@ -93,6 +94,27 @@ const HA_AMBIGUOUS_OPTIONS = /^(?:--config|--next|--url|-[A-Za-z]*[K:].*)$/;
 const HA_DRY_RUN = /^--dry-run(?:=|$)/;
 
 /** What the command would change, or undefined for reads. */
+/** A hand-built GitHub commit or ref write: agent-push is the only way the agent publishes. */
+const HAND_BUILT_COMMIT =
+    /createCommitOnBranch|createRef|updateRef|repos\/[^\s"']+\/(?:contents|git\/(?:refs|commits|trees|blobs))\b/i;
+
+/** `gh pr close|reopen N -R owner/repo` as one simple invocation, or undefined. */
+function ownPrCandidate(command: string): { pr: string; repo: string } | undefined {
+    if (/[;&|`\n]|\$\(/.test(command)) return undefined;
+    const m = command.match(/^\s*(?:[\w/.-]*\/)?gh\s+pr\s+(?:close|reopen)\s+#?(\d+)\b(.*)$/);
+    if (!m) return undefined;
+    const repo = m[2]!.match(/(?:^|\s)(?:-R|--repo)[= ]+["']?(janpuc\/[\w.-]+)["']?(?=\s|$)/)?.[1];
+    return repo ? { pr: m[1]!, repo } : undefined;
+}
+
+/** True only when GitHub says the PR was opened by the agent's own App. Fails closed. */
+function prAuthorIsAgent(pr: string, repo: string): Promise<boolean> {
+    return new Promise((resolve) => {
+        execFile("gh", ["pr", "view", pr, "-R", repo, "--json", "author", "--jq", ".author.login"],
+            { timeout: 15000 }, (error, stdout) => resolve(!error && stdout.trim() === "app/janpuc-agent"));
+    });
+}
+
 /** One plain line for Jan's card: what the call does, before the raw command he sees under it. */
 export function explain(command: string, change: string): string {
     const flat = command.replace(/\\\r?\n/g, " ");
@@ -298,6 +320,18 @@ export default function createApprovals(host: Host) {
                                 "Raw `git push` is not used here and nobody was asked. Publish the branch with `agent-push` " +
                                 "(run it in the repository on your branch; it creates one verified commit and does not ask Jan).",
                         };
+                    // Hand-built GitHub commits are refused without asking (Jan, 2026-10-30): they bypass
+                    // agent-push and only cost Jan a tap.
+                    if (change === "write to GitHub" && HAND_BUILT_COMMIT.test(command))
+                        return {
+                            block:
+                                "Hand-built GitHub commits (createCommitOnBranch, contents, refs) are not used here and nobody was asked. " +
+                                "Publish with `agent-push`; if it fails, report its exact error and stop.",
+                        };
+                    // Closing or reopening the agent's own PR is its own business: no card. GitHub decides
+                    // who opened it; any other PR, or a failed lookup, still asks Jan.
+                    const own = change === "write to GitHub" ? ownPrCandidate(command) : undefined;
+                    if (own && (await prAuthorIsAgent(own.pr, own.repo))) return undefined;
                     const subject = command.trim().replace(/[\r\n]+/g, " ");
                     const reason = `${explain(command, change)} Allow only if you expected this.`;
                     // Keyed by call: a codemode script can make several calls in one task.

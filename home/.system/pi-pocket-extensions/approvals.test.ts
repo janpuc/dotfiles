@@ -480,3 +480,32 @@ test('approvals explain: plain lines for the card', async () => {
     assert.equal(explain('gh pr close 42 -R janpuc/dotfiles', 'write to GitHub'), 'GitHub: close pr 42 in janpuc/dotfiles.');
     assert.equal(explain('curl -X POST "$HA_URL/api/services/lock/unlock" -d \'{"entity_id":"lock.front_door"}\'', 'call a Home Assistant service'), 'Home Assistant: run lock.unlock on lock.front_door.');
 });
+
+test('approvals hook: hand-built GitHub commits are refused without asking (2026-10-30)', async () => {
+    let asked = 0;
+    const ext = create({ approvals: { request: async () => { asked++; return { allow: true, by: 'Jan' }; } } });
+    const handlers = ext.hooks[0].handlers;
+    const context = {};
+    for (const command of ['gh api graphql --input /tmp/mutation.json -f query="mutation { createCommitOnBranch(input: $i) { commit { oid } } }"',
+        'gh api -X PUT repos/janpuc/home-ops/contents/kubernetes/x.yaml -f message=m -f content=Zm9v',
+        'gh api -X POST repos/janpuc/home-ops/git/refs -f ref=refs/heads/x -f sha=abc']) {
+        const result = await handlers.beforeTool({ name: 'bash', id: 'h' + command.length, arguments: { command } }, memoApi('h' + command.length, context), context);
+        assert.match(result.block, /agent-push/, command);
+    }
+    assert.equal(asked, 0);
+});
+
+test('approvals hook: closing a PR that is not provably the agent\'s still asks', async () => {
+    let asked = 0;
+    const ext = create({ approvals: { request: async () => { asked++; return { allow: true, by: 'Jan' }; } } });
+    const handlers = ext.hooks[0].handlers;
+    const context = {};
+    // No gh on PATH: the author lookup fails, so it must ask (fail closed).
+    const path = process.env.PATH;
+    process.env.PATH = '/nonexistent';
+    for (const command of ['gh pr close 1682 -R janpuc/home-ops --comment done', 'gh pr close 5', 'gh pr close 5 -R janpuc/home-ops; gh pr close 6 -R janpuc/home-ops']) {
+        await handlers.beforeTool({ name: 'bash', id: 'c' + command.length, arguments: { command } }, memoApi('c' + command.length, context), context);
+    }
+    process.env.PATH = path;
+    assert.equal(asked, 3);
+});
