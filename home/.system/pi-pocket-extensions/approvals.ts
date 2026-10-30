@@ -48,25 +48,10 @@ const RULES: [string, RegExp][] = [
             String.raw`pr\s+(?:merge|close|reopen|review|lock|unlock)|issue\s+(?:create|close|reopen|comment|edit|delete|transfer|lock|pin)|release\s+(?:create|delete|edit|upload)|repo\s+(?:create|delete|edit|rename|archive|fork|sync)|workflow\s+(?:run|enable|disable)|run\s+(?:rerun|cancel|delete)|(?:secret|variable|label)\s+(?:set|create|edit|delete)`,
         ),
     ],
-    [
-        "change the cluster",
-        cmd(
-            "kubectl",
-            String.raw`apply|create|delete|patch|replace|scale|edit|label|annotate|cordon|uncordon|drain|taint|autoscale|expose|run|set|rollout\s+(?:restart|undo|pause|resume)`,
-        ),
-    ],
-    [
-        "change Flux",
-        cmd("flux", "reconcile|suspend|resume|create|delete|bootstrap|install|uninstall|push|tag"),
-    ],
-    [
-        "change a Talos node",
-        cmd(
-            "talosctl",
-            String.raw`apply-config|apply|upgrade|upgrade-k8s|reboot|reset|shutdown|edit|patch|bootstrap|rotate-ca|wipe|etcd\s+(?:remove-member|leave|forfeit-leadership|defrag)`,
-        ),
-    ],
-    ["change a Helm release", cmd("helm", "install|upgrade|uninstall|rollback|delete")],
+    // kubectl, flux, talosctl and helm are not asked about (Jan, 2026-10-30): pocket's cluster
+    // account is the read-only `view` role (no patch, delete, create, exec or secrets) and it has
+    // no talosconfig, so the cluster refuses those changes itself. The rules only ever raised
+    // false alarms, such as a script that printed kubectl commands for the main agent.
     ["apply or remove dotfiles", cmd("chezmoi", "apply|update|destroy|purge")],
 ];
 const GH_API = /(?:^|[\s;&|(\x60/])gh\s+api\b([^;&|\n]*)/g;
@@ -108,6 +93,34 @@ const HA_AMBIGUOUS_OPTIONS = /^(?:--config|--next|--url|-[A-Za-z]*[K:].*)$/;
 const HA_DRY_RUN = /^--dry-run(?:=|$)/;
 
 /** What the command would change, or undefined for reads. */
+/** One plain line for Jan's card: what the call does, before the raw command he sees under it. */
+export function explain(command: string, change: string): string {
+    const flat = command.replace(/\\\r?\n/g, " ");
+    const repo = flat.match(/(?:-R|--repo)[= ]+["']?([\w.-]+\/[\w.-]+)/)?.[1] ?? "the current repository";
+    if (change === "merge a GitHub PR") {
+        const pr = flat.match(/\bpr\s+merge\s+(?:-\S+\s+)*#?(\d+)/)?.[1];
+        return `Merge pull request ${pr ? `#${pr}` : "(number not given)"} in ${repo}.`;
+    }
+    if (change === "write to GitHub") {
+        const m = flat.match(/\bgh\s+(pr|issue|release|repo|workflow|run|secret|variable|label)\s+(\w+)\s*["']?([^\s"']*)/);
+        if (m) return `GitHub: ${m[2]} ${m[1]} ${m[3] || ""} in ${repo}.`.replace(/\s+/g, " ");
+        const api = flat.match(/\bgh\s+api\s+(?:-\S+\s+\S+\s+)*["']?([^\s"']+)/)?.[1];
+        return `GitHub API write${api ? ` to ${api}` : ""}.`;
+    }
+    if (change === "call a Home Assistant service") {
+        const svc = flat.match(/\/api\/services\/([\w]+)\/([\w]+)/);
+        const entity = flat.match(/entity_id["']?\s*[:=]\s*["']?([\w.]+)/)?.[1];
+        return svc ? `Home Assistant: run ${svc[1]}.${svc[2]}${entity ? ` on ${entity}` : ""}.` : "Home Assistant: call a service.";
+    }
+    if (change === "change Home Assistant") {
+        const path = flat.match(/\/api\/[\w/.-]+/)?.[0];
+        return `Home Assistant: change something through its API${path ? ` (${path})` : ""}.`;
+    }
+    if (change === "push git commits") return "Push git commits (raw git push).";
+    if (change === "apply or remove dotfiles") return "Apply or remove dotfiles with chezmoi.";
+    return `This command will ${change}.`;
+}
+
 export function sharedChange(command: string): string | undefined {
     // Only bare, simple invocations qualify: no shell syntax, quoted payloads,
     // comments or substitutions can lend a dry-run flag to another command.
@@ -286,7 +299,7 @@ export default function createApprovals(host: Host) {
                                 "(run it in the repository on your branch; it creates one verified commit and does not ask Jan).",
                         };
                     const subject = command.trim().replace(/[\r\n]+/g, " ");
-                    const reason = `This command will ${change}. Ask Jan before running it.`;
+                    const reason = `${explain(command, change)} Allow only if you expected this.`;
                     // Keyed by call: a codemode script can make several calls in one task.
                     const key = `approvals.answer:${call.id}`;
                     let answer = await api.memo<ApprovalAnswer>(key, context);

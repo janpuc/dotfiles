@@ -21,7 +21,7 @@ const imports = registerHooks({
     },
 });
 const source = await readFile(new URL("./approvals.ts", import.meta.url), "utf8");
-const { default: create, sharedChange, haServiceAllowed, pocketApi } = await import(
+const { default: create, sharedChange, haServiceAllowed, pocketApi, explain } = await import(
     dataUrl(stripTypeScriptTypes(source))
 );
 imports.deregister();
@@ -54,55 +54,6 @@ const blocked = [
         ["set", "create", "edit", "delete"].map((v) => `gh ${kind} ${v} test`),
     ),
     "gh -R janpuc/home-ops pr merge 42 --squash",
-    ...[
-        "apply",
-        "create",
-        "delete",
-        "patch",
-        "replace",
-        "scale",
-        "edit",
-        "label",
-        "annotate",
-        "cordon",
-        "uncordon",
-        "drain",
-        "taint",
-        "autoscale",
-        "expose",
-        "run",
-        "set",
-    ].map((v) => `kubectl ${v} deployment test`),
-    ...["restart", "undo", "pause", "resume"].map((v) => `kubectl rollout ${v} deployment/test`),
-    "kubectl --context homelab -n default apply -f app.yaml",
-    ...[
-        "reconcile",
-        "suspend",
-        "resume",
-        "create",
-        "delete",
-        "bootstrap",
-        "install",
-        "uninstall",
-        "push",
-        "tag",
-    ].map((v) => `flux ${v} kustomization apps`),
-    ...[
-        "apply-config",
-        "apply",
-        "upgrade",
-        "upgrade-k8s",
-        "reboot",
-        "reset",
-        "shutdown",
-        "edit",
-        "patch",
-        "bootstrap",
-        "rotate-ca",
-        "wipe",
-    ].map((v) => `talosctl ${v}`),
-    ...["remove-member", "leave", "forfeit-leadership", "defrag"].map((v) => `talosctl etcd ${v}`),
-    ...["install", "upgrade", "uninstall", "rollback", "delete"].map((v) => `helm ${v} app`),
     ...["apply", "update", "destroy", "purge"].map((v) => `chezmoi ${v}`),
     ...["POST", "PUT", "PATCH", "DELETE"].flatMap((v) => [
         `gh api repos/janpuc/home-ops -X ${v}`,
@@ -113,11 +64,10 @@ const blocked = [
     ),
     "gh api graphql -f query='mutation { test }'",
     "echo checking && git push",
-    "true; kubectl delete pod test",
+    "true; gh pr merge 42 --squash",
     "/usr/bin/git push",
-    "$(flux reconcile ks apps)",
-    "`helm upgrade app`",
-    "kubectl apply --dry-run=none -f app.yaml",
+    "$(gh pr merge 42 --squash)",
+    "`gh pr close 42`",
 ];
 const allowed = [
     "pr-merge-request 42 " + "a".repeat(40),
@@ -380,7 +330,7 @@ test("approvals beforeTool: ask once per call, persist allow/deny on replay, pas
             callId: "call-1",
             tool: "bash",
             subject: "gh pr merge 42 --squash",
-            reason: "This command will merge a GitHub PR. Ask Jan before running it.",
+            reason: "Merge pull request #42 in the current repository. Allow only if you expected this.",
             createdAt: 0,
         },
     );
@@ -392,12 +342,12 @@ test("approvals beforeTool: ask once per call, persist allow/deny on replay, pas
     const deniedCall = {
         ...call,
         id: "call-2",
-        arguments: { command: "kubectl delete pod test" },
+        arguments: { command: "gh pr merge 42 -R janpuc/home-ops --squash" },
     };
     const denied = await before(deniedCall, memoApi(deniedCall.id, context, memos), context);
     assert.match(denied.block, /Jan denied this bash call/);
-    assert.match(denied.block, /change the cluster/);
-    assert.match(denied.block, /kubectl delete pod test/);
+    assert.match(denied.block, /Merge pull request #42 in janpuc\/home-ops/);
+    assert.match(denied.block, /gh pr merge 42/);
     allow = true;
     assert.deepEqual(
         await before(deniedCall, memoApi(deniedCall.id, context, memos), context),
@@ -474,8 +424,7 @@ test('approvals sharedChange: dry-run cannot exempt chains or shell expansions',
         'git push --dry-run=none', 'git push --dry-run-not-a-flag',
         'sh -c git push --dry-run', 'bash -c git push --dry-run',
     ]) assert.equal(sharedChange(command), 'push git commits', command);
-    for (const command of ['kubectl apply --dry-run=client --dry-run=none -f x',
-        'kubectl apply --dry-run none -f x', 'helm upgrade app --dry-run=false'])
+    for (const command of ['gh pr merge 42 --dry-run', 'git push --dry-run=none'])
         assert.ok(sharedChange(command), command);
     for (const command of ['agent-push --dry-run', 'git push --dry-run',
         'kubectl apply --dry-run=client -f x', 'kubectl apply --dry-run=server -f x'])
@@ -486,7 +435,7 @@ test('approvals sharedChange: quotes and escapes do not hide writes', () => {
     for (const command of [
         '"git" push', "'git' push", String.raw`g\it push`, 'git "push"',
         '"gh" pr merge 42 --dry-run', "gh 'pr' merge 42", String.raw`gh pr m\erge 42`,
-        '"kubectl" apply -f x', String.raw`kubectl a\pply -f x`,
+        '"gh" pr close 42', String.raw`gh pr cl\ose 42`,
         '"gh" api repos/janpuc/home-ops -X POST',
         // A quoted curl is still a curl: the exemption follows the service, not the spelling.
         '"curl" -X POST "$HA_URL/api/services/script/turn_on"'])
@@ -499,7 +448,7 @@ test('approvals sharedChange: branch pushes and PR authoring do not ask (Jan, 20
         'gh pr edit 42 --title t', 'gh pr comment 42 --body ok', 'gh pr ready 42'])
         assert.equal(sharedChange(command), undefined, command);
     for (const command of ['git push origin agent/x', 'gh pr merge 42 --squash', 'gh pr close 42',
-        'gh pr review 42 --approve', 'agent-push && git push', 'agent-push; kubectl delete pod x'])
+        'gh pr review 42 --approve', 'agent-push && git push', 'agent-push; gh pr close 42'])
         assert.ok(sharedChange(command), command);
 });
 
@@ -517,4 +466,17 @@ test('approvals hook: a raw git push is refused without asking Jan (2026-10-30)'
     const merge = await handlers.beforeTool({ name: 'bash', id: 'm1', arguments: { command: 'gh pr merge 42 --squash' } }, memoApi('m1', context), context);
     assert.equal(merge, undefined);
     assert.equal(asked, 1);
+});
+
+test('approvals sharedChange: cluster CLIs no longer ask; RBAC is the boundary (2026-10-30)', () => {
+    for (const command of ['kubectl delete pod test', 'kubectl patch ds cilium -n kube-system --type=json -p x',
+        'flux reconcile ks apps', 'talosctl reboot', 'helm upgrade app',
+        "awk '{printf \"kubectl patch %s\\n\", $1}' list > cmds.txt"])
+        assert.equal(sharedChange(command), undefined, command);
+});
+
+test('approvals explain: plain lines for the card', async () => {
+    assert.equal(explain('gh pr merge 1593 -R janpuc/home-ops --squash', 'merge a GitHub PR'), 'Merge pull request #1593 in janpuc/home-ops.');
+    assert.equal(explain('gh pr close 42 -R janpuc/dotfiles', 'write to GitHub'), 'GitHub: close pr 42 in janpuc/dotfiles.');
+    assert.equal(explain('curl -X POST "$HA_URL/api/services/lock/unlock" -d \'{"entity_id":"lock.front_door"}\'', 'call a Home Assistant service'), 'Home Assistant: run lock.unlock on lock.front_door.');
 });
