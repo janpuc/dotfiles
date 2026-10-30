@@ -11,6 +11,7 @@
 !.chezmoiscripts/*-linux-apt.sh
 !.chezmoiscripts/*-linux-system.sh
 !.chezmoiscripts/*-linux-terminfo.sh
+!.chezmoiscripts/*-linux-rex.sh
 !.chezmoiscripts/*-linux-mise.sh
 !.chezmoiscripts/*-linux-pi-pocket.sh
 !.chezmoiscripts/*-linux-aether-backup.sh

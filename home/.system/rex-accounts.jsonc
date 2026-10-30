@@ -1,0 +1,8 @@
+// Accounts for the Rex login server on aether (installed by 07-linux-rex). Jan's Tailscale
+// login may use the ubuntu account, and only that, so he lands there without naming it.
+{
+  "version": 1,
+  "accounts": {
+    "ubuntu": { "principals": ["tailscale:janpuc@github"] },
+  },
+}

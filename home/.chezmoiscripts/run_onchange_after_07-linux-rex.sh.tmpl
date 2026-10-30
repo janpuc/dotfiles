@@ -1,0 +1,20 @@
+{{- if eq .chezmoi.os "linux" -}}
+#!/bin/sh
+# Rex on the aether server: the package from Rex's own apt repository (its install script adds
+# the repository, key and a pin over Ubuntu's unrelated Perl `rex`; later versions arrive with
+# apt upgrades), and the packaged login server, which runs Jan's ubuntu server and keeps its
+# sessions across Rex upgrades. The Mac app connects at http://aether.tail17d532.ts.net:7297.
+# Re-runs when the accounts or the drop-in change.
+#   accounts {{ include ".system/rex-accounts.jsonc" | sha256sum }}
+#   drop-in  {{ include ".system/rex-login-server-tailnet.conf" | sha256sum }}
+set -eu
+src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
+[ -f /etc/apt/sources.list.d/rex.sources ] || curl -fsSL https://pkgs.superlogical.com/rex/install.sh | sh
+sudo install -m 644 "$src/rex-accounts.jsonc" /etc/rex/accounts.jsonc
+sudo install -d -m 755 /etc/systemd/system/rex-login-server.service.d
+sudo install -m 644 "$src/rex-login-server-tailnet.conf" /etc/systemd/system/rex-login-server.service.d/tailnet.conf
+sudo systemctl daemon-reload
+sudo systemctl enable rex-login-server.service
+# A restart keeps every account's server and its sessions running.
+sudo systemctl restart rex-login-server.service
+{{- end }}
