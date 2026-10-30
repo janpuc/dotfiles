@@ -57,6 +57,7 @@ packages:
         - claude-code@latest
         - codex
         - ghostty
+        - keepingyouawake
         - microsoft-teams
         - obsidian
         - orbstack
