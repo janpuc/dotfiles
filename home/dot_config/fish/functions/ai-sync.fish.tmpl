@@ -8,19 +8,19 @@ function ai-sync --description "Fetch AI credentials from 1Password into a local
         # a -l variable would end with this if block.
         set -fx OP_SERVICE_ACCOUNT_TOKEN (string match -rg '^\s*(?:export\s+)?OP_SERVICE_ACCOUNT_TOKEN=(.*)$' <"$sa_env" | string trim -c '"\'')[1]
     end
-{{- if eq .chezmoi.os "darwin" }}
 
-    # gh keeps this token in the macOS keychain, so neither gh nor git's `gh auth git-credential`
-    # asks 1Password. Like the keys below, re-run after a rotation. The service account cannot
-    # read the Private vault, so a server keeps the gh login it has.
-    if set -q OP_SERVICE_ACCOUNT_TOKEN
-        echo "  ! the service account cannot read op://Private; gh keeps its old token" >&2
-    else if op read "op://Private/GitHub Personal Access Token/token" 2>/dev/null | command gh auth login --with-token 2>/dev/null
+    # gh logs in once with a token from 1Password and keeps it (the macOS keychain, or gh's own
+    # 0600 file on Linux), so neither gh nor git's `gh auth git-credential` asks again; Pi's git
+    # packages (pi-usage, pi-footer, pi-title-spinner) are private and clone through it. The
+    # service account cannot read the Private vault, so the servers use the Kubernetes copy.
+    # Like the keys below, re-run after a rotation.
+    set -l gh_ref "op://Private/GitHub Personal Access Token/token"
+    set -q OP_SERVICE_ACCOUNT_TOKEN; and set gh_ref "op://Kubernetes/aether/GH_TOKEN"
+    if op read "$gh_ref" 2>/dev/null | command gh auth login --with-token 2>/dev/null
         echo "Logged gh into GitHub."
     else
-        echo "  ! could not log gh in with op://Private/GitHub Personal Access Token/token; gh keeps its old token" >&2
+        echo "  ! could not log gh in with $gh_ref; gh keeps its old token" >&2
     end
-{{- end }}
 
     set -q XDG_STATE_HOME; or set -l XDG_STATE_HOME "$HOME/.local/state"
     set -l CRED_FILE "$XDG_STATE_HOME/ai/credentials.fish"
