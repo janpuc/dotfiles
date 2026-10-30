@@ -226,6 +226,103 @@ test('pr-lane: absent, malformed, duplicate and inconsistent severity counts wai
     }
 });
 
+// These captured comments and statuses are kept byte-for-byte; only the
+// surrounding PR/konflate evidence is synthetic to isolate review parsing.
+function badgeFixture(number = 1596) {
+    const fs = require('node:fs'), path = require('node:path');
+    const f = fixture();
+    f.comments[0].body = fs.readFileSync(path.join(__dirname, `testdata/kritika-0110-pr${number}.md`), 'utf8');
+    f.statuses[0].description = fs.readFileSync(path.join(__dirname, `testdata/kritika-0110-pr${number}.status`), 'utf8').trim();
+    const sha = f.comments[0].body.match(/Last reviewed commit:[^\n]*\/commit\/([a-f0-9]{40})\)/)[1];
+    f.pr.number = number; f.pr.head.sha = sha; f.entry.headSha = sha;
+    f.rendered.pr.headSha = sha; f.rendered.diff.headSha = sha;
+    return f;
+}
+function checkBadge(mutate, lane, reason, number = 1596) {
+    const f = badgeFixture(number); mutate(f); const result = classify(f);
+    assert.equal(result.lane, lane, JSON.stringify(result));
+    if (reason) assert.ok(result.reasons.some(r => r.includes(reason)), JSON.stringify(result.reasons));
+    return result;
+}
+function insertFindings(f, content) {
+    f.comments[0].body = f.comments[0].body.replace('### Summary', `## Findings\n\n${content}\n\n### Summary`);
+}
+const p1Badge = '<img alt="P1" src="https://kritika.janpuc.com/badges/p1.svg">';
+test('pr-lane: kritika 0.0.110 real pr1668, pr1596, pr1580 and pr1595 reviews', () => {
+    for (const [number, lane, confidence, risk, p1] of [
+        [1668, 'C', 3, 'medium', 1], [1596, 'B', 5, 'medium', 0],
+        [1580, 'C', 4, 'high', 0], [1595, 'B', 5, 'medium', 0]]) {
+        const result = checkBadge(() => {}, lane, null, number);
+        assert.equal(result.facts.kritika.parsed, true);
+        assert.equal(result.facts.kritika.confidence, confidence);
+        assert.equal(result.facts.kritika.risk, risk);
+        assert.equal(result.facts.kritika.p1, p1);
+    }
+});
+test('pr-lane: badge severity is scoped to Findings, never risk, Summary or details', () => {
+    const result = checkBadge(f => {
+        f.comments[0].body = f.comments[0].body.replace('**[Medium risk]**', `**[Medium risk]** ${p1Badge} P1`);
+    }, 'B');
+    assert.equal(result.facts.kritika.p1, 0);
+    for (const end of ['### Summary', '## Summary', '<details>']) {
+        const scoped = checkBadge(f => {
+            f.statuses[0].description = 'kritika: confidence 5/5, 1 finding(s)';
+            insertFindings(f, `**Outside the diff**\n\n- ${p1Badge.replaceAll('P1', 'P2').replace('p1.svg', 'p2.svg')} note\n\n${end}\n${p1Badge}`);
+            f.comments[0].body = f.comments[0].body.replace('**[Medium risk]**', `**[Medium risk]** ${p1Badge}`);
+        }, 'B');
+        assert.equal(scoped.facts.kritika.p1, 0, end);
+    }
+    checkBadge(f => {
+        f.statuses[0].description = 'kritika: confidence 5/5, 1 finding(s)';
+        insertFindings(f, `### Outside the diff\n\n- ${p1Badge}`);
+    }, 'C', 'P1 finding');
+});
+test('pr-lane: badge findings require a complete status-matching distribution', () => {
+    for (const description of ['kritika: confidence 3/5, no findings', 'kritika: confidence 3/5, 2 finding(s)']) {
+        const result = checkBadge(f => f.statuses[0].description = description, 'wait', 'badge count', 1668);
+        assert.equal(result.facts.kritika.p1, null);
+    }
+    for (const content of ['No findings', '- P1: no badge', '- <img alt="P4" src="p4.svg">']) {
+        checkBadge(f => insertFindings(f, content), 'wait', 'severity badges');
+    }
+    checkBadge(f => f.statuses[0].description = 'kritika: confidence 5/5, 1 finding(s)', 'wait', 'Findings section missing');
+    for (const suffix of ['1 finding', '1 finding(s)']) {
+        checkBadge(f => {
+            f.statuses[0].description = `kritika: confidence 5/5, ${suffix}`;
+            insertFindings(f, `- ${p1Badge}`);
+        }, 'C', 'P1 finding');
+    }
+});
+test('pr-lane: badge confidence, risk and status parsing fail closed', () => {
+    const cases = [
+        f => f.comments[0].body = f.comments[0].body.replace('Confidence Score: 5/5', 'Review'),
+        f => f.comments[0].body = f.comments[0].body.replace('Confidence Score: 5/5', 'Confidence Score: 6/5'),
+        f => f.statuses[0].description = 'kritika: confidence 4/5, no findings',
+        f => f.statuses[0].description = 'kritika: confidence 5/5, findings unavailable',
+        f => f.comments[0].body = f.comments[0].body.replace('**[Medium risk]**', 'No risk tag'),
+        f => f.comments[0].body = f.comments[0].body.replace('**[Medium risk]**', '**[Unknown risk]**'),
+    ];
+    for (const mutate of cases) checkBadge(mutate, 'wait', 'unparseable');
+    checkBadge(f => f.comments[0].body = f.comments[0].body.replace('**[Medium risk]**', '**[Critical risk]**'), 'C', 'high risk');
+    checkBadge(f => f.comments[0].body = f.comments[0].body.replace('**[Medium risk]**', '**[High risk]**'), 'C', 'high risk');
+    checkBadge(f => f.comments[0].body = f.comments[0].body.replace('**[Medium risk]**', '**[Low risk]**'), 'A');
+    // New reviews retain the existing marker/actor/head-binding gates.
+    checkBadge(f => f.comments[0].user.login = 'janpuc', 'wait', 'comment missing');
+    checkBadge(f => f.comments[0].body = f.comments[0].body.replace(f.pr.head.sha, head), 'wait', 'stale');
+});
+test('pr-lane: P0 badges and legacy P0 counts are P1 or worse; legacy format still works', () => {
+    checkBadge(f => {
+        f.statuses[0].description = 'kritika: confidence 5/5, 1 finding(s)';
+        insertFindings(f, `- ${p1Badge.replaceAll('P1', 'P0').replace('p1.svg', 'p0.svg')}`);
+    }, 'C', 'P1 finding');
+    check(() => {}, 'A');
+    // Legacy reviews also contain badge Findings sections, including resolved
+    // findings inside details. Those must not select the new-format parser.
+    check(f => f.comments[0].body += `\n## Findings\n<details>\n- ${p1Badge}\n</details>`, 'A');
+    check(f => f.comments[0].body += `\n## Findings\n- ${p1Badge}\n### Summary`, 'A');
+    check(f => f.comments[0].body = f.comments[0].body.replace('**No findings**', '**1 finding** · 1 P0'), 'C', 'P1 finding');
+});
+
 test('pr-lane CLI: paginated GitHub reads, konflate CSS stripped, old rename paths and moved heads', t => {
     const fs = require('node:fs'), path = require('node:path'), os = require('node:os'), cp = require('node:child_process');
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pr-lane-cli-')); t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));

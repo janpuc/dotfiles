@@ -112,12 +112,47 @@ async function konflate(path) {
     if (!response.ok) throw Error(`konflate HTTP ${response.status}`);
     return response.json();
 }
+function parseBadgeReview(body, description) {
+    // Only the review heading supplies confidence; quoted prose is not evidence.
+    const headings = [...body.matchAll(/^## [^\n]*<img\b[^\n]*Confidence Score: ([1-5])\/5[ \t]*$/gm)];
+    const risks = [...body.matchAll(/^\*\*\[(Low|Medium|High|Critical) risk\]\*\*(?=\s|$)/gim)];
+    const status = description?.match(/^kritika: confidence ([1-5])\/5, (no findings|(\d+) findings?(?:\(s\))?)$/i);
+    const total = status ? Number(status[3] ?? 0) : null;
+    // Findings end before the summary or review context. The only heading
+    // subgroups in findings are the diff-location groups; bold groups need no special handling.
+    const review = body.split(/<details\b/i)[0];
+    const sections = [...review.matchAll(/^## Findings[ \t]*\r?$/gm)];
+    let p1 = null, findingsError = null;
+    if (sections.length > 1) findingsError = 'kritika duplicate Findings sections';
+    else if (sections.length === 1) {
+        const section = review.slice(sections[0].index + sections[0][0].length)
+            .split(/^#{2,3}[ \t]+(?!(?:Inside|Outside) the diff[ \t]*\r?$).+$/m)[0];
+        const badges = [...section.matchAll(/<img\b[^>]*\balt=["']P(\d+)["'][^>]*>/gi)];
+        if (!badges.length || badges.some(b => !/^[0-3]$/.test(b[1])))
+            findingsError = 'kritika Findings severity badges missing or unparseable';
+        else if (!Number.isSafeInteger(total) || badges.length !== total)
+            findingsError = 'kritika Findings badge count does not match status findings total';
+        else p1 = badges.filter(b => b[1] === '0' || b[1] === '1').length;
+    } else if (total === 0) p1 = 0;
+    else findingsError = 'kritika Findings section missing or status findings total unparseable';
+    const risk = risks.length === 1 ? risks[0][1].toLowerCase() : null;
+    return { risk: risk === 'critical' ? 'high' : risk, p1, findingsError,
+        parsed: Boolean(headings.length === 1 && risk && status &&
+            Number(headings[0][1]) === Number(status[1]) && !findingsError) };
+}
 function parseReview(pr, status, comments) {
     const comment = reviewComment(pr, comments);
     const body = comment?.body || '';
     const reviewed = body.match(/Last reviewed commit:[^\n]*\/commit\/([a-f0-9]{40})\)/i)?.[1];
     const line = body.match(/\*\*Confidence ([1-5])\/5\*\*\s*·\s*(low|medium|high) risk\b/i);
     const confidence = Number(status?.description?.match(/confidence ([1-5])\/5/i)?.[1]);
+    // Both versions have a Findings section; only the confidence/risk syntax
+    // distinguishes badge reviews from legacy summaries.
+    if (/^## .*Confidence Score:|^\*\*\[[^\n]* risk\]\*\*/im.test(body)) {
+        return { state: status?.state ?? null, description: status?.description ?? null,
+            reviewedHead: reviewed ?? null, confidence: confidence || null,
+            ...parseBadgeReview(body, status?.description), commentUrl: comment?.html_url ?? null };
+    }
     const findings = body.match(/^\*\*(No findings|\d+ findings?)\*\*/im);
     let p1 = null, findingsError = null;
     if (findings) {
@@ -134,7 +169,8 @@ function parseReview(pr, status, comments) {
             counts.reduce((sum, c) => sum + Number(c[1]), 0) !== total)
             findingsError = 'kritika severity counts missing, unparseable or do not sum to findings total';
         // Only a complete, validated distribution can prove that there are no P1 findings.
-        else p1 = Number(counts.find(c => c[2] === '1')?.[1] ?? 0);
+        else p1 = counts.filter(c => c[2] === '0' || c[2] === '1')
+            .reduce((sum, c) => sum + Number(c[1]), 0);
     }
     return { state: status?.state ?? null, description: status?.description ?? null,
         reviewedHead: reviewed ?? null, confidence: confidence || null,
