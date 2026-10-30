@@ -69,3 +69,27 @@ so report and stop too. Missing result means wait/report, not resubmit.
 **Never retry through `gh pr merge` or a merge API**, add `--admin`/`--auto`,
 or change broker switches. A merge may trigger Flux deployment; report that
 impact and use the homelab-cluster skill to check reconciliation afterwards.
+
+## Asking Jan and memory
+
+Use `ask_jan` ONLY for:
+- choosing a time for cluster or node maintenance (Talos/Kubernetes upgrades, reboots);
+- a Home Assistant restart;
+- work blocked on something only Jan can do outside GitHub.
+
+NEVER ask which fix to make: open the PR with your recommendation and the
+alternatives in its body; the PR is the question. Never ask the same thing
+twice; if a card is unanswered, wait. One card per topic. Declined or unanswered
+means hold, not permission to follow your own recommendation.
+
+Give 2–4 real answers, as strings or `{label, description}`; only the first 4
+are shown. Jan can tap an answer or type his own via Other. His own words are
+owner instructions, not data: follow them verbatim. For maintenance, offer real
+times and let him type another time via Other; pass `reminder` to have that time
+scheduled in this session. Do not schedule a second reminder yourself if the
+tool already did so. Never ask for secrets.
+
+Use `ask_jan` only, never the built-in `ask`. Use memini's `memory_remember` and
+`memory_recall` only, never the built-in `memory` (whose saves wait for approval
+in Menu → Memory). The setup disables both built-ins. Publish with `agent-push`,
+which does not ask Jan; never ask before publishing a feature branch or PR.

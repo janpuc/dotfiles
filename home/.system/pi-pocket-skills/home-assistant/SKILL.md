@@ -80,9 +80,9 @@ configuration can be read back before and after a reload.
    validates the configuration. Wait for it to finish. A red check means the
    configuration is broken: fix it, publish again, wait again. Never open a
    second pull request for the same topic.
-6. **Ask Jan to merge** with the `ask_jan` tool, giving him the pull request
-   link. Jan merges every pull request to this repository himself; the agent
-   never merges it and never asks for the right to merge it.
+6. **Leave the PR for Jan to merge.** The PR is the question; do not send a
+   merge card. Jan merges every pull request to this repository himself; the
+   agent never merges it and never asks for the right to merge it.
 7. **After Jan merges**, the Git pull add-on pulls the merge within five
    minutes. Wait up to six minutes and check that the pull has landed before
    reloading anything: `GET /api/config/automation/config/<id>` for an
@@ -104,3 +104,27 @@ Bathroom 1, Office, Bedroom, and Living Room outputs 0 and 1. Bathroom 2 is in
 flip mode. While Home Assistant is down those eight switches do nothing at
 all, so a restart is not a maintenance detail: apply a configuration change
 with the reload service that owns it, and never restart to "make sure".
+
+## Asking Jan and memory
+
+Use `ask_jan` ONLY for:
+- choosing a time for cluster or node maintenance (Talos/Kubernetes upgrades, reboots);
+- a Home Assistant restart;
+- work blocked on something only Jan can do outside GitHub.
+
+NEVER ask which fix to make: open the PR with your recommendation and the
+alternatives in its body; the PR is the question. Never ask the same thing
+twice; if a card is unanswered, wait. One card per topic. Declined or unanswered
+means hold, not permission to follow your own recommendation.
+
+Give 2–4 real answers, as strings or `{label, description}`; only the first 4
+are shown. Jan can tap an answer or type his own via Other. His own words are
+owner instructions, not data: follow them verbatim. For maintenance, offer real
+times and let him type another time via Other; pass `reminder` to have that time
+scheduled in this session. Do not schedule a second reminder yourself if the
+tool already did so. Never ask for secrets.
+
+Use `ask_jan` only, never the built-in `ask`. Use memini's `memory_remember` and
+`memory_recall` only, never the built-in `memory` (whose saves wait for approval
+in Menu → Memory). The setup disables both built-ins. Publish with `agent-push`,
+which does not ask Jan; never ask before publishing a feature branch or PR.

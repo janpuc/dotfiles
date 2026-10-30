@@ -1,5 +1,5 @@
 // Run with Node >=22.19: node --test home/.system/pi-pocket-extensions/ask-jan.test.ts
-// Fakes mirror Pi Pocket v0.26.0 / pi-durable 1.4.0's tool API and host.ask.
+// Fakes mirror Pi Pocket v0.27.0-beta.7 / pi-durable 1.4.0's tool API and host.ask.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { registerHooks, stripTypeScriptTypes } from "node:module";
@@ -13,6 +13,7 @@ const ai = `export const Type = {
     Object: properties => ({type:'object', properties}),
     String: options => ({type:'string', ...options}),
     Array: (items, options) => ({type:'array', items, ...options}),
+    Union: items => ({anyOf:items}),
     Optional: schema => schema
 };`;
 const dataUrl = (source: string) =>
@@ -29,90 +30,198 @@ const source = await readFile(new URL("./ask-jan.ts", import.meta.url), "utf8");
 const { default: create, pocketApi } = await import(dataUrl(stripTypeScriptTypes(source)));
 imports.deregister();
 
-const api = { conversationId: 42, taskId: 7, callId: "call-1" };
+function api() {
+    const memo = new Map();
+    return {
+        conversationId: 42,
+        taskId: 7,
+        callId: "call-1",
+        memo: async (key: string, value: unknown, ctx?: unknown) => {
+            if (ctx !== undefined) memo.set(key, value);
+            return memo.get(key);
+        },
+    };
+}
 const context = {};
-
-// A host that answers the card the way Jan would, and remembers what it was asked.
+const options = ["now", { label: "hold", description: "Do not restart yet" }];
 function host(answer: { answered: boolean; by: string; values?: Record<string, string> }) {
     const asked: any[] = [];
     const scheduled: any[] = [];
-    const built = {
-        ask: async (request: any, ctx: unknown) => {
-            assert.equal(ctx, context);
-            asked.push(request);
-            return answer;
-        },
-        schedules: {
-            add: async (conversationId: number, request: any) => {
-                scheduled.push({ conversationId, request });
-                return { id: "s1", next: Date.parse("2026-11-02T09:00:00Z"), text: request.text, zone: "UTC" };
+    return {
+        asked,
+        scheduled,
+        host: {
+            ask: async (request: any, ctx: unknown) => {
+                assert.equal(ctx, context);
+                asked.push(request);
+                return answer;
+            },
+            schedules: {
+                add: async (conversationId: number, request: any) => {
+                    scheduled.push({ conversationId, request });
+                    return { next: Date.parse("2026-11-02T09:00:00Z") };
+                },
             },
         },
     };
-    return { host: built, asked, scheduled };
 }
+const run = (h: any, args: any, a = api()) => create(h).tools[0].execute(args, a, context);
 
-test("ask-jan drop-in declares extension API 2 and one tool", () => {
+test("ask-jan declares API 2, safe replay, and only ask_jan", () => {
     assert.equal(pocketApi, 2);
     const extension = create({});
     assert.equal(extension.name, "ask-jan");
-    assert.deepEqual(extension.tools.map((tool) => tool.name), ["ask_jan"]);
+    assert.deepEqual(
+        extension.tools.map((tool) => tool.name),
+        ["ask_jan"],
+    );
+    assert.equal(extension.tools[0].replay, "safe");
+    assert.match(extension.tools[0].description, /ONLY/);
+    assert.match(extension.tools[0].description, /NEVER ask which fix/);
 });
 
-test("ask_jan asks on a card and returns the chosen option, never his words", async () => {
+test("ask_jan sends tappable choices and descriptions with Other", async () => {
     const h = host({ answered: true, by: "Jan", values: { answer: "now" } });
-    const extension = create(h.host);
-    const tool = extension.tools[0];
-    const result = await tool.execute(
-        { title: "Talos 1.14.5 is ready", question: "Upstream merged it on 2026-10-26.", options: ["now", "hold"] },
-        api,
-        context,
-    );
+    const result = await run(h.host, {
+        title: "Restart HA?",
+        question: "Eight switches stop during restart.",
+        options,
+    });
     assert.equal(result.output[0].text, "Jan answered: now.");
-    assert.equal(h.asked.length, 1);
-    const request = h.asked[0];
-    assert.equal(request.id, "7:call-1");
-    assert.equal(request.conversationId, 42);
-    assert.equal(request.taskId, 7);
-    assert.equal(request.callId, "call-1");
-    assert.equal(request.title, "Talos 1.14.5 is ready");
-    assert.equal(request.text, "Upstream merged it on 2026-10-26.");
-    assert.equal(request.fields.length, 1);
-    assert.equal(request.fields[0].name, "answer");
-    assert.match(request.fields[0].autocomplete, /^[a-z][a-z0-9 -]{0,39}$/);
-    assert.equal(h.scheduled.length, 0, "an option is not a time");
+    assert.deepEqual(h.asked[0], {
+        id: "7:call-1",
+        conversationId: 42,
+        taskId: 7,
+        callId: "call-1",
+        title: "Restart HA?",
+        text: "Eight switches stop during restart.",
+        submit: "Send",
+        fields: [
+            {
+                name: "answer",
+                label: "Restart HA?",
+                header: "Jan",
+                choices: [{ label: "now" }, { label: "hold", description: "Do not restart yet" }],
+                other: true,
+                placeholder: "Or type a time or your own answer",
+            },
+        ],
+    });
+    assert.equal(h.scheduled.length, 0);
 });
 
-test("ask_jan schedules the reminder when Jan answers with a time", async () => {
-    const h = host({ answered: true, by: "Jan", values: { answer: "tomorrow 9:00" } });
-    const extension = create(h.host);
-    const result = await extension.tools[0].execute(
-        { title: "When?", question: "Reply with a time, or now.", options: ["now"], reminder: "Jan: merge #1595 now" },
-        api,
-        context,
+test("ask_jan passes owner words verbatim, including whitespace and newlines", async () => {
+    const words = "  NO — do the opposite.\nKeep it as it is!  ";
+    const h = host({ answered: true, by: "Jan", values: { answer: words } });
+    const result = await run(h.host, { title: "Restart?", options });
+    assert.equal(result.output[0].text, `Jan answered in his own words: ${words}`);
+});
+
+test("ask_jan holds on decline, missing or blank answer", async () => {
+    for (const answer of [
+        { answered: false, by: "Jan" },
+        { answered: true, by: "Jan" },
+        { answered: true, by: "Jan", values: { answer: "  " } },
+    ]) {
+        const h = host(answer);
+        const result = await run(h.host, { title: "Restart?", options });
+        assert.equal(
+            result.output[0].text,
+            "Jan declined / did not answer. Do NOT act on your own recommendation: hold, and do not ask again about this; it stays in the session for him.",
+        );
+        assert.equal(h.scheduled.length, 0);
+    }
+});
+
+test("ask_jan shows only the first four options and reports truncation", async () => {
+    const h = host({ answered: true, by: "Jan", values: { answer: "a" } });
+    const result = await run(h.host, {
+        title: "When?",
+        options: ["a", "b", "c", "d", "e"],
+    });
+    assert.deepEqual(
+        h.asked[0].fields[0].choices.map((x) => x.label),
+        ["a", "b", "c", "d"],
     );
-    assert.match(result.output[0].text, /reminder is scheduled for 2026-11-02T09:00:00.000Z/);
-    assert.equal(h.scheduled.length, 1);
-    assert.equal(h.scheduled[0].conversationId, 42);
-    assert.equal(h.scheduled[0].request.when, "tomorrow 9:00");
-    assert.equal(h.scheduled[0].request.text, "Jan: merge #1595 now");
+    assert.equal(
+        result.output[0].text,
+        "Jan answered: a.\nOnly the first 4 options were shown to Jan.",
+    );
 });
 
-test("ask_jan says what happened when Jan declines or writes something else", async () => {
-    const declined = host({ answered: false, by: "Jan" });
-    const extension = create(declined.host);
-    const result = await extension.tools[0].execute({ title: "When?" }, api, context);
-    assert.equal(result.output[0].text, "Jan declined the question.");
-
-    const other = host({ answered: true, by: "Jan", values: { answer: "do not port the Intel bits" } });
-    const extension2 = create(other.host);
-    const result2 = await extension2.tools[0].execute({ title: "Port it?", options: ["yes", "no"] }, api, context);
-    assert.equal(result2.output[0].text, "Jan answered with something this tool does not pass on. Ask him in the session.");
-    assert.doesNotMatch(result2.output[0].text, /Intel/);
+test("ask_jan schedules typed and tapped times, preserving the answer", async () => {
+    for (const choices of [
+        ["now", "hold"],
+        ["tomorrow 9:00", "hold"],
+    ]) {
+        const h = host({
+            answered: true,
+            by: "Jan",
+            values: { answer: "tomorrow 9:00" },
+        });
+        const result = await run(h.host, {
+            title: "When?",
+            options: choices,
+            reminder: "Jan: merge #1595 now",
+        });
+        assert.match(result.output[0].text, /Jan answered.*tomorrow 9:00/);
+        assert.match(result.output[0].text, /reminder is scheduled for 2026-11-02T09:00:00.000Z/);
+        assert.deepEqual(h.scheduled, [
+            {
+                conversationId: 42,
+                request: {
+                    when: "tomorrow 9:00",
+                    text: "Jan: merge #1595 now",
+                    key: "7:call-1",
+                },
+            },
+        ]);
+    }
 });
 
-test("ask_jan without host.ask says so instead of failing", async () => {
-    const extension = create({});
-    const result = await extension.tools[0].execute({ title: "When?" }, api, context);
-    assert.match(result.output[0].text, /cannot ask Jan on a card/);
+test("ask_jan keeps Jan's instructions when reminder parsing fails or schedules are absent", async () => {
+    const words = " do not restart!\nI mean it ";
+    for (const schedules of [
+        undefined,
+        {
+            add: async () => {
+                throw new Error("Not a time");
+            },
+        },
+    ]) {
+        const h = host({ answered: true, by: "Jan", values: { answer: words } });
+        h.host.schedules = schedules;
+        const result = await run(h.host, {
+            title: "When?",
+            options,
+            reminder: "Restart",
+        });
+        assert.equal(
+            result.output[0].text,
+            `Jan answered in his own words: ${words}\nNo reminder scheduled; hold unless his instructions say otherwise`,
+        );
+    }
+});
+
+test("ask_jan requires at least two distinct real answers without creating a card", async () => {
+    for (const choices of [undefined, [], ["now"], ["now", "now"], ["now", "  "]]) {
+        const h = host({ answered: false, by: "Jan" });
+        const result = await run(h.host, { title: "When?", options: choices });
+        assert.match(result.output[0].text, /needs 2–4 real answers/);
+        assert.equal(h.asked.length, 0);
+    }
+});
+
+test("ask_jan without host.ask holds instead of asking again", async () => {
+    const result = await run({}, { title: "When?", options });
+    assert.match(result.output[0].text, /host.ask is missing/);
+    assert.match(result.output[0].text, /Hold; do not act/);
+});
+
+test("ask_jan memoizes the owner's answer across replay without a second card", async () => {
+    const h = host({ answered: true, by: "Jan", values: { answer: "hold" } });
+    const a = api();
+    const args = { title: "Restart?", options };
+    assert.deepEqual(await run(h.host, args, a), await run(h.host, args, a));
+    assert.equal(h.asked.length, 1);
 });

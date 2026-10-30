@@ -185,3 +185,39 @@ test('pr-broker-runtime pinned archive mismatch aborts before extraction, with n
     assert.ok(allCalls.includes('gh_2.102.0_linux_arm64.tar.gz')); assert.ok(!allCalls.includes('extracted'));
 
 });
+
+test('pi-pocket 0.27 pin and config disable built-in ask/memory without losing owner settings', t => {
+    const fs = require('node:fs'), os = require('node:os'), cp = require('node:child_process');
+    assert.match(setup, /version=v0\.27\.0-beta\.7\ncommit=78f547579cc5433a28cdb765524597f5bb07c329/);
+    assert.ok(!setup.includes('old=${old%.*}'), 'archives keep the full old version');
+    const dir = fs.mkdtempSync(join(os.tmpdir(), 'pocket-config-test-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'config.json');
+    const config = { ownerToken: 'test-only', users: [{ id: 'owner' }], approvals: 'anyone',
+        enabledExtensions: ['ask.ts', 'memory.ts', 'custom.ts'], disabledExtensions: ['ask-jan.ts', 'memini.ts', 'unrelated.ts'] };
+    fs.writeFileSync(path, JSON.stringify(config));
+    const code = setup.split("as_pocket python3 -c '\n")[1].split("' \"$home/.pi-pocket/config.json\"")[0].replaceAll("'\"'\"'", "'");
+    for (let i = 0; i < 2; i++) {
+        const result = cp.spawnSync('python3', ['-c', code, path], { encoding: 'utf8' });
+        assert.equal(result.status, 0, result.stderr);
+        const got = JSON.parse(fs.readFileSync(path));
+        assert.equal(got.ownerToken, config.ownerToken);
+        assert.deepEqual(got.users, config.users);
+        assert.equal(got.approvals, 'others');
+        assert.deepEqual(got.disabledExtensions, ['unrelated.ts', 'ask.ts', 'memory.ts']);
+        assert.deepEqual(got.enabledExtensions, ['custom.ts', 'memini.ts', 'approvals.ts', 'web.ts', 'ask-jan.ts', 'triggers.ts', 'schedules.ts']);
+        assert.equal(fs.statSync(path).mode & 0o777, 0o600);
+    }
+});
+
+test('all pocket skills share the narrow ask policy and memini-only guidance', () => {
+    for (const skill of ['pr-shepherd', 'upstream-sync', 'home-assistant', 'homelab-cluster', 'github']) {
+        const body = source(`pi-pocket-skills/${skill}/SKILL.md`);
+        for (const policy of ['Use `ask_jan` ONLY for:', 'NEVER ask which fix to make',
+            'One card per topic.', 'Use memini\'s `memory_remember`', 'never ask before publishing']) {
+            assert.ok(body.includes(policy), `${skill}: ${policy}`);
+        }
+        assert.ok(!body.includes('Pushing and merging ask Jan'));
+        assert.ok(!body.includes('**Ask Jan to merge**'));
+    }
+});

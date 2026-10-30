@@ -19,7 +19,7 @@ reach Linux unless deliberately added there.
 | `home/.system/aether-hosts-sync*` (installed by `05-linux-system`) | hourly: derive internal DNS names from public home-ops into `/etc/hosts`, because the UniFi gateway does not answer DNS from the tailnet |
 | `home/.system/xterm-ghostty.terminfo` (`06-linux-terminfo`) | Ghostty terminfo in `~/.terminfo`, absent from Ubuntu's ncurses |
 | `home/.system/aether-keepalive*` (installed by `05-linux-system`) | hold 25% of RAM without CPU load to avoid Oracle's idle-instance reclamation criteria |
-| `home/.system/pi-pocket*` (installed by `20-linux-pi-pocket`) | [Pi Pocket](https://github.com/TannerMidd/pi-pocket) at a pinned release, run by the `pocket` user (no sudo, sees only its own home) as the `pi-pocket` system service on 127.0.0.1:8787; `tailscale serve` publishes it at `https://aether.<tailnet>.ts.net` on the tailnet only. At home the same URL works without Tailscale: a UniFi DNS record (`aether.tail17d532.ts.net` → aether's tailnet address, 100.108.252.49) and bob, the router on the tailnet, carry it. Node comes from pocket's own mise config. `pi-pocket-extensions/memini.ts` gives it memory in memini namespace `homelab/assistant` (home `personal/jan`): a briefing per conversation, recall on each message, and `memory_recall`/`memory_remember` tools; test it with `node --test` on its `memini.test.ts`. `approvals.ts` asks Jan in the app (push notification) before a bash command changes a shared system: git push, GitHub writes, cluster, Flux, Talos or Helm changes, chezmoi apply, Home Assistant service calls (except the lights, scenes and reload services below, which are direct). `web.ts` gives it `web_search` (the home SearXNG at search.janpuc.com) and `web_fetch` (pages as text, with a FlareSolverr fallback). `pi-pocket-skills/` holds Pi skills for the cluster (read-only `view` access, Alertmanager and Prometheus over HTTPS), Home Assistant (`$HA_URL`, `$HA_TOKEN`, and Jan's Home Assistant configuration in `janpuc/home-assistant`) and GitHub (`gh`, signed in with the App's installation token). `ask-jan.ts` asks Jan a question on a card in the session, with the same push as an approval, and gives back only the option he chose. pocket's mise config adds gh, kubectl, flux and jq. `pi-pocket-gh-token` (a systemd timer, as `pocket`, every half hour) mints an installation token of the agent's own GitHub App, janpuc-agent (only home-ops, dotfiles, BC250 and home-assistant, with a fallback to the older three until Jan adds the new repository to the installation; no admin or workflow rights; key from op://Kubernetes/janpuc-agent), and writes it into gh's own config for `pocket`, because a running service cannot see new environment values; git over HTTPS reads it through the `mise exec -- gh auth git-credential` helper. For dev work pocket commits as `janpuc-agent[bot]` (never as `bot-atlas[bot]`, the Renovate and kritika App, or Renovate takes the branch for its own), signed locally with its own key (`~pocket/.ssh/signing`, on GitHub as "pi-pocket (aether)"), but publishes only through `agent-push` for GitHub-verified App commits (see the PR shepherd below); home-ops, dotfiles, BC250 and home-assistant are cloned into `~pocket/work/` (the last one skipped, without failing, while the repository or the App installation does not have it yet) and trusted by mise, and new sessions start in `~pocket/scratch` |
+| `home/.system/pi-pocket*` (installed by `20-linux-pi-pocket`) | [Pi Pocket](https://github.com/TannerMidd/pi-pocket) at pinned **v0.27.0-beta.7** (`78f547579cc5433a28cdb765524597f5bb07c329`), run by the `pocket` user (no sudo, sees only its own home) as the `pi-pocket` system service on 127.0.0.1:8787; `tailscale serve` publishes it at `https://aether.<tailnet>.ts.net` on the tailnet only. At home the same URL works without Tailscale: a UniFi DNS record (`aether.tail17d532.ts.net` → aether's tailnet address, 100.108.252.49) and bob, the router on the tailnet, carry it. Node comes from pocket's own mise config. `pi-pocket-extensions/memini.ts` gives it memory in memini namespace `homelab/assistant` (home `personal/jan`): a briefing per conversation, recall on each message, and `memory_recall`/`memory_remember` tools; test it with `node --test` on its `memini.test.ts`. `approvals.ts` asks Jan in the app (push notification) before a bash command changes a shared system: git push, GitHub writes, cluster, Flux, Talos or Helm changes, chezmoi apply, Home Assistant service calls (except the lights, scenes and reload services below, which are direct). `web.ts` gives it `web_search` (the home SearXNG at search.janpuc.com) and `web_fetch` (pages as text, with a FlareSolverr fallback). `pi-pocket-skills/` holds Pi skills for the cluster (read-only `view` access, Alertmanager and Prometheus over HTTPS), Home Assistant (`$HA_URL`, `$HA_TOKEN`, and Jan's Home Assistant configuration in `janpuc/home-assistant`) and GitHub (`gh`, signed in with the App's installation token). `ask-jan.ts` asks Jan a question on a card in the session, with the same push as an approval, with tappable answers and an Other field, and passes back his choice or his own words verbatim as owner instructions. pocket's mise config adds gh, kubectl, flux and jq. `pi-pocket-gh-token` (a systemd timer, as `pocket`, every half hour) mints an installation token of the agent's own GitHub App, janpuc-agent (only home-ops, dotfiles, BC250 and home-assistant, with a fallback to the older three until Jan adds the new repository to the installation; no admin or workflow rights; key from op://Kubernetes/janpuc-agent), and writes it into gh's own config for `pocket`, because a running service cannot see new environment values; git over HTTPS reads it through the `mise exec -- gh auth git-credential` helper. For dev work pocket commits as `janpuc-agent[bot]` (never as `bot-atlas[bot]`, the Renovate and kritika App, or Renovate takes the branch for its own), signed locally with its own key (`~pocket/.ssh/signing`, on GitHub as "pi-pocket (aether)"), but publishes only through `agent-push` for GitHub-verified App commits (see the PR shepherd below); home-ops, dotfiles, BC250 and home-assistant are cloned into `~pocket/work/` (the last one skipped, without failing, while the repository or the App installation does not have it yet) and trusted by mise, and new sessions start in `~pocket/scratch` |
 
 No user-level systemd services, AI dot-directories or `~/.local/bin` launchers are allowlisted.
 The infrastructure units above are system services, installed separately by the Linux script.
@@ -71,23 +71,40 @@ order:
    the archive holds a live SQLite database),
 2. check out the pinned tag and run `npm ci`,
 3. install the drop-ins, the service unit and the token helper, turn on the extensions in
-   `config.json`,
+   `config.json` (built-in `ask.ts` and `memory.ts` explicitly disabled in favour of
+   `ask_jan` and memini),
 4. start the service again.
 
 The archive matters: Pi Durable 1.4 (Pi Pocket 0.21.0 and newer) rewrites `pocket.sqlite` the
 first time it opens it, and 0.20.0 and earlier cannot read the result.
 
-### Rolling back
+### Rolling back to 0.26.0
+
+The archive includes the old config and drop-ins. Do not open 0.27 data with
+0.26 or merely change the pin: restore the stopped-service archive first.
+The installer now retains the full version in its archive name (older runs
+used a shortened name). All writes below the pocket home run as pocket.
 
 1. `sudo systemctl stop pi-pocket.service`
-2. move the current `/home/pocket/.pi-pocket` aside and unpack the archive over it:
-   `sudo -u pocket tar -xzf /home/pocket/archive/pi-pocket-0.11-<date>.tar.gz -C /home/pocket`
-3. check out the old tag in `/home/pocket/pi-pocket` and `npm ci` again,
-4. put the old drop-ins back (they declare `pocketApi = 2`, which 0.11.0 does not load),
-5. `sudo systemctl start pi-pocket.service`
+2. Choose the **pre-upgrade 0.26.0** archive printed by setup; preserve the new
+   data and restore the archive (substitute the actual stamp):
+   ```sh
+   sudo -u pocket -H mv /home/pocket/.pi-pocket /home/pocket/.pi-pocket-027-rollback
+   sudo -u pocket -H tar -xzf /home/pocket/archive/pi-pocket-0.26.0-<date>.tar.gz -C /home/pocket
+   sudo -u pocket -H git -C /home/pocket/pi-pocket checkout --detach v0.26.0
+   sudo -u pocket -H git -C /home/pocket/pi-pocket rev-parse HEAD
+   # Must print 5e13a8b161226cbfef3e696c1bd31b8da110e381.
+   sudo -u pocket -H sh -c 'cd /home/pocket/pi-pocket && mise exec -- npm ci --ignore-scripts --no-audit --no-fund'
+   ```
+3. The restored archive supplies the 0.26 config and drop-ins. Restore the
+   pre-upgrade managed source (including pin, skills and drop-ins) through the
+   approved workflow **before any later chezmoi apply**, or setup will upgrade
+   again. Do not overwrite the archive's drop-ins with these 0.27 versions.
+4. `sudo systemctl start pi-pocket.service`; inspect the journal and app.
 
-Rolling back the dotfiles themselves (`git revert` and `chezmoi apply`) does steps 3 to 5 in
-one go.
+This discards post-upgrade session changes from the active database; the moved
+0.27 folder preserves them for investigation. Neither apply nor rollback was
+performed while preparing this change.
 
 ## Retirement and verification
 
@@ -172,11 +189,85 @@ session does not reach his phone. Pi Pocket 0.22.0 and newer can ask him
 properly: `host.ask` shows a card in the session, notifies him with that same
 push, and gives the answer to the extension alone.
 
-`ask-jan.ts` is a drop-in that does this: its tool `ask_jan` asks a question
-with the answers as options and returns only which option Jan chose, never
-what he wrote, which stays out of the transcript. If he answers with a time and
-the caller passed a reminder, that reminder is scheduled in the session for
-that time. Both skills use it for `Jan:` decisions only.
+`ask-jan.ts` uses 0.27's tap-to-answer fields: 2–4 distinct answers (strings or
+`{label, description}`), with `other: true`. Fewer than two real answers are
+rejected without a card; excess options are cut to the first four and reported
+in the tool result. Jan's own words return **verbatim**, labelled
+`Jan answered in his own words: …`; they are owner instructions, not untrusted
+data. A declined or empty answer returns:
+
+> Jan declined / did not answer. Do NOT act on your own recommendation: hold, and do not ask again about this; it stays in the session for him.
+
+The card persists across restart; the tool memoizes the answer before scheduling
+and uses the call's idempotent schedule key. If `reminder` is supplied, the
+schedule parser checks either a tapped or typed time. A parse/scheduling failure
+still returns his words, with `No reminder scheduled; hold unless his instructions say otherwise`.
+
+Use `ask_jan` ONLY for choosing a time for cluster/node maintenance
+(Talos/Kubernetes upgrades, reboots), a Home Assistant restart, or work blocked
+on something only Jan can do **outside GitHub**. NEVER ask which fix to make:
+open the PR with your recommendation and alternatives in its body; the PR is
+the question. Never ask the same thing twice; if unanswered, wait. One card per
+topic. Never ask for secrets. Publishing is `agent-push`, which does not ask.
+All five skills carry this policy and direct agents to memini's
+`memory_remember`/`memory_recall` only.
+
+### 0.27 compatibility review
+
+Read all [beta 1–7 release notes](https://github.com/TannerMidd/pi-pocket/releases)
+and the clone's `docs/release-notes.md` (the latter is the release-writing guide,
+not a changelog). Beta 4 was replaced by beta 5. The notable operational/API changes:
+
+- [beta 7](https://github.com/TannerMidd/pi-pocket/releases/tag/v0.27.0-beta.7):
+  “Choices on `host.ask`” adds `choices` (2–4 `label`/`description` pairs),
+  `multiple`, `other`, `header`; “A value that is not a choice is refused.”
+  The drop-in now uses choices with `other: true`, keeps descriptions short,
+  and preserves custom values. Owner-only answers and restart persistence are
+  implemented by Pocket's ask/approval host, not by another notification path.
+- “New tool name. Pi Pocket's own `ask` tool is reserved.” `ask_jan` has a
+  different name. Both built-ins **can be disabled**: `reload.ts` treats only
+  `prompt.ts` as required, and `ConfigStore.extensionChoice` checks
+  `disabledExtensions` before `enabledExtensions` and defaults. `ask.ts` and
+  `memory.ts` are on by default, not in `OFF_BY_DEFAULT`; setup adds them to
+  `disabledExtensions`, removes stale enable entries, and explicitly enables
+  our drop-ins, triggers and schedules. Existing owner/auth settings survive.
+- All betas say “Back up `~/.pi-pocket` first.” The stopped-service archive
+  already does this automatically whenever the commit changes; full old
+  versions are now kept in archive filenames. No additional database migration
+  is identified in these beta notes; keep the archive regardless.
+- Node requirement remains `>=22.19`; pocket's pinned **24.22.2** exceeds it
+  and includes the upstream launcher's October security fixes. CLI flags
+  (`--host`, `--port`, `--data`, `--cwd`) remain compatible. No service-unit or
+  mise pin change is needed. The beta-update UI setting is unnecessary for a
+  git checkout pinned by this installer.
+- All four drop-ins still use `pocketApi = 2`, Durable 1.4.0's `output` result
+  shape, `GenerationTask`/`ToolTask` hooks, sections, memo and schedule APIs.
+  No memini/approvals/web code change is required. The ask host subset now uses
+  branded `ConversationId`/`TaskId` and `Context` and is checked against
+  0.27's actual `PocketHost`.
+- Betas 1–6 add design systems/scans, gallery reach information, quote replies,
+  priority lists and optional host surfaces (`roleOf`, snapshot scroll). They
+  do not require changes to these server-only drop-ins. Beta 7's scan isolation
+  and security fixes ship as upstream code, not local patches.
+
+### Applying this upgrade (operator only)
+
+Review these uncommitted changes and transfer them to aether's trusted source
+through the separately approved workflow. As ubuntu on aether, run
+`chezmoi diff` then `chezmoi apply`; do not execute a locally rendered script.
+Keep the printed pre-upgrade archive path. Verify the checked-out commit,
+`sudo systemctl status pi-pocket.service --no-pager`, and
+`sudo journalctl -u pi-pocket.service -n 100 --no-pager` for load errors.
+Read only the extension config keys (not the owner token):
+
+```sh
+sudo -u pocket -H python3 -c 'import json; c=json.load(open("/home/pocket/.pi-pocket/config.json")); print({k:c.get(k) for k in ("enabledExtensions", "disabledExtensions", "approvals")})'
+```
+
+In the app verify all four drop-ins are on, built-in Ask and Memory are off,
+and, on the next legitimate maintenance question, that a choice and Other work
+and the answer reaches the agent. Do not create duplicate test cards in a live
+session. Keep the archive until the upgrade is accepted.
 
 ## Home Assistant configuration in git
 
@@ -230,7 +321,7 @@ The `home-assistant` skill owns it:
    whose body names exactly which reload applies the change, or "needs a
    restart" and why;
 4. wait for the CI of the pull request (`frenck/action-home-assistant`);
-5. ask Jan with `ask_jan` to merge it: the agent never merges that repository;
+5. leave the PR for Jan to merge: the PR is the question, not another card;
 6. after the merge, wait up to six minutes for the Git pull add-on, check that
    the change is in Home Assistant (`GET /api/config/automation/config/<id>`
    with the numeric id in the entity's attributes,
@@ -591,6 +682,35 @@ changed head from merging, but does not freeze every external signal after
 classification or serialize Renovate/Jan with the broker.
 
 ### Local validation
+
+Upgrade preparation checked the exact beta 7 checkout in `/tmp/pi-pocket-027`
+against aether's read-only 0.26 checkout. On local Node **26.13.0**:
+
+- Full dotfiles suite: **95 tests passed, 0 failed** (including 10 ask-jan tests).
+- All four drop-in suites also ran as scratch copies importing their actual
+  source with **real 0.27 packages**, instead of the unit tests' package fakes:
+  **33 tests passed, 0 failed**. HTTP calls still used each suite's local fakes.
+- Strict `tsc --noEmit` passed for all four source drop-ins plus an adapter
+  calling each factory with 0.27's actual `PocketHost`. To reproduce, copy the
+  four source files (not tests) into the clone's `drop-in-check/`, add
+  `host-check.ts` importing `PocketHost` from `../src/server/host.ts` and the
+  factories, and call `ask(host); approvals(host); memini(host); web();` with
+  `declare const host: PocketHost`. Run from the clone:
+  ```sh
+  ./node_modules/.bin/tsc --ignoreConfig --noEmit --strict --target ES2024 --module NodeNext --moduleResolution NodeNext --skipLibCheck --allowImportingTsExtensions --types node drop-in-check/ask-jan.ts drop-in-check/approvals.ts drop-in-check/memini.ts drop-in-check/web.ts drop-in-check/host-check.ts
+  ```
+- Real beta 7 launcher/server ran on **127.0.0.1:18787**, with a scratch HOME,
+  data directory and cwd, no production keys, and a dummy memini key to ensure
+  its tools registered. Authenticated `GET /api/extensions` showed all four
+  drop-ins enabled, the expected tools and hooks, **no load errors**, and
+  built-in `ask.ts`/`memory.ts` disabled. The server was then stopped. No model
+  turn, production network call or live phone notification was exercised.
+- Rendered installer passed ShellCheck and `sh -n`; `git diff --check` passed.
+
+The inherited Mac PATH includes spaces; one existing runtime sandbox test
+interpolates PATH into shell text without quoting. Run the suite with a clean
+PATH (Node, Homebrew, `/usr/bin:/bin:/usr/sbin:/sbin`) to avoid that unrelated
+fixture failure. No production runtime code was changed for this.
 
 ```sh
 node --test home/.system/*.test.cjs home/.system/pi-pocket-extensions/*.test.ts

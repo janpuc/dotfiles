@@ -34,6 +34,8 @@ const OPTS = String.raw`(?:\s+-{1,2}[A-Za-z][\w-]*(?:[= ][^\s;&|-]\S*)?)*`;
 const cmd = (tool: string, verbs: string) =>
     new RegExp(String.raw`(?:^|[\s;&|(\x60/])${tool}${OPTS}\s+(?:${verbs})(?=$|[\s;&|)\x60])`);
 const MERGE_GH_PR = cmd("gh", String.raw`pr\s+merge`);
+/** A raw `git push`, however it is spelled; agent-push is the only way the agent publishes. */
+const RAW_GIT_PUSH = /(?:^|[\s;&|(\x60/"'])g\\?i\\?t["']?(?:\s+-{1,2}[A-Za-z][\w-]*(?:[= ][^\s;&|-]\S*)?)*\s+["']?p\\?u\\?s\\?h/;
 const RULES: [string, RegExp][] = [
     ["push git commits", cmd("git", "push")],
     // agent-push is not asked about (Jan, 2026-10-29): it publishes a non-main branch as a
@@ -274,6 +276,15 @@ export default function createApprovals(host: Host) {
                     const command = String((call.arguments as { command?: unknown }).command ?? "");
                     const change = sharedChange(command);
                     if (!change) return undefined;
+                    // A raw git push is never asked about (Jan, 2026-10-30): it would publish unverified
+                    // commits that the rulesets refuse, and it only ever cost him a tap. Refuse it here and
+                    // point at the tool that publishes verified commits without asking.
+                    if (change === "push git commits" && RAW_GIT_PUSH.test(command))
+                        return {
+                            block:
+                                "Raw `git push` is not used here and nobody was asked. Publish the branch with `agent-push` " +
+                                "(run it in the repository on your branch; it creates one verified commit and does not ask Jan).",
+                        };
                     const subject = command.trim().replace(/[\r\n]+/g, " ");
                     const reason = `This command will ${change}. Ask Jan before running it.`;
                     // Keyed by call: a codemode script can make several calls in one task.

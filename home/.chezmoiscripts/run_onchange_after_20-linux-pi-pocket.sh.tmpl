@@ -30,8 +30,8 @@ repos="home-ops dotfiles BC250"
 # The Home Assistant config repo is new, and the App installation may not have it yet: a
 # failed clone is skipped (and retried on the next run) instead of failing the installer.
 optional_repos="home-assistant"
-version=v0.26.0
-commit=5e13a8b161226cbfef3e696c1bd31b8da110e381
+version=v0.27.0-beta.7
+commit=78f547579cc5433a28cdb765524597f5bb07c329
 src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
 home=/home/pocket
 as_pocket() { sudo -u pocket -H "$@"; }
@@ -108,7 +108,6 @@ if [ "$current_commit" != "$commit" ] && as_pocket test -d "$home/.pi-pocket"; t
     sudo systemctl stop pi-pocket.service || true
     as_pocket install -d -m 700 "$home/archive"
     old=$(as_pocket git -C "$home/pi-pocket" show HEAD:package.json | sed -n 's/.*"version": "\([^"]*\)".*/\1/p')
-    old=${old%.*}
     stamp=$(date +%F)
     archive="$home/archive/pi-pocket-$old-$stamp.tar.gz"
     if as_pocket test -e "$archive"; then
@@ -210,14 +209,25 @@ if as_pocket test -e "$home/.pi-pocket/config.json"; then
 import json, os, sys
 path = sys.argv[1]
 config = json.load(open(path))
+before = json.dumps(config, sort_keys=True)
+# Built-ins are on by default (except OFF_BY_DEFAULT); explicit disabledExtensions wins.
+# Jan uses ask_jan and memini, never the built-in ask or approval-backed memory.
+off = config.setdefault("disabledExtensions", [])
+for name in ("ask.ts", "memory.ts"):
+    if name not in off:
+        off.append(name)
 on = config.setdefault("enabledExtensions", [])
+on[:] = [name for name in on if name not in ("ask.ts", "memory.ts")]
+# Explicitly enable required drop-ins even if previously switched off.
+wanted = ("memini.ts", "approvals.ts", "web.ts", "ask-jan.ts", "triggers.ts", "schedules.ts")
+off[:] = [name for name in off if name not in wanted]
 # The drop-ins and the built-ins the agent needs: Triggers (watches and webhooks) and
 # Scheduled messages.
-missing = [m for m in ("memini.ts", "approvals.ts", "web.ts", "ask-jan.ts", "triggers.ts", "schedules.ts") if m not in on]
+missing = [m for m in wanted if m not in on]
 # Only someone else may allow a guest'"'"'s risky call: the laptop Pi (a guest) never approves its own.
-if missing or config.get("approvals") != "others":
-    on.extend(missing)
-    config["approvals"] = "others"
+on.extend(missing)
+config["approvals"] = "others"
+if json.dumps(config, sort_keys=True) != before:
     tmp = path + ".tmp"
     with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
         json.dump(config, f, indent=2)

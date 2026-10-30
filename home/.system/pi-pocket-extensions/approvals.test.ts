@@ -423,7 +423,7 @@ test("approvals beforeTool: approval errors propagate instead of letting a write
     });
     await assert.rejects(
         extension.hooks[0].handlers.beforeTool(
-            { id: "failed", name: "bash", arguments: { command: "git push" } },
+            { id: "failed", name: "bash", arguments: { command: "gh pr merge 42 --squash" } },
             memoApi("failed", context),
             context,
         ),
@@ -501,4 +501,20 @@ test('approvals sharedChange: branch pushes and PR authoring do not ask (Jan, 20
     for (const command of ['git push origin agent/x', 'gh pr merge 42 --squash', 'gh pr close 42',
         'gh pr review 42 --approve', 'agent-push && git push', 'agent-push; kubectl delete pod x'])
         assert.ok(sharedChange(command), command);
+});
+
+test('approvals hook: a raw git push is refused without asking Jan (2026-10-30)', async () => {
+    let asked = 0;
+    const ext = create({ approvals: { request: async () => { asked++; return { allow: true, by: 'Jan' }; } } });
+    const handlers = ext.hooks[0].handlers;
+    const context = {};
+    for (const command of ['git push -u origin agent/x', 'cd /home/pocket/work/home-ops && git push origin agent/x',
+        'git -C ~/work/home-ops push', '"git" push', 'git commit -m x; git push']) {
+        const result = await handlers.beforeTool({ name: 'bash', id: 'c' + command.length, arguments: { command } }, memoApi('c' + command.length, context), context);
+        assert.match(result.block, /agent-push/, command);
+    }
+    assert.equal(asked, 0);
+    const merge = await handlers.beforeTool({ name: 'bash', id: 'm1', arguments: { command: 'gh pr merge 42 --squash' } }, memoApi('m1', context), context);
+    assert.equal(merge, undefined);
+    assert.equal(asked, 1);
 });
