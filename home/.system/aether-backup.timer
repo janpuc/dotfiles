@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily aether state backup to BigMouth
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+Unit=aether-backup.service
+
+[Install]
+WantedBy=timers.target

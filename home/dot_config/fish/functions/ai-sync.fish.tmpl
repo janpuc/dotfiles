@@ -1,4 +1,4 @@
-function ai-sync --description "{{ if eq .chezmoi.os "linux" }}Log gh into GitHub and give Pi Pocket its model keys, from 1Password{{ else }}Fetch AI service credentials from 1Password into a local cache{{ end }}"
+function ai-sync --description "{{ if eq .chezmoi.os "linux" }}Give Pi Pocket and pr-broker their keys from 1Password{{ else }}Fetch AI service credentials from 1Password into a local cache{{ end }}"
 {{- if eq .chezmoi.os "linux" }}
     # The server reads 1Password through a read-only service account; its token lives in this
     # 0600 file, which is never managed or committed.
@@ -6,14 +6,6 @@ function ai-sync --description "{{ if eq .chezmoi.os "linux" }}Log gh into GitHu
         # The file has comment lines; take the value of the one assignment. Function scope (-f):
         # a -l variable would end with this if block.
         set -fx OP_SERVICE_ACCOUNT_TOKEN (string match -rg '^\s*(?:export\s+)?OP_SERVICE_ACCOUNT_TOKEN=(.*)$' <"$HOME/.config/op/aether.env" | string trim -c '"\'')[1]
-    end
-
-    # git uses `gh auth git-credential`; gh stores its own token (0600). The aether token is
-    # dead (GitHub answers 401), so this only warns: it must not stop the keys below.
-    if op read "op://Kubernetes/aether/GH_TOKEN" 2>/dev/null | gh auth login --with-token 2>/dev/null
-        echo "Logged gh into GitHub with the aether token."
-    else
-        echo "  ! could not log gh in with op://Kubernetes/aether/GH_TOKEN (it answers 401); gh keeps its old token" >&2
     end
 
     # The separate merger App never reaches pocket. Missing item is expected before Step 2

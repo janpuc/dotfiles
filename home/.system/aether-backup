@@ -1,0 +1,108 @@
+#!/bin/sh
+# Root reads the private service state; only the dedicated uid writes to root-squashed NFS.
+set -eu
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+umask 077
+exec 9>/run/lock/aether-backup.lock
+flock -n 9 || { echo 'aether-backup already running' >&2; exit 1; }
+stage=$(mktemp -d /var/lib/aether-backup/stage.XXXXXX)
+trap 'rm -rf -- "$stage"' EXIT
+trap 'exit 1' HUP INT TERM
+echo 'Staging aether state (online SQLite backup)'
+/usr/local/sbin/aether-backup-stage / "$stage"
+chown -R aether-backup:nas-workspace "$stage"
+nas=/mnt/bigmouth-workspace
+# Trigger the automount, then refuse to write into a local directory if NFS is absent.
+timeout 60 stat "$nas/." >/dev/null
+findmnt -n -t nfs,nfs4 --target "$nas" >/dev/null
+stamp=$(date +%F)
+echo "Copying state to $nas/aether/state/$stamp"
+runuser -u aether-backup -- python3 - "$stage" "$nas/aether/state" "$stamp" <<'PY'
+from datetime import date, timedelta
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+source, directory, stamp = sys.argv[1:]
+base = Path(directory)
+base.mkdir(mode=0o700, parents=True, exist_ok=True)
+# New private trees only: never repair/chown old NAS directories or touch old backups.
+if base.is_symlink():
+    raise RuntimeError('state directory must not be a symlink')
+pending = Path(tempfile.mkdtemp(prefix=f'.{stamp}.', dir=base))
+previous = pending.with_name(pending.name + '.previous')
+destination = base / stamp
+try:
+    subprocess.run(['rsync', '-rpt', '--delete',
+                    source + '/', str(pending) + '/'], check=True)
+    if destination.exists():
+        if destination.is_symlink() or not destination.is_dir():
+            raise RuntimeError('dated backup must be an ordinary directory')
+        destination.rename(previous)
+    try:
+        pending.rename(destination)
+    except BaseException:
+        if previous.exists():
+            previous.rename(destination)
+        raise
+    if previous.exists():
+        shutil.rmtree(previous)
+    # Last 14 calendar dates (today plus 13), not 14 arbitrary old successes.
+    cutoff = date.fromisoformat(stamp) - timedelta(days=13)
+    for entry in base.iterdir():
+        if re.fullmatch(r'\d{4}-\d{2}-\d{2}', entry.name) and not entry.is_symlink() and entry.is_dir():
+            try:
+                day = date.fromisoformat(entry.name)
+            except ValueError:
+                continue
+            if day < cutoff:
+                shutil.rmtree(entry)
+finally:
+    if pending.exists():
+        shutil.rmtree(pending)
+PY
+# No exporter is installed here. Discover an explicitly configured textfile directory
+# on a running node_exporter only; never create a guessed collector directory.
+python3 - <<'PY'
+import os
+from pathlib import Path
+import tempfile
+import time
+
+for process in Path('/proc').glob('[0-9]*/cmdline'):
+    try:
+        args = process.read_bytes().decode().strip('\0').split('\0')
+    except (OSError, UnicodeError):
+        continue
+    if not args or Path(args[0]).name not in ('node_exporter', 'prometheus-node-exporter'):
+        continue
+    if '--no-collector.textfile' in args:
+        continue
+    if '--collector.disable-defaults' in args and '--collector.textfile' not in args:
+        continue
+    for index, arg in enumerate(args):
+        if arg.startswith('--collector.textfile.directory='):
+            directory = arg.split('=', 1)[1]
+        elif arg == '--collector.textfile.directory' and index + 1 < len(args):
+            directory = args[index + 1]
+        else:
+            continue
+        if not directory or not Path(directory).is_dir():
+            continue
+        fd, temporary = tempfile.mkstemp(prefix='.aether-backup.', dir=directory)
+        try:
+            with os.fdopen(fd, 'w') as metric:
+                metric.write('# HELP aether_backup_last_success_timestamp_seconds Last successful state backup.\n'
+                             '# TYPE aether_backup_last_success_timestamp_seconds gauge\n'
+                             f'aether_backup_last_success_timestamp_seconds {int(time.time())}\n')
+                os.fchmod(metric.fileno(), 0o644)
+            os.replace(temporary, Path(directory) / 'aether-backup.prom')
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+PY
+echo "aether backup succeeded: $stamp (14-day retention)"

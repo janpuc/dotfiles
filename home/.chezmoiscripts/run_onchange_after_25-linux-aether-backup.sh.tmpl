@@ -1,0 +1,38 @@
+{{- if eq .chezmoi.os "linux" -}}
+#!/bin/sh
+# Aether's private state, not its git checkouts. Re-run when scripts or units change.
+#   backup {{ include ".system/aether-backup" | sha256sum }}
+#   stage {{ include ".system/aether-backup-stage" | sha256sum }}
+#   service {{ include ".system/aether-backup.service" | sha256sum }}
+#   timer {{ include ".system/aether-backup.timer" | sha256sum }}
+#   mount {{ include ".system/mnt-bigmouth\\x2dworkspace.mount" | sha256sum }}
+#   automount {{ include ".system/mnt-bigmouth\\x2dworkspace.automount" | sha256sum }}
+set -eu
+src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
+if ! dpkg-query -W -f='${Status}' nfs-common 2>/dev/null | grep -q '^install ok installed$'; then
+    sudo apt-get update
+    sudo apt-get install -y nfs-common
+fi
+# Refuse a conflicting gid rather than silently creating an unusable NAS identity.
+if getent group nas-workspace >/dev/null; then
+    test "$(getent group nas-workspace | cut -d: -f3)" = 3100 || { echo 'nas-workspace must have gid 3100' >&2; exit 1; }
+else
+    sudo groupadd --gid 3100 nas-workspace
+fi
+id aether-backup >/dev/null 2>&1 || sudo useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin --gid nas-workspace aether-backup
+# No login, home, sudo or supplementary memberships: only the NAS group.
+sudo usermod --home /nonexistent --shell /usr/sbin/nologin --gid nas-workspace --groups '' aether-backup
+for dir in /usr/local/sbin /var/lib/aether-backup /mnt /mnt/bigmouth-workspace; do
+    sudo test ! -L "$dir" || { echo "symlinked backup directory: $dir" >&2; exit 1; }
+done
+sudo install -d -o root -g root -m 711 /var/lib/aether-backup
+# Never chmod/chown the dataset root on a subsequent apply while it is mounted.
+if ! sudo test -d /mnt/bigmouth-workspace; then
+    sudo install -d -o root -g root -m 755 /mnt/bigmouth-workspace
+fi
+sudo install -o root -g root -m 755 "$src/aether-backup" "$src/aether-backup-stage" /usr/local/sbin/
+sudo install -o root -g root -m 644 "$src/aether-backup.service" "$src/aether-backup.timer" "$src/mnt-bigmouth\x2dworkspace.mount" "$src/mnt-bigmouth\x2dworkspace.automount" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now 'mnt-bigmouth\x2dworkspace.automount'
+sudo systemctl enable --now aether-backup.timer
+{{- end }}

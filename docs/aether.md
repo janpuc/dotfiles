@@ -12,13 +12,14 @@ reach Linux unless deliberately added there.
 | `home/.chezmoidata/packages.yaml` → `linux.apt` | ca-certificates, curl, fish, git, python3-yaml and zsh |
 | `home/dot_config/mise/config.toml` | chezmoi, gh, 1Password CLI, starship, atuin, zoxide, eza, bat and difftastic |
 | `home/dot_config/fish/config.fish.tmpl` and fish theme | fish with mise activation and the common shell tools; no AI credential cache or memory hook on Linux |
-| `home/dot_config/fish/functions/ai-sync.fish.tmpl` | Linux: give the server's gh and Pi Pocket their keys from 1Password only; no AI keys fetched or cached |
+| `home/dot_config/fish/functions/ai-sync.fish.tmpl` | Linux: give Pi Pocket and pr-broker their keys from 1Password; leave ubuntu's gh login untouched |
 | `home/dot_config/git/` | gh credential helper, bat pager, difftastic diff, SSH commit signing |
 | `home/dot_config/{starship.toml,atuin,bat,eza}` and `home/dot_editorconfig` | prompt, history, file display and editing basics |
 | `home/.chezmoiscripts/*-linux-*.sh.tmpl` | apt, system helpers, terminfo and mise setup |
 | `home/.system/aether-hosts-sync*` (installed by `05-linux-system`) | hourly: derive internal DNS names from public home-ops into `/etc/hosts`, because the UniFi gateway does not answer DNS from the tailnet |
 | `home/.system/xterm-ghostty.terminfo` (`06-linux-terminfo`) | Ghostty terminfo in `~/.terminfo`, absent from Ubuntu's ncurses |
 | `home/.system/aether-keepalive*` (installed by `05-linux-system`) | hold 25% of RAM without CPU load to avoid Oracle's idle-instance reclamation criteria |
+| `home/.system/aether-backup*`, `mnt-bigmouth\\x2dworkspace.{mount,automount}` (installed by `25-linux-aether-backup`) | online state backup to BigMouth daily at 03:30, 14 calendar days retained |
 | `home/.system/pi-pocket*` (installed by `20-linux-pi-pocket`) | [Pi Pocket](https://github.com/TannerMidd/pi-pocket) at pinned **v0.27.0-beta.7** (`78f547579cc5433a28cdb765524597f5bb07c329`), run by the `pocket` user (no sudo, sees only its own home) as the `pi-pocket` system service on 127.0.0.1:8787; `tailscale serve` publishes it at `https://aether.<tailnet>.ts.net` on the tailnet only. At home the same URL works without Tailscale: a UniFi DNS record (`aether.tail17d532.ts.net` → aether's tailnet address, 100.108.252.49) and bob, the router on the tailnet, carry it. Node comes from pocket's own mise config. `pi-pocket-extensions/memini.ts` gives it memory in memini namespace `homelab/assistant` (home `personal/jan`): a briefing per conversation, recall on each message, and `memory_recall`/`memory_remember` tools; test it with `node --test` on its `memini.test.ts`. `approvals.ts` asks Jan in the app (push notification) before a bash command changes a shared system: git push, GitHub writes, cluster, Flux, Talos or Helm changes, chezmoi apply, Home Assistant service calls (except the lights, scenes and reload services below, which are direct). `web.ts` gives it `web_search` (the home SearXNG at search.janpuc.com) and `web_fetch` (pages as text, with a FlareSolverr fallback). `pi-pocket-skills/` holds Pi skills for the cluster (read-only `view` access, Alertmanager and Prometheus over HTTPS), Home Assistant (`$HA_URL`, `$HA_TOKEN`, and Jan's Home Assistant configuration in `janpuc/home-assistant`) and GitHub (`gh`, signed in with the App's installation token). `ask-jan.ts` asks Jan a question on a card in the session, with the same push as an approval, with tappable answers and an Other field, and passes back his choice or his own words verbatim as owner instructions. pocket's mise config adds gh, kubectl, flux and jq. `pi-pocket-gh-token` (a systemd timer, as `pocket`, every half hour) mints an installation token of the agent's own GitHub App, janpuc-agent (only home-ops, dotfiles, BC250 and home-assistant, with a fallback to the older three until Jan adds the new repository to the installation; no admin or workflow rights; key from op://Kubernetes/janpuc-agent), and writes it into gh's own config for `pocket`, because a running service cannot see new environment values; git over HTTPS reads it through the `mise exec -- gh auth git-credential` helper. For dev work pocket commits as `janpuc-agent[bot]` (never as `bot-atlas[bot]`, the Renovate and kritika App, or Renovate takes the branch for its own), signed locally with its own key (`~pocket/.ssh/signing`, on GitHub as "pi-pocket (aether)"), but publishes only through `agent-push` for GitHub-verified App commits (see the PR shepherd below); home-ops, dotfiles, BC250 and home-assistant are cloned into `~pocket/work/` (the last one skipped, without failing, while the repository or the App installation does not have it yet) and trusted by mise, and new sessions start in `~pocket/scratch` |
 
 No user-level systemd services, AI dot-directories or `~/.local/bin` launchers are allowlisted.
@@ -57,8 +58,169 @@ Never in this public repository:
   an upgrade. Pi Durable 1.4 rewrites `pocket.sqlite` the first time it opens it, and older
   servers cannot read it again, so this archive is the way back.
 
-Run `fish -c ai-sync` manually when GitHub authentication needs refreshing. Linux no longer
-fetches or sources `~/.local/state/ai/credentials.fish`.
+Run `fish -c ai-sync` manually to refresh the Apps' credentials and Pi Pocket's model keys.
+It no longer reads `op://Kubernetes/aether/GH_TOKEN` or attempts `gh auth login` for ubuntu.
+Read-only inspection during backup preparation confirmed ubuntu's `gh auth status` still
+reports an invalid stored token for **janpuc** in `/home/ubuntu/.config/gh/hosts.yml`, and Git
+still uses `gh auth git-credential`. This change neither replaces nor removes that login.
+Linux no longer fetches or sources `~/.local/state/ai/credentials.fish`.
+
+## State backup to BigMouth
+
+`25-linux-aether-backup` installs `nfs-common` if needed, the `nas-workspace` group at
+**gid 3100**, a dedicated system user `aether-backup` (primary group `nas-workspace`,
+no login, no home, no supplementary groups), two system scripts and systemd units.
+The timer runs daily at **03:30 aether local time**, with `Persistent=true` to catch up
+missed runs. The service runs as **root**, with `SupplementaryGroups=nas-workspace`,
+only to read the private Pocket/broker files and stage them locally. No service is stopped.
+
+The mount is `192.168.69.15:/mnt/Vault/Workspace` at `/mnt/bigmouth-workspace`, NFS **4.1**
+over TCP, `soft,timeo=50,retrans=2,nosuid,nodev,noexec`, 45-second mount timeout, and a
+five-minute idle unmount. `timeo=50` is five seconds; soft NFS errors fail the backup rather
+than intentionally hanging forever. The overall service timeout is two hours. The
+service requires the automount; ordinary boots do not require a reachable NAS.
+The IP is deliberate: during preparation `bigmouth.internal` was **not** in aether's
+`/etc/hosts` despite the expected hosts-sync pin. Read-only portmapper and NFSv4 NULL
+calls succeeded from aether, and mountd EXPORT listed `/mnt/Vault/Workspace` restricted
+to `192.168.69.0/24`. Bob's LAN SNAT provides reachability. Nothing was mounted to test it.
+
+### Inputs and layout
+
+Each successful run publishes `/mnt/bigmouth-workspace/aether/state/YYYY-MM-DD/`:
+
+| Backup subdirectory | Source and consistency |
+|---|---|
+| `pi-pocket/` | `/home/pocket/.pi-pocket`: `pocket.sqlite` through Python's SQLite online backup API (committed WAL transactions included, standalone output DB, `quick_check` checked), plus config.json, push.json, launcher.json, provider-limits.json, uploads, extensions, background, themes and other ordinary data files |
+| `upstream-sync/` | `/home/pocket/.local/state/upstream-sync`, including `last-sha` |
+| `pr-broker/` | `/var/lib/pr-broker/{processed-requests,merge-attempts,hostile-report,result-cursor}.json`, while holding the broker's shared `merge.lock`; absent not-yet-created JSON files are omitted |
+| `archive/` | `/home/pocket/archive`, including pre-upgrade tarballs |
+
+The SQLite backup is transaction-consistent without stopping Pocket. Other Pocket files
+are live, per-file copies, **not** an atomic cross-file/application snapshot; an upload or
+config change concurrent with backup may belong to a slightly different instant. Symlinks
+(including extension dependency links), devices, sockets and lock files are not copied.
+Missing required source directories or the broker's initialized `merge.lock` fail the
+run (on a fresh host, let the broker initialize once first). Credential directories are not inputs:
+`/home/pocket/.config/pi-pocket/secrets.env`, `github-app.pem`, gh's hosts.yml,
+`/etc/pr-broker/*.pem`, the 1Password token and kubeconfig remain out. There are also
+explicit recursive exclusions for `secrets.env`, `github-app.pem`, `github-app-client-id`,
+`hosts.yml`, `*.pem`, `*.key`, `*.env`, `gh`, `.config`, `.cache`, `.local`, SQLite sidecars
+and lock names. Broker gh/token caches are never staged. Upgrade archives are copied as
+opaque archives of `.pi-pocket`, not unpacked or secret-scrubbed: do not put external
+credential files into that data directory or its archives. Config/push files contain
+application sign-in/push material by design; treat the backup as private.
+
+The local stage is a fresh **0700** directory in `/var/lib/aether-backup`, with files
+0600. After staging, root changes its ownership to `aether-backup:nas-workspace` and
+runs the NAS rsync/publish/retention step **as that dedicated user**, not root and not
+ubuntu or pocket. Root is squashed on this export; simply adding group 3100 to root is
+not a reliable writer identity. The nonzero dedicated uid with primary gid 3100 can
+use the Workspace root's supplied 1000:3100 mode 770/inheriting ACL, and owns all newly
+created backup directories (0700) and files (0600), so it can replace and prune its own
+snapshots without relying on ownership preservation over NFS. Neither pocket nor the
+broker gains NAS access. `/var/lib/aether-backup` is root-owned 0711 to let the writer
+traverse to its private randomly named stage, which is removed on normal success/failure.
+A hard kill/power loss can leave a private stage or hidden NAS partial tree for operator
+inspection/cleanup; these are not successful dated snapshots.
+
+Rsync first writes a hidden temporary tree; only a successful transfer is renamed to the
+date. A same-day rerun replaces that day's tree (a previous tree is preserved if rsync
+fails). Publishing a rerun uses two renames, not an atomic directory exchange: a power
+loss between them can leave the previous success in a hidden `.previous` directory.
+Only after publishing are strictly named date directories older than **today minus 13
+days** pruned; unrelated and hidden directories and old pre-rebuild backups are untouched.
+TrueNAS ZFS snapshots provide long-term history. Every failure exits nonzero to systemd;
+progress and errors go to the journal. No automatic retry/notification is installed.
+
+No node_exporter service, process or textfile collector was found during preparation.
+Nothing is installed for metrics. If a running `node_exporter`/`prometheus-node-exporter`
+later has an explicit `--collector.textfile.directory` pointing at an existing directory,
+a successful run atomically writes `aether-backup.prom` there, containing
+`aether_backup_last_success_timestamp_seconds`. Failures do not advance it; a stopped
+exporter or unconfigured collector gets no file. The journal is the current check.
+
+### Applying and the first run (operator only)
+
+These changes are prepared, **not applied**. After separate review and approved transfer
+into aether's trusted chezmoi source, as ubuntu:
+
+1. Confirm the NAS prerequisite: the existing `Workspace/aether/` must allow gid 3100 to
+   traverse and create `state/` (or pre-create `state/` with an appropriate ACL). Read-only
+   RPC proves reachability/export restriction, **not** this directory's ACL. The installer
+   and backup never chmod/chown old NAS data. Entries owned 1000:1000 mode 755 cannot be
+   deleted by this writer; do not repurpose those old trees. If the first mkdir fails,
+   have the NAS administrator grant access to this new subtree, not make the dataset public.
+2. Run `chezmoi diff`, review, then `chezmoi apply` on aether. Do not execute a Mac-rendered
+   installer. This enables the automount and persistent timer (a catch-up run may occur).
+3. Inspect identity/units, then explicitly run the first backup:
+   ```sh
+   id aether-backup                         # primary gid 3100, no sudo
+   getent group nas-workspace
+   sudo systemctl cat aether-backup.service aether-backup.timer
+   sudo systemctl start aether-backup.service
+   sudo systemctl status aether-backup.service --no-pager
+   sudo journalctl -u aether-backup.service -n 100 --no-pager
+   systemctl list-timers aether-backup.timer
+   findmnt /mnt/bigmouth-workspace
+   sudo -u aether-backup ls -l /mnt/bigmouth-workspace/aether/state/
+   ```
+   Confirm a dated tree exists, no hidden failed transfer, and the success journal line.
+   As the writer, inspect ownership/modes and use Python SQLite `PRAGMA integrity_check`
+   on a **local scratch copy** of the dated DB, not the NFS DB. List the expected four
+   subdirectories and verify credential names/lock files are absent. Do not print config
+   contents or tokens into logs. Check the automount idles after five minutes without use.
+
+### Restore (operator only)
+
+Use the matching Pocket release for the backup's database schema. Do not open a current
+DB with a pre-migration binary. First copy the chosen date **as the NAS writer** into a
+private local restore directory; root cannot traverse the writer's 0700 NAS trees after
+root squash. For example (substitute the date, use a new empty local directory):
+
+```sh
+sudo install -d -o aether-backup -g nas-workspace -m 700 /var/lib/aether-backup/restore-YYYY-MM-DD
+sudo -u aether-backup rsync -rpt /mnt/bigmouth-workspace/aether/state/YYYY-MM-DD/ /var/lib/aether-backup/restore-YYYY-MM-DD/
+# Take the local restore tree back out of the writer's control before root uses it.
+sudo chown -R root:root /var/lib/aether-backup/restore-YYYY-MM-DD
+```
+
+For **Pi Pocket**, stop the service; preserve its current data separately, then restore
+the standalone `pocket.sqlite` and other files together. Never retain current WAL/SHM
+beside an older DB. With Pocket stopped:
+
+```sh
+sudo systemctl stop pi-pocket.service
+sudo -u pocket mv /home/pocket/.pi-pocket /home/pocket/.pi-pocket-before-restore
+sudo install -d -o pocket -g pocket -m 700 /home/pocket/.pi-pocket
+sudo rsync -rpt --chown=pocket:pocket /var/lib/aether-backup/restore-YYYY-MM-DD/pi-pocket/ /home/pocket/.pi-pocket/
+sudo rsync -rpt --chown=pocket:pocket /var/lib/aether-backup/restore-YYYY-MM-DD/upstream-sync/ /home/pocket/.local/state/upstream-sync/
+sudo rsync -rpt --chown=pocket:pocket /var/lib/aether-backup/restore-YYYY-MM-DD/archive/ /home/pocket/archive/
+sudo systemctl start pi-pocket.service
+sudo journalctl -u pi-pocket.service -n 100 --no-pager
+```
+
+Choose a unique preservation path if `before-restore` exists. Check the app, sessions,
+uploads and extensions. Dependency symlinks are intentionally absent; recreate them
+through the matching Pocket setup if needed. On a rebuilt host, first provision the
+matching release/users, then restore, and run `fish -c ai-sync` to fetch the external
+secrets again (it restarts Pocket). A full rebuild also needs its kubeconfig separately.
+
+For **the broker**, stop **both** timers and running services before touching state:
+
+```sh
+sudo systemctl stop pr-broker.timer pr-lane-merge.timer
+sudo systemctl stop pr-broker.service pr-lane-merge.service
+# Preserve /var/lib/pr-broker locally first. Restore the four JSON state files only:
+sudo rsync -rpt --chown=pr-broker:pr-broker /var/lib/aether-backup/restore-YYYY-MM-DD/pr-broker/ /var/lib/pr-broker/
+```
+
+Do not restore `merge.lock`, token caches, merger keys or root-owned opt-in switches from
+NAS. Restore credentials with `ai-sync` if rebuilding. An old ledger/quota/cursor can
+forget work performed after the backup: **reconcile outstanding/processed requests and
+recent merge attempts before re-enabling either timer**. Retain/disable the existing
+root-owned merge switches as appropriate during recovery; the backup never changes them.
+After reconciliation, `sudo systemctl start pr-broker.timer pr-lane-merge.timer`, then
+inspect both journals. Keep the preserved pre-restore state until recovery is accepted.
 
 ## Upgrading Pi Pocket
 

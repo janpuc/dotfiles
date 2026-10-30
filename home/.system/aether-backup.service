@@ -1,0 +1,13 @@
+[Unit]
+Description=Back up aether's agent state to BigMouth
+Wants=network-online.target
+After=network-online.target tailscaled.service mnt-bigmouth\x2dworkspace.automount
+Requires=mnt-bigmouth\x2dworkspace.automount
+
+[Service]
+Type=oneshot
+User=root
+SupplementaryGroups=nas-workspace
+ExecStart=/usr/local/sbin/aether-backup
+TimeoutStartSec=2h
+UMask=0077

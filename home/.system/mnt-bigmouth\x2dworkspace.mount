@@ -1,0 +1,11 @@
+[Unit]
+Description=BigMouth Workspace for aether state backups
+Wants=network-online.target
+After=network-online.target tailscaled.service
+
+[Mount]
+What=192.168.69.15:/mnt/Vault/Workspace
+Where=/mnt/bigmouth-workspace
+Type=nfs
+Options=vers=4.1,proto=tcp,soft,timeo=50,retrans=2,nosuid,nodev,noexec
+TimeoutSec=45

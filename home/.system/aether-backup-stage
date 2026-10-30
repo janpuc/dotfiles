@@ -1,0 +1,121 @@
+#!/usr/bin/python3
+"""Stage only aether's irreplaceable state; never follow links or copy credentials."""
+from contextlib import closing
+import fcntl
+import os
+from pathlib import Path
+import shutil
+import sqlite3
+import stat
+import sys
+
+# Also applied inside uploads/extensions/archive: credentials are never backup inputs.
+EXCLUDED = {"secrets.env", "github-app.pem", "github-app-client-id", "hosts.yml",
+            "gh", ".config", ".cache", ".local"}
+
+
+def excluded(name):
+    return (name in EXCLUDED or name.endswith((".pem", ".key", ".env", "-wal", "-shm"))
+            or ".lock" in name)
+
+
+def copy_tree(source, destination):
+    """Copy ordinary data only, with private modes, not owners, links or devices."""
+    destination.mkdir(mode=0o700)
+    # Directory descriptors and O_NOFOLLOW keep root's reads inside the selected tree.
+    def copy_dir(source_fd, target):
+        for name in os.listdir(source_fd):
+            if excluded(name):
+                continue
+            info = os.stat(name, dir_fd=source_fd, follow_symlinks=False)
+            if stat.S_ISDIR(info.st_mode):
+                fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=source_fd)
+                try:
+                    child = target / name
+                    child.mkdir(mode=0o700)
+                    copy_dir(fd, child)
+                finally:
+                    os.close(fd)
+            elif stat.S_ISREG(info.st_mode):
+                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=source_fd)
+                with os.fdopen(fd, "rb") as src:
+                    if not stat.S_ISREG(os.fstat(src.fileno()).st_mode):
+                        raise RuntimeError(f"not a regular file: {name}")
+                    with (target / name).open("xb") as dst:
+                        shutil.copyfileobj(src, dst)
+    fd = os.open(source, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        copy_dir(fd, destination)
+    finally:
+        os.close(fd)
+
+
+def stage(root, destination):
+    os.umask(0o077)
+    destination.mkdir(mode=0o700, exist_ok=True)
+    if any(destination.iterdir()):
+        raise RuntimeError("staging directory must be empty")
+    pocket = root / "home/pocket/.pi-pocket"
+    # Do NOT copy the live DB or its WAL/SHM. SQLite's backup API includes committed WAL
+    # transactions without stopping Pocket. Other files are individually live copies.
+    data = destination / "pi-pocket"
+    data.mkdir(mode=0o700)
+    database = pocket / "pocket.sqlite"
+    if not stat.S_ISREG(database.lstat().st_mode):
+        raise RuntimeError("pocket.sqlite must be a regular file")
+    with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=60)) as source:
+        with closing(sqlite3.connect(data / "pocket.sqlite")) as target:
+            source.backup(target, pages=256, sleep=0.1)
+            # The copied header can inherit WAL mode. Publish a standalone DB instead.
+            if target.execute("PRAGMA journal_mode=DELETE").fetchone() != ("delete",):
+                raise RuntimeError("snapshot could not leave WAL mode")
+            if target.execute("PRAGMA quick_check").fetchone() != ("ok",):
+                raise RuntimeError("SQLite quick_check failed")
+    # Some SQLite builds retain an empty WAL index after leaving WAL mode. Both DB
+    # connections are closed and DELETE mode is confirmed; never publish sidecars.
+    for suffix in ("-wal", "-shm"):
+        (data / ("pocket.sqlite" + suffix)).unlink(missing_ok=True)
+    # Copy every other Pocket data item, including future data directories, but no locks,
+    # database sidecars, symlinks or the explicitly excluded credential names.
+    for item in pocket.iterdir():
+        if item.name == "pocket.sqlite" or excluded(item.name) or item.is_symlink():
+            continue
+        if item.is_dir():
+            copy_tree(item, data / item.name)
+        elif item.is_file():
+            fd = os.open(item, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(fd, "rb") as src, (data / item.name).open("xb") as dst:
+                if not stat.S_ISREG(os.fstat(src.fileno()).st_mode):
+                    raise RuntimeError(f"not a regular file: {item}")
+                shutil.copyfileobj(src, dst)
+    copy_tree(root / "home/pocket/.local/state/upstream-sync", destination / "upstream-sync")
+    copy_tree(root / "home/pocket/archive", destination / "archive")
+    broker = root / "var/lib/pr-broker"
+    if not broker.is_dir() or broker.is_symlink():
+        raise RuntimeError("broker state directory is missing or symlinked")
+    # The two broker runners share this lock. Hold it only for the tiny JSON copies,
+    # not the DB snapshot, archive copy or NAS transfer. Never back up gh's token cache.
+    lock = broker / "merge.lock"
+    lock_fd = os.open(lock, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        if not stat.S_ISREG(os.fstat(lock_fd).st_mode):
+            raise RuntimeError("broker lock must be a regular file")
+        fcntl.flock(lock_fd, fcntl.LOCK_SH)
+        state = destination / "pr-broker"
+        state.mkdir(mode=0o700)
+        for name in ("processed-requests.json", "merge-attempts.json", "hostile-report.json", "result-cursor.json"):
+            item = broker / name
+            if item.exists():
+                fd = os.open(item, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                with os.fdopen(fd, "rb") as src, (state / name).open("xb") as dst:
+                    if not stat.S_ISREG(os.fstat(src.fileno()).st_mode):
+                        raise RuntimeError(f"not a regular file: {item}")
+                    shutil.copyfileobj(src, dst)
+    finally:
+        os.close(lock_fd)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        sys.exit("usage: aether-backup-stage SOURCE_ROOT EMPTY_STAGING_DIRECTORY")
+    stage(Path(sys.argv[1]).absolute(), Path(sys.argv[2]).absolute())

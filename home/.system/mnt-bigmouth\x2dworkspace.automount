@@ -1,0 +1,9 @@
+[Unit]
+Description=Automount BigMouth Workspace on demand
+
+[Automount]
+Where=/mnt/bigmouth-workspace
+TimeoutIdleSec=5min
+
+[Install]
+WantedBy=multi-user.target

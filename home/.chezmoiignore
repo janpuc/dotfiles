@@ -13,6 +13,7 @@
 !.chezmoiscripts/*-linux-terminfo.sh
 !.chezmoiscripts/*-linux-mise.sh
 !.chezmoiscripts/*-linux-pi-pocket.sh
+!.chezmoiscripts/*-linux-aether-backup.sh
 !.config
 !.config/git
 !.config/git/**
