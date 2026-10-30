@@ -49,5 +49,6 @@
 .pi/security
 .pi/security/**
 .config/fish/functions/pi-sec.fish
+.config/fish/completions/pi-sec.fish
 {{- end }}
 {{- end }}

@@ -3,6 +3,10 @@
     "MEMINI_BASE_URL": "https://memini.janpuc.com",
     "MEMINI_HOME": "personal/jan"
   },
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
   "model": "opus",
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": true,
@@ -21,14 +25,23 @@
   "effortLevel": "xhigh",
   "modelSettings": {
     "claude-opus-5-5": {
-      "effortLevel": "xhigh"
+      "effortLevel": "high"
     }
   },
+  "skipWorkflowUsageWarning": true,
   "theme": "dark",
   "agentPushNotifEnabled": true,
-  "skipWorkflowUsageWarning": true,
-  "attribution": {
-    "commit": "",
-    "pr": ""
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh -c 'rex __internal session-start --agent claude 2>/dev/null || true'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
   }
 }

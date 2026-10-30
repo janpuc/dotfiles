@@ -28,7 +28,9 @@ EOF
 sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on    # Enable "Firewall"
 sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setallowsigned on    # Enable "Automatically allow built-in software to receive incoming connections"
 sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setallowsignedapp on # Enable "Automatically allow downloaded signed software to receive incoming connections"
+{{- if ne .hostname "sisyphus" }}
 sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode on    # "Enable stealth mode"
+{{- end }}
 
 ## General
 
@@ -159,8 +161,11 @@ sudo nvram StartupMute=%01 # Disable "Play sound on startup"
 
 ## Lock Screen (x-apple.systempreferences:com.apple.Lock-Screen-Settings)
 sudo pmset -a proximitywake 1 autorestart 1 lidwake 1 # All
+{{- /* sisyphus is the always-on model server: mac-models keeps it awake on AC and answering pings. */}}
+{{- if ne .hostname "sisyphus" }}
 sudo pmset -b displaysleep 5 disksleep 5 sleep 10     # Battery
 sudo pmset -c displaysleep 30 disksleep 30 sleep 60   # Charger (wall power)
+{{- end }}
 
 ## Privacy & Security (x-apple.systempreferences:com.apple.preference.security)
 
