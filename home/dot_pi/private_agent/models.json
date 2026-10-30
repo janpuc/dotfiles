@@ -41,21 +41,21 @@
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         },
         {
-          "id": "m3pro/qwen3.6-35b-a3b",
-          "name": "Qwen3.6 35B A3B Heretic (M3 Pro, MiniMax M3 when down)",
+          "id": "m3pro/huihui-qwen3.8-27b",
+          "name": "Huihui Qwen3.8 27B abliterated, vision (M3 Pro, MiniMax M3 when down)",
           "reasoning": false,
-          "input": ["text"],
-          "contextWindow": 131072,
-          "maxTokens": 16384,
+          "input": ["text", "image"],
+          "contextWindow": 32768,
+          "maxTokens": 4096,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         },
         {
-          "id": "m3pro-local/qwen3.6-35b-a3b",
-          "name": "Qwen3.6 35B A3B Heretic (M3 Pro, local only)",
+          "id": "m3pro-local/huihui-qwen3.8-27b",
+          "name": "Huihui Qwen3.8 27B abliterated, vision (M3 Pro, local only)",
           "reasoning": false,
-          "input": ["text"],
-          "contextWindow": 131072,
-          "maxTokens": 16384,
+          "input": ["text", "image"],
+          "contextWindow": 32768,
+          "maxTokens": 4096,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         }
       ]

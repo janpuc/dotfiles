@@ -19,6 +19,7 @@
     "workflow-scripts"
   ],
   "missions": { "enabled": false },
+  "timeoutMs": 7200000,
   "maxSubagentDepth": 1,
   "maxActiveAsyncRunsPerSession": 2,
   "globalConcurrencyLimit": 2,

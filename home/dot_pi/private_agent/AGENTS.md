@@ -55,7 +55,7 @@ week unless nothing else fits.
 | ChatGPT Plus | Sol uses the fewest tokens: a 1-2 minute task took about 0.15% of the week, an 18-minute worker 1% (and 2% of the 5-hour window) | `openai/gpt-6.1-sol`; `openai/gpt-6-astra` (advisor only) |
 | Claude Max | largest, but it is your own quota | `claude-bridge/claude-sonnet-5-5` only when Jan asks; `claude-bridge/claude-fable-5-1` only when Jan names Fable; never Opus |
 | BC250, local | free, loud | `litellm/bc250/qwen3.6-35b-a3b` (MiniMax M3 when the board is off); `litellm/bc250-local/qwen3.6-35b-a3b` (board only). 128K context. Only 23:00-07:00 Europe/Warsaw unless Jan asks for it; a guard blocks it otherwise |
-| M3 Pro, local | free, always on, one request at a time | `litellm/m3pro/qwen3.6-35b-a3b` (MiniMax M3 when the box is down); `litellm/m3pro-local/qwen3.6-35b-a3b` (box only, for infrastructure findings and private material). 128K context, thinking off (no `:thinking` suffix). Small worker tasks: file reads, bash, edits. Run one agent on it at a time |
+| M3 Pro, local | free, always on, slow, one request at a time | `litellm/m3pro/huihui-qwen3.8-27b` (MiniMax M3 when the box is down); `litellm/m3pro-local/huihui-qwen3.8-27b` (box only, for infrastructure findings and private material). Huihui Qwen3.8-27B abliterated: uncensored, reads images, about 9 tok/s writing and 70 tok/s reading prompts. 32K context, thinking off (no `:thinking` suffix). Picked for chat and images; its tool calling is untested, so check worker results. The box also generates images on request (`m3pro/lustify-v2`, `m3pro/noobai-xl-1.1`), which unloads the LLM: the next request waits about 10 s. Run one agent on it at a time |
 
 ### Start at the lowest level that fits
 
