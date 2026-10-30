@@ -16,11 +16,11 @@ set -gx MANROFFOPT "-c"
 set -gx MANPAGER "sh -c 'col -bx | bat -l man -p'"
 set -gx PAGER bat
 {{- if eq .chezmoi.os "darwin" }}
-set -gx SSH_AUTH_SOCK "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+set -gx SSH_AUTH_SOCK "$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 {{- end }}
 set -gx VISUAL nano
 {{- if eq .chezmoi.os "darwin" }}
-set -gx SAML2AWS_CONFIGFILE "~/.aws/saml2aws/config"
+set -gx SAML2AWS_CONFIGFILE "$HOME/.aws/saml2aws/config"
 {{- end }}
 {{- if eq .chezmoi.os "darwin" }}
 
