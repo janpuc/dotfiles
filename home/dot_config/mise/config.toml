@@ -12,3 +12,8 @@ zoxide = "latest"
 eza = "latest"
 bat = "latest"
 difftastic = "latest"
+
+# Pi, set up as on the laptop (~/.pi/agent, the pi function, ai-sync's cache). Pi Pocket runs its
+# own Pi as the pocket user, from that user's mise config.
+node = "lts"
+"npm:@earendil-works/pi-coding-agent" = "latest"

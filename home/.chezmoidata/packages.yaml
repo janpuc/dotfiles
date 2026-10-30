@@ -140,5 +140,6 @@ packages:
       - curl
       - fish
       - git
+      - jq            # Pi's modify_settings.json, which runs during apply
       - python3-yaml  # aether-hosts-sync
       - zsh
