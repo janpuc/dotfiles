@@ -9,13 +9,15 @@ reach Linux unless deliberately added there.
 
 | Source | Purpose |
 |---|---|
-| `home/.chezmoidata/packages.yaml` → `linux.apt` | ca-certificates, curl, fish, git, python3-yaml and zsh |
-| `home/dot_config/mise/config.toml` | chezmoi, gh, 1Password CLI, starship, atuin, zoxide, eza, bat and difftastic |
-| `home/dot_config/fish/config.fish.tmpl` and fish theme | fish with mise activation and the common shell tools; no AI credential cache or memory hook on Linux |
-| `home/dot_config/fish/functions/ai-sync.fish.tmpl` | Linux: give Pi Pocket and pr-broker their keys from 1Password; leave ubuntu's gh login untouched |
+| `home/.chezmoidata/packages.yaml` → `linux.apt` | ca-certificates, curl, fish, git, jq (Pi's settings script), python3-yaml and zsh |
+| `home/dot_config/mise/config.toml` | chezmoi, gh, 1Password CLI, starship, atuin, zoxide, eza, bat, difftastic, node and Pi |
+| `home/dot_config/fish/config.fish.tmpl` and fish theme | fish with mise activation and the common shell tools, the AI endpoints, ai-sync's credential cache and the memini namespace hook, as on the Macs |
+| `home/dot_config/fish/functions/ai-sync.fish.tmpl` | through the read-only service account in `~/.config/op/aether.env`: log ubuntu's gh in from `op://Kubernetes/aether/GH_TOKEN`, write the same `~/.local/state/ai/credentials.fish` as the Macs (including the bridge's `claude setup-token`), then give Pi Pocket and pr-broker their keys |
 | `home/dot_config/git/` | gh credential helper, bat pager, difftastic diff, SSH commit signing |
 | `home/dot_config/{starship.toml,atuin,bat,eza}` and `home/dot_editorconfig` | prompt, history, file display and editing basics |
-| `home/.chezmoiscripts/*-linux-*.sh.tmpl` | apt, system helpers, terminfo and mise setup |
+| `home/dot_pi/private_agent/` and `home/dot_config/fish/functions/pi.fish` | ubuntu's Pi, the same as on hermes and sisyphus (pi-sec stays on hermes); Pocket's own Pi is separate, under `pocket` |
+| `home/.chezmoiscripts/*-linux-*.sh.tmpl` | apt, system helpers, terminfo, Rex and mise setup |
+| `home/.system/rex-*` (installed by `07-linux-rex`) | Rex from its apt repository; the packaged login server, plus a listener on the tailnet address port 7297, lets `tailscale:janpuc@github` in as ubuntu. Clients use the bare name `aether.tail17d532.ts.net` (Rex skips Pi Pocket on 443) |
 | `home/.system/aether-hosts-sync*` (installed by `05-linux-system`) | hourly: derive internal DNS names from public home-ops into `/etc/hosts`, because the UniFi gateway does not answer DNS from the tailnet |
 | `home/.system/xterm-ghostty.terminfo` (`06-linux-terminfo`) | Ghostty terminfo in `~/.terminfo`, absent from Ubuntu's ncurses |
 | `home/.system/aether-keepalive*` (installed by `05-linux-system`) | hold 25% of RAM without CPU load to avoid Oracle's idle-instance reclamation criteria |
