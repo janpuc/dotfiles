@@ -26,7 +26,19 @@ set -eufo pipefail
 {{-   $vscode = concat $vscode $hostDarwin.vscode -}}
 {{- end }}
 
+{{- /* A tap named in owner/tap/name must be in the Brewfile, or --force-cleanup tries to untap it. */ -}}
+{{- $taps := list -}}
+{{- range concat $brews $casks -}}
+{{-   $parts := splitList "/" . -}}
+{{-   if eq (len $parts) 3 -}}
+{{-     $taps = append $taps (printf "%s/%s" (index $parts 0) (index $parts 1) | lower) -}}
+{{-   end -}}
+{{- end }}
+
 /opt/homebrew/bin/brew bundle --file=/dev/stdin --force-cleanup <<EOF
+{{ range $taps | uniq -}}
+tap {{ . | quote }}
+{{ end -}}
 {{ range $brews -}}
 brew {{ . | quote }}
 {{ end -}}
