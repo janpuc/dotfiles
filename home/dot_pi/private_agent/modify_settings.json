@@ -32,7 +32,8 @@ managed='{
     "git:github.com/janpuc/pi-footer@v0.1.0",
     "./local/bc250-quiet-hours.ts",
     "./local/pocket.ts",
-    "./local/agent-guard-child.ts"
+    "./local/agent-guard-child.ts",
+    "./local/rex-inspector.ts"
   ],
   "subagents": {
     "machines": {
