@@ -333,6 +333,8 @@ function classify({ pr, files, statuses, checks, comments, entry, rendered, erro
     const lane = waiting.length ? 'wait' : caution.length ? 'C' : automatic.length === 3 ? 'A' : 'B';
     return { pr: pr.number, head: pr.head.sha, lane,
         reasons: [...waiting, ...caution, ...automatic, ...notes, ...(lane === 'B' ? ['otherwise lane B: not all A conditions met'] : [])],
+        // The wait reasons on their own: the broker lets Jan's approval past the advisory ones.
+        waiting: [...waiting],
         facts: { main_sha: comparison.main_sha ?? null, merge_base: comparison.merge_base ?? null, title: pr.title, author: pr.user.login, createdAt: pr.created_at, labels, files,
             update: { type: update.type, error: update.error, rows: update.rows.map(row => ({ package: row.package, type: row.type })) },
             kritika, checks: checks.map(c => ({ name: c.name, status: c.status, conclusion: c.conclusion })),

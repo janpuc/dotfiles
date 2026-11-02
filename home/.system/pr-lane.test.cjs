@@ -98,6 +98,8 @@ test('pr-lane: wait precedes C but reasons name every fired rule', () => {
     f.pr.user.login = 'janpuc'; f.entry.signals.blocking = 1;
     const r = classify(f); assert.equal(r.lane,'wait');
     for (const reason of ['draft', 'talos group', 'author', 'blocking']) assert.ok(r.reasons.some(r => r.includes(reason)));
+    // The wait reasons come on their own as well, without the C ones.
+    assert.ok(r.waiting.includes('draft PR')); assert.ok(!r.waiting.some(w => w.includes('talos group')));
 });
 
 test('pr-lane: zero-resource explicit null namespaces normalized, never missing/null nonzero', () => {

@@ -754,10 +754,15 @@ for each, Jan's newest deciding review (`APPROVED`, `CHANGES_REQUESTED` or
 agent's App or a look-alike login. A PR whose newest decision is an approval
 **of its current head** (`commit_id`), from this repository (not a fork), not a
 draft, is classified afresh and merged pinned to that head, at most five a run.
-Jan's approval is his decision on any lane, C included. Two things still hold
-it back: missing or stale evidence (`wait`: kritika pending, konflate stale)
-and CI that failed on the head (kritika's own status excepted). For those Jan
-gets one PR comment per head: a failed check at once, a wait after an hour.
+Jan's approval is his decision on any lane, C included, and on the advisory
+waits (pr-lane's `waiting` list): no Renovate update table, which every agent
+PR lacks, and a missing, stale or unparseable kritika write-up. Three things
+still hold it back: evidence still coming (pending CI or kritika, konflate not
+ready or stale, a head or main that moved, or any reason the broker does not
+know), CI that failed on the head (kritika's own status excepted), and the
+agent's App having changed the PR or kritika's comment after the fact, which
+Jan cannot see when he approves. For those he gets one PR comment per head:
+a failed check or a change by the agent at once, a wait after an hour.
 A push after the approval makes it stale; GitHub shows that, and nothing merges
 until Jan approves the new head. Results are written once per change of
 outcome as `approved-<uuid>.json`; `/var/lib/pr-broker/approved-notes.json`

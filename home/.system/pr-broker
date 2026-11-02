@@ -28,6 +28,15 @@ function latestDecision(reviews) {
     mine.sort((a, b) => a.submitted_at.localeCompare(b.submitted_at) || a.id - b.id);
     return mine.at(-1) ?? null;
 }
+// Waits Jan's approval goes past: they say a Renovate table or kritika's write-up is missing
+// (every agent PR has no update table), not that evidence is still coming. Anything else holds,
+// an unknown reason included.
+const ADVISORY_WAITS = [
+    /^Renovate update type not derivable from PR body: /,
+    /^kritika comment missing or stale for head$/,
+    /^kritika confidence\/risk\/findings unparseable or missing$/,
+    /^kritika (duplicate Findings sections|Findings severity badges missing or unparseable|Findings badge count does not match status findings total|Findings section missing or status findings total unparseable)$/,
+];
 // Jan's approval overrides lane C, not a broken build: CI that failed on the head still blocks.
 function failedChecks(lane) {
     const facts = lane?.facts ?? {};
@@ -187,11 +196,19 @@ async function runBroker(mode = 'requests', options = {}) {
         ? lane.reasons.filter(r => typeof r === 'string').slice(0, 100).map(r => r.slice(0, 1000)) : []);
     async function merge(request, allowed, switchName, { approved = false } = {}) {
         const lane = await classify(request.pr);
-        // For an approval, missing or stale evidence is a wait, and a failed check a refusal.
+        // For an approval: the agent's App changing the PR or kritika's comment, which Jan cannot
+        // see when he approves, refuses; evidence still coming is a wait; failed CI refuses.
         if (approved && lane && lane.pr === request.pr && lane.head === request.head) {
-            if (lane.lane === 'wait') return { ...request, status: 'waiting', lane: 'wait', reasons: laneReasons(lane) };
+            const tampered = laneReasons(lane).filter(r => / by janpuc-agent$/.test(r));
+            if (tampered.length) return { ...request, status: 'refused', lane: lane.lane, reasons: tampered, tell: 'tampered' };
+            if (lane.lane === 'wait') {
+                const holding = Array.isArray(lane.waiting)
+                    ? lane.waiting.filter(r => typeof r !== 'string' || !ADVISORY_WAITS.some(p => p.test(r))).map(String)
+                    : laneReasons(lane);
+                if (holding.length) return { ...request, status: 'waiting', lane: 'wait', reasons: holding.slice(0, 100).map(r => r.slice(0, 1000)) };
+            }
             const failed = failedChecks(lane);
-            if (failed.length) return { ...request, status: 'refused', lane: lane.lane, reasons: failed };
+            if (failed.length) return { ...request, status: 'refused', lane: lane.lane, reasons: failed, tell: 'failed' };
         }
         if (!lane || lane.pr !== request.pr || lane.head !== request.head || !allowed.includes(lane.lane))
             return { ...request, status: 'refused', lane: lane?.lane ?? null,
@@ -255,20 +272,23 @@ async function runBroker(mode = 'requests', options = {}) {
             const key = `${request.pr}@${request.head}`;
             const note = notes[key] = { since: Date.now(), ...(stored[key] ?? {}) };
             let result;
-            try { result = await merge(validateRequest(request), ['A', 'B', 'C'], 'approved.enabled', { approved: true }); }
+            // A wait reaching merge() holds only advisory reasons: merge() returned on the others.
+            try { result = await merge(validateRequest(request), ['A', 'B', 'C', 'wait'], 'approved.enabled', { approved: true }); }
             catch { result = { ...request, status: 'error', reasons: ['classification, authentication, state or merge failed; inspect broker configuration'] }; }
             // One result per change of outcome, not one every five minutes.
             const outcome = `${result.status}:${(result.reasons ?? []).join('|')}`;
             if (note.outcome !== outcome) { writeResult(`approved-${randomUUID()}.json`, result); note.outcome = outcome; }
             // Jan hears once per head why his approval has not merged: a failed check at once,
             // missing evidence after an hour. Never in dry-run, never for a passing rate limit.
-            const failed = result.status === 'refused' && (result.reasons ?? []).some(r => r.startsWith('failed '));
             const stuck = result.status === 'waiting' && Date.now() - note.since > 3600000;
-            if (on && !note.told && (failed || stuck)) {
+            if (on && !note.told && (result.tell || stuck)) {
                 const reasons = (result.reasons ?? []).slice(0, 5).map(r => `- ${r}`).join('\n');
-                const body = failed
-                    ? `Not merged: your approval is for \`${request.head.slice(0, 7)}\`, but CI failed on it:\n${reasons}\n\nRe-run the check, or approve the fixed commit.`
-                    : `Your approval for \`${request.head.slice(0, 7)}\` has waited an hour for:\n${reasons}\n\nIt merges by itself once that is ready.`;
+                const sha = `\`${request.head.slice(0, 7)}\``;
+                const body = result.tell === 'failed'
+                    ? `Not merged: your approval is for ${sha}, but CI failed on it:\n${reasons}\n\nRe-run the check, or approve the fixed commit.`
+                    : result.tell === 'tampered'
+                    ? `Not merged: the agent's App changed this PR or kritika's review after the fact:\n${reasons}\n\nCheck the PR's history, and merge it yourself if that is fine.`
+                    : `Your approval for ${sha} has waited an hour for:\n${reasons}\n\nIt merges by itself once that is ready.`;
                 try {
                     await run(o.gh, ['api', '-X', 'POST', `repos/${REPO}/issues/${request.pr}/comments`, '-f', `body=${body}`]);
                     note.told = true;

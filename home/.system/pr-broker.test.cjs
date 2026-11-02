@@ -275,9 +275,10 @@ const jan = { login: 'janpuc', id: 8539508, type: 'User' };
 const review = (id, state, commit_id, user = jan, submitted_at = `2026-11-02T10:0${id}:00Z`) => ({ id, state, commit_id, user, submitted_at });
 const openPr = (number, sha, extra = {}) => ({ number, draft: false, base: { ref: 'main', repo: { full_name: 'janpuc/home-ops' } },
     head: { sha, repo: { full_name: 'janpuc/home-ops' } }, ...extra });
-function approvedFixture(t, { lane = 'C', reviews = [review(1, 'APPROVED', head)], pr = openPr(42, head), facts = {} } = {}) {
+function approvedFixture(t, { lane = 'C', reviews = [review(1, 'APPROVED', head)], pr = openPr(42, head), facts = {},
+    reasons = ['kritika P1 finding'], waiting = lane === 'wait' ? reasons : [] } = {}) {
     const f = fixture(t);
-    f.data.prs = [{ pr: 42, head, lane, reasons: ['kritika P1 finding'], facts: { createdAt: '2026-01-01', ...facts } }];
+    f.data.prs = [{ pr: 42, head, lane, reasons, waiting, facts: { createdAt: '2026-01-01', ...facts } }];
     f.data.api = { 'repos/janpuc/home-ops/pulls?state=open&per_page=100': [pr], 'repos/janpuc/home-ops/pulls/42/reviews?per_page=100': reviews };
     f.save();
     return f;
@@ -368,4 +369,40 @@ test('approved: a failed comment fails the run and is tried again; notes forget 
     f.data.api['repos/janpuc/home-ops/pulls/42/reviews?per_page=100'] = [review(1, 'DISMISSED', head)]; f.save();
     assert.equal(await f.run('approved'), true);
     assert.deepEqual(JSON.parse(fs.readFileSync(join(f.o.state, 'approved-notes.json'), 'utf8')), {});
+});
+
+test('approved: an agent PR waits only on advisory reasons, so Jan\'s approval merges it', async t => {
+    const noTable = 'Renovate update type not derivable from PR body: no update table before the release notes in PR body';
+    const f = approvedFixture(t, { lane: 'wait', waiting: [noTable, 'kritika comment missing or stale for head'],
+        reasons: [noTable, 'kritika comment missing or stale for head', 'author is not bot-atlas', 'kritika P1 finding'] });
+    f.enable('approved');
+    assert.equal(await f.run('approved'), true);
+    assert.equal(merges(f).length, 1);
+    assert.equal(f.results()[0].status, 'merged');
+});
+
+test('approved: evidence still coming holds, and an old pr-lane without its wait list holds everything', async t => {
+    const pending = approvedFixture(t, { lane: 'wait', waiting: ['check or status pending', 'Renovate update type not derivable from PR body: x'],
+        reasons: ['check or status pending', 'Renovate update type not derivable from PR body: x'] });
+    pending.enable('approved');
+    assert.equal(await pending.run('approved'), true);
+    assert.deepEqual(merges(pending), []);
+    assert.deepEqual(pending.results()[0].reasons, ['check or status pending']);
+    const old = approvedFixture(t, { lane: 'wait', reasons: ['Renovate update type not derivable from PR body: x'] });
+    delete old.data.prs[0].waiting; old.save();
+    old.enable('approved');
+    assert.equal(await old.run('approved'), true);
+    assert.deepEqual(merges(old), []);
+    assert.equal(old.results()[0].status, 'waiting');
+});
+
+test('approved: the agent changing the PR or kritika\'s comment refuses, and Jan is told once', async t => {
+    const f = approvedFixture(t, { reasons: ['kritika comment edited by janpuc-agent', 'kritika P1 finding'] });
+    f.enable('approved');
+    assert.equal(await f.run('approved'), true);
+    assert.equal(await f.run('approved'), true);
+    assert.deepEqual(merges(f), []);
+    assert.equal(f.results()[0].status, 'refused');
+    assert.equal(comments(f).length, 1);
+    assert.match(comments(f)[0].args.at(-1), /^body=Not merged: the agent's App changed this PR or kritika's review after the fact:\n- kritika comment edited by janpuc-agent/);
 });
