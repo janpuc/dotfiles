@@ -17,6 +17,27 @@ const RESULT_LIMIT = 1000;
 const defaults = { gh: '/opt/pr-broker/bin/gh', node: '/opt/pr-broker/bin/node',
     lane: '/usr/local/sbin/pr-lane', config: '/etc/pr-broker', state: '/var/lib/pr-broker',
     spool: '/var/spool/pr-broker' };
+// Jan's own account, by login and numeric id: the only review that merges in the approved mode.
+// Bots, the agent's App and a look-alike login never count.
+const APPROVER = { login: 'janpuc', id: 8539508 };
+// Jan's newest deciding review: an approval, a change request, or a dismissed review.
+function latestDecision(reviews) {
+    const mine = reviews.filter(r => r && r.user?.login === APPROVER.login && r.user?.id === APPROVER.id &&
+        r.user?.type === 'User' && ['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(r.state) &&
+        typeof r.submitted_at === 'string' && Number.isSafeInteger(r.id));
+    mine.sort((a, b) => a.submitted_at.localeCompare(b.submitted_at) || a.id - b.id);
+    return mine.at(-1) ?? null;
+}
+// Jan's approval overrides lane C, not a broken build: CI that failed on the head still blocks.
+function failedChecks(lane) {
+    const facts = lane?.facts ?? {};
+    return [
+        ...(Array.isArray(facts.checks) ? facts.checks : []).filter(c => c?.status === 'completed' &&
+            !['success', 'skipped', 'neutral'].includes(c.conclusion)).map(c => `failed check: ${c.name} (${c.conclusion})`),
+        ...(Array.isArray(facts.statuses) ? facts.statuses : []).filter(s => s?.context !== 'Kritika / Review' &&
+            ['error', 'failure'].includes(s?.state)).map(s => `failed status: ${s.context} (${s.state})`),
+    ].map(r => String(r).slice(0, 1000));
+}
 function validateRequest(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value) ||
         Object.keys(value).sort().join(',') !== 'head,pr' ||
@@ -162,12 +183,19 @@ async function runBroker(mode = 'requests', options = {}) {
         if (log) console.log(JSON.stringify({ result: file, ...result }));
         return result;
     }
-    async function merge(request, allowed, switchName) {
+    const laneReasons = lane => (Array.isArray(lane?.reasons)
+        ? lane.reasons.filter(r => typeof r === 'string').slice(0, 100).map(r => r.slice(0, 1000)) : []);
+    async function merge(request, allowed, switchName, { approved = false } = {}) {
         const lane = await classify(request.pr);
+        // For an approval, missing or stale evidence is a wait, and a failed check a refusal.
+        if (approved && lane && lane.pr === request.pr && lane.head === request.head) {
+            if (lane.lane === 'wait') return { ...request, status: 'waiting', lane: 'wait', reasons: laneReasons(lane) };
+            const failed = failedChecks(lane);
+            if (failed.length) return { ...request, status: 'refused', lane: lane.lane, reasons: failed };
+        }
         if (!lane || lane.pr !== request.pr || lane.head !== request.head || !allowed.includes(lane.lane))
             return { ...request, status: 'refused', lane: lane?.lane ?? null,
-                reasons: ['lane/head does not match permitted request', ...(Array.isArray(lane?.reasons)
-                    ? lane.reasons.filter(r => typeof r === 'string').slice(0, 100).map(r => r.slice(0, 1000)) : [])] };
+                reasons: ['lane/head does not match permitted request', ...laneReasons(lane)] };
         if (!enabled(join(o.config, switchName))) return { ...request, lane: lane.lane, status: 'dry-run', reasons: [`${switchName} absent or not root-controlled`] };
         if (!reserveMerge(o.state, Date.now())) return { ...request, status: 'refused', reasons: ['rate limit: at most 10 merge attempts per rolling hour (shared by both runners)'] };
         // The REST merge with `sha` is pinned server-side (409 if the head moved) and lets GitHub
@@ -196,6 +224,60 @@ async function runBroker(mode = 'requests', options = {}) {
             if (!['merged', 'dry-run'].includes(result.status)) return false;
         }
         return true;
+    }
+    if (mode === 'approved') {
+        // Jan approves a PR in GitHub; the broker merges that exact head. The approval is his
+        // decision on any lane: only missing evidence (wait) and failed CI hold it back.
+        const ghJSON = async path => JSON.parse(await run(o.gh, ['api', path]));
+        const prs = await ghJSON(`repos/${REPO}/pulls?state=open&per_page=100`);
+        if (!Array.isArray(prs)) throw Error('invalid pull list');
+        const approved = [];
+        for (const pr of prs) {
+            const head = pr?.head?.sha;
+            if (!Number.isSafeInteger(pr?.number) || pr.draft !== false || pr.base?.ref !== 'main' ||
+                pr.base?.repo?.full_name !== REPO || pr.head?.repo?.full_name !== REPO ||
+                typeof head !== 'string' || !/^[a-f0-9]{40}$/.test(head)) continue;
+            const reviews = await ghJSON(`repos/${REPO}/pulls/${pr.number}/reviews?per_page=100`);
+            // A full page may hide a newer review on the next one: skip rather than act on it.
+            if (!Array.isArray(reviews) || reviews.length >= 100) continue;
+            const decision = latestDecision(reviews);
+            if (decision?.state === 'APPROVED' && decision.commit_id === head) approved.push({ pr: pr.number, head });
+        }
+        const on = enabled(join(o.config, 'approved.enabled'));
+        console.log(JSON.stringify({ run: 'approved', mode: on ? 'ENABLED' : 'DRY-RUN', approved: approved.length, open: prs.length }));
+        const notesFile = join(o.state, 'approved-notes.json');
+        const stored = readState(notesFile, {}, 'approved notes');
+        if (!stored || typeof stored !== 'object' || Array.isArray(stored)) throw Error('approved notes invalid');
+        // Only approvals still standing are remembered, so the file stays as small as the queue.
+        const notes = {};
+        let ok = true;
+        for (const request of approved.slice(0, 5)) {
+            const key = `${request.pr}@${request.head}`;
+            const note = notes[key] = { since: Date.now(), ...(stored[key] ?? {}) };
+            let result;
+            try { result = await merge(validateRequest(request), ['A', 'B', 'C'], 'approved.enabled', { approved: true }); }
+            catch { result = { ...request, status: 'error', reasons: ['classification, authentication, state or merge failed; inspect broker configuration'] }; }
+            // One result per change of outcome, not one every five minutes.
+            const outcome = `${result.status}:${(result.reasons ?? []).join('|')}`;
+            if (note.outcome !== outcome) { writeResult(`approved-${randomUUID()}.json`, result); note.outcome = outcome; }
+            // Jan hears once per head why his approval has not merged: a failed check at once,
+            // missing evidence after an hour. Never in dry-run, never for a passing rate limit.
+            const failed = result.status === 'refused' && (result.reasons ?? []).some(r => r.startsWith('failed '));
+            const stuck = result.status === 'waiting' && Date.now() - note.since > 3600000;
+            if (on && !note.told && (failed || stuck)) {
+                const reasons = (result.reasons ?? []).slice(0, 5).map(r => `- ${r}`).join('\n');
+                const body = failed
+                    ? `Not merged: your approval is for \`${request.head.slice(0, 7)}\`, but CI failed on it:\n${reasons}\n\nRe-run the check, or approve the fixed commit.`
+                    : `Your approval for \`${request.head.slice(0, 7)}\` has waited an hour for:\n${reasons}\n\nIt merges by itself once that is ready.`;
+                try {
+                    await run(o.gh, ['api', '-X', 'POST', `repos/${REPO}/issues/${request.pr}/comments`, '-f', `body=${body}`]);
+                    note.told = true;
+                } catch { ok = false; }
+            }
+            if (result.status === 'error') ok = false;
+        }
+        atomicJSON(notesFile, notes);
+        return ok;
     }
     if (mode !== 'requests') throw Error('invalid broker mode');
     const requestsDir = join(o.spool, 'requests');
@@ -316,5 +398,5 @@ async function main(mode = 'requests') {
     }
     if (!await runBroker(mode, options)) process.exitCode = 1;
 }
-module.exports = { assertTrusted, publishJSON, reserveRequest, validateRequest, readRequest, enabled, mintToken, reserveMerge, runBroker, main };
+module.exports = { latestDecision, failedChecks, assertTrusted, publishJSON, reserveRequest, validateRequest, readRequest, enabled, mintToken, reserveMerge, runBroker, main };
 if (require.main === module) main().catch(() => { console.error('pr-broker: run failed; check credentials and trusted configuration'); process.exitCode = 1; });

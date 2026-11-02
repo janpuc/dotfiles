@@ -1,0 +1,11 @@
+[Unit]
+Description=Merge the home-ops PRs Jan approved, every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+AccuracySec=10s
+Unit=pr-approved-merge.service
+
+[Install]
+WantedBy=timers.target

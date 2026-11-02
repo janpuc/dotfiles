@@ -20,7 +20,10 @@ console.log(JSON.stringify(a[0]==='--all'?d.prs:{...d.prs.find(p=>p.pr===Number(
     fs.writeFileSync(o.gh, `#!${process.execPath}
 const fs=require('node:fs'),d=JSON.parse(fs.readFileSync(${JSON.stringify(dataFile)},'utf8'));
 fs.appendFileSync(${JSON.stringify(callsFile)},JSON.stringify({tool:'gh',args:process.argv.slice(2),tokenPresent:process.env.GH_TOKEN==='test-token'})+'\\n');
-if(d.fail) process.exit(1);`, { mode: 0o755 });
+if(d.fail) process.exit(1);
+const a=process.argv.slice(2);
+if(d.failComment&&a.includes('POST')) process.exit(1);
+if(a[0]==='api'&&a.length===2&&d.api&&Object.prototype.hasOwnProperty.call(d.api,a[1])) process.stdout.write(JSON.stringify(d.api[a[1]]));`, { mode: 0o755 });
     // Emulate root ownership only for test switches, without needing a root test runner.
     const lstat = fs.lstatSync;
     t.mock.method(fs, 'lstatSync', (file, ...args) => {

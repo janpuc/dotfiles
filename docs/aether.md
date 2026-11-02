@@ -745,11 +745,30 @@ selects oldest first, at most five, reclassifies before each merge and stops
 at the first refusal/error. Both use only:
 `gh api -X PUT repos/janpuc/home-ops/pulls/N/merge -f merge_method=squash -f sha=<sha>` (the REST merge, pinned to the head server-side; `gh pr merge` refuses client-side because every PR shows BLOCKED under the restrict-updates rule, which ignores the merger's bypass).
 
-**Both behaviours are off by default.** These regular, root-owned files
+### Approve to merge
+
+`pr-approved-merge.timer` runs every five minutes, under the same lock (it
+waits up to 120 s), quota and pinned REST merge. It lists the open PRs and,
+for each, Jan's newest deciding review (`APPROVED`, `CHANGES_REQUESTED` or
+`DISMISSED`) by **login `janpuc` and account id 8539508**, never a bot, the
+agent's App or a look-alike login. A PR whose newest decision is an approval
+**of its current head** (`commit_id`), from this repository (not a fork), not a
+draft, is classified afresh and merged pinned to that head, at most five a run.
+Jan's approval is his decision on any lane, C included. Two things still hold
+it back: missing or stale evidence (`wait`: kritika pending, konflate stale)
+and CI that failed on the head (kritika's own status excepted). For those Jan
+gets one PR comment per head: a failed check at once, a wait after an hour.
+A push after the approval makes it stale; GitHub shows that, and nothing merges
+until Jan approves the new head. Results are written once per change of
+outcome as `approved-<uuid>.json`; `/var/lib/pr-broker/approved-notes.json`
+remembers the standing approvals only.
+
+**All three behaviours are off by default.** These regular, root-owned files
 (with no group/world write permission) independently permit real merging:
 
 - `/etc/pr-broker/requests.enabled`
 - `/etc/pr-broker/lane-a.enabled`
+- `/etc/pr-broker/approved.enabled`
 
 The installer **never creates them**. Without one, eligible work produces
 `dry-run` results; malformed/ineligible work is still refused. Removing the
@@ -854,9 +873,9 @@ blindly retrying. `dry-run` and refusals do not consume the merge quota.
 ### Rollback / emergency stop
 
 ```sh
-sudo systemctl disable --now pr-broker.timer pr-lane-merge.timer
-sudo systemctl stop pr-broker.service pr-lane-merge.service
-sudo rm -f /etc/pr-broker/requests.enabled /etc/pr-broker/lane-a.enabled
+sudo systemctl disable --now pr-broker.timer pr-lane-merge.timer pr-approved-merge.timer
+sudo systemctl stop pr-broker.service pr-lane-merge.service pr-approved-merge.service
+sudo rm -f /etc/pr-broker/requests.enabled /etc/pr-broker/lane-a.enabled /etc/pr-broker/approved.enabled
 ```
 
 Keep the GitHub ruleset: Jan/Renovate can still merge, pocket cannot. For a

@@ -251,11 +251,13 @@ test('pr-broker trust check rejects non-root, writable ancestors, and unsafe run
     const { assertTrusted } = require('./pr-broker');
     const stat = (uid = 0, mode = 0o755, link = false) => ({ uid, mode, isSymbolicLink: () => link });
     let unsafe = '/usr/local', bad = stat(1000);
-    t.mock.method(fs, 'lstatSync', path => path === unsafe ? bad : stat());
+    // One mock whose behaviour changes: a second t.mock.method on the same function would be
+    // restored to the first mock, which then leaks into every later test.
+    const lstat = t.mock.method(fs, 'lstatSync', path => path === unsafe ? bad : stat());
     assert.throws(() => assertTrusted(['/usr/local/sbin/pr-broker']), /untrusted/);
     bad = stat(0, 0o775); assert.throws(() => assertTrusted(['/usr/local/sbin/pr-lane']), /untrusted/);
     unsafe = '/opt/pr-broker/releases'; assert.throws(() => assertTrusted(['/opt/pr-broker/releases/node/bin/node']), /untrusted/);
-    t.mock.method(fs, 'lstatSync', path => path === '/opt/pr-broker/bin/node' ? stat(0, 0o777, true) : path === '/home/pocket' ? stat(1000) : stat());
+    lstat.mock.mockImplementation(path => path === '/opt/pr-broker/bin/node' ? stat(0, 0o777, true) : path === '/home/pocket' ? stat(1000) : stat());
     t.mock.method(fs, 'readlinkSync', () => '/home/pocket/node');
     assert.throws(() => assertTrusted(['/opt/pr-broker/bin/node']), /untrusted/);
 });
@@ -265,4 +267,105 @@ test('pr-broker request ledger fails closed at its bounded cap', t => {
     fs.writeFileSync(join(f.o.state, 'processed-requests.json'), JSON.stringify(ids));
     assert.equal(reserveRequest(f.o.state, ids[0]), false);
     assert.throws(() => reserveRequest(f.o.state, `request-${randomUUID()}.json`), /ledger full/);
+});
+
+// Approve-to-merge: Jan approves a PR in GitHub and the broker merges that exact head.
+const { latestDecision } = require('./pr-broker');
+const jan = { login: 'janpuc', id: 8539508, type: 'User' };
+const review = (id, state, commit_id, user = jan, submitted_at = `2026-11-02T10:0${id}:00Z`) => ({ id, state, commit_id, user, submitted_at });
+const openPr = (number, sha, extra = {}) => ({ number, draft: false, base: { ref: 'main', repo: { full_name: 'janpuc/home-ops' } },
+    head: { sha, repo: { full_name: 'janpuc/home-ops' } }, ...extra });
+function approvedFixture(t, { lane = 'C', reviews = [review(1, 'APPROVED', head)], pr = openPr(42, head), facts = {} } = {}) {
+    const f = fixture(t);
+    f.data.prs = [{ pr: 42, head, lane, reasons: ['kritika P1 finding'], facts: { createdAt: '2026-01-01', ...facts } }];
+    f.data.api = { 'repos/janpuc/home-ops/pulls?state=open&per_page=100': [pr], 'repos/janpuc/home-ops/pulls/42/reviews?per_page=100': reviews };
+    f.save();
+    return f;
+}
+const merges = f => f.calls().filter(c => c.tool === 'gh' && c.args.includes('PUT'));
+const comments = f => f.calls().filter(c => c.tool === 'gh' && c.args.includes('POST'));
+
+test('approved: only Jan by login and id, his newest decision, on the current head', () => {
+    const bot = { login: 'janpuc', id: 1, type: 'User' }, app = { login: 'janpuc', id: 8539508, type: 'Bot' };
+    assert.equal(latestDecision([review(1, 'APPROVED', head)])?.state, 'APPROVED');
+    assert.equal(latestDecision([review(1, 'APPROVED', head, bot)]), null);
+    assert.equal(latestDecision([review(1, 'APPROVED', head, app)]), null);
+    assert.equal(latestDecision([review(1, 'APPROVED', head), review(2, 'CHANGES_REQUESTED', head)])?.state, 'CHANGES_REQUESTED');
+    assert.equal(latestDecision([review(1, 'DISMISSED', head)])?.state, 'DISMISSED');
+    assert.equal(latestDecision([review(1, 'APPROVED', head), review(2, 'COMMENTED', head)])?.state, 'APPROVED');
+});
+
+test('approved: Jan\'s approval merges a lane C PR, pinned to the approved head; dry-run without the switch', async t => {
+    const dry = approvedFixture(t);
+    assert.equal(await dry.run('approved'), true);
+    assert.deepEqual(merges(dry), []);
+    assert.equal(dry.results()[0].status, 'dry-run');
+    const f = approvedFixture(t);
+    f.enable('approved');
+    assert.equal(await f.run('approved'), true);
+    assert.deepEqual(merges(f).map(c => c.args), [['api', '-X', 'PUT', 'repos/janpuc/home-ops/pulls/42/merge', '-f', 'merge_method=squash', '-f', `sha=${head}`]]);
+    assert.ok(merges(f)[0].tokenPresent);
+    assert.equal(f.results()[0].status, 'merged');
+    assert.equal(f.results()[0].lane, 'C');
+});
+
+test('approved: no merge for an older commit, a later change request, someone else, a fork, a draft or a full review page', async t => {
+    const other = 'b'.repeat(40);
+    for (const options of [
+        { reviews: [review(1, 'APPROVED', other)] },
+        { reviews: [review(1, 'APPROVED', head), review(2, 'CHANGES_REQUESTED', head)] },
+        { reviews: [review(1, 'APPROVED', head, { login: 'bot-atlas[bot]', id: 2291895, type: 'Bot' })] },
+        { pr: openPr(42, head, { head: { sha: head, repo: { full_name: 'someone/home-ops' } } }) },
+        { pr: openPr(42, head, { draft: true }) },
+        { reviews: Array.from({ length: 100 }, (_, i) => review(i, 'APPROVED', head)) },
+    ]) {
+        const f = approvedFixture(t, options);
+        f.enable('approved');
+        assert.equal(await f.run('approved'), true);
+        assert.deepEqual(merges(f), [], JSON.stringify(options).slice(0, 80));
+        assert.deepEqual(f.calls().filter(c => c.tool === 'lane'), []);
+    }
+});
+
+test('approved: failed CI refuses and tells Jan once per head; kritika alone does not block', async t => {
+    const f = approvedFixture(t, { facts: { checks: [{ name: 'Build Success', status: 'completed', conclusion: 'failure' }],
+        statuses: [{ context: 'Kritika / Review', state: 'failure' }] } });
+    f.enable('approved');
+    assert.equal(await f.run('approved'), true);
+    assert.equal(await f.run('approved'), true);
+    assert.deepEqual(merges(f), []);
+    assert.equal(comments(f).length, 1);
+    assert.match(comments(f)[0].args.at(-1), /^body=Not merged: your approval is for `aaaaaaa`, but CI failed on it:\n- failed check: Build Success \(failure\)/);
+    assert.equal(f.results().length, 1, 'one result per outcome, not per run');
+    assert.deepEqual(f.results()[0].reasons, ['failed check: Build Success (failure)']);
+});
+
+test('approved: missing evidence waits quietly, and tells Jan once after an hour', async t => {
+    const f = approvedFixture(t, { lane: 'wait' });
+    f.enable('approved');
+    assert.equal(await f.run('approved'), true);
+    assert.deepEqual(merges(f), []);
+    assert.deepEqual(comments(f), []);
+    assert.equal(f.results()[0].status, 'waiting');
+    const notes = join(f.o.state, 'approved-notes.json');
+    const stored = JSON.parse(fs.readFileSync(notes, 'utf8'));
+    stored[`42@${head}`].since -= 2 * 3600000;
+    fs.writeFileSync(notes, JSON.stringify(stored));
+    assert.equal(await f.run('approved'), true);
+    assert.equal(await f.run('approved'), true);
+    assert.equal(comments(f).length, 1);
+    assert.match(comments(f)[0].args.at(-1), /has waited an hour for:\n- kritika P1 finding/);
+});
+
+test('approved: a failed comment fails the run and is tried again; notes forget withdrawn approvals', async t => {
+    const f = approvedFixture(t, { facts: { checks: [{ name: 'Zizmor', status: 'completed', conclusion: 'failure' }] } });
+    f.enable('approved');
+    f.data.failComment = true; f.save();
+    assert.equal(await f.run('approved'), false);
+    f.data.failComment = false; f.save();
+    assert.equal(await f.run('approved'), true);
+    assert.equal(comments(f).length, 2);
+    f.data.api['repos/janpuc/home-ops/pulls/42/reviews?per_page=100'] = [review(1, 'DISMISSED', head)]; f.save();
+    assert.equal(await f.run('approved'), true);
+    assert.deepEqual(JSON.parse(fs.readFileSync(join(f.o.state, 'approved-notes.json'), 'utf8')), {});
 });

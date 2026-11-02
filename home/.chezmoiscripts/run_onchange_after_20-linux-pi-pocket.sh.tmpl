@@ -26,6 +26,9 @@
 #   broker {{ include ".system/pr-lane-merge.service" | sha256sum }}
 #   broker {{ include ".system/pr-lane-merge.timer" | sha256sum }}
 #   broker {{ include ".system/pr-broker-lock" | sha256sum }}
+#   broker {{ include ".system/pr-approved-merge" | sha256sum }}
+#   broker {{ include ".system/pr-approved-merge.service" | sha256sum }}
+#   broker {{ include ".system/pr-approved-merge.timer" | sha256sum }}
 #   watchdog {{ include ".system/pocket-watchdog" | sha256sum }} {{ include ".system/pocket-watchdog.json" | sha256sum }}
 #   watchdog {{ include ".system/pocket-watchdog.service" | sha256sum }} {{ include ".system/pocket-watchdog.timer" | sha256sum }}
 set -eu
@@ -168,12 +171,12 @@ sudo systemctl enable --now pi-pocket-gh-token.timer
 # Step 2: isolate the merger key and runtime from pocket. The timers run in dry-run
 # until Jan creates root-owned opt-in files AFTER GitHub's restrict-updates rule is live.
 # Retire a potentially running pocket-owned draft before installing the broker units.
-for unit in pr-lane-merge.timer pr-broker.timer; do
+for unit in pr-lane-merge.timer pr-broker.timer pr-approved-merge.timer; do
     if sudo systemctl cat "$unit" >/dev/null 2>&1; then
         sudo systemctl disable --now "$unit"
     fi
 done
-for unit in pr-lane-merge.service pr-broker.service; do
+for unit in pr-lane-merge.service pr-broker.service pr-approved-merge.service; do
     if sudo systemctl cat "$unit" >/dev/null 2>&1; then
         sudo systemctl stop "$unit"
     fi
@@ -192,13 +195,14 @@ sudo install -d -o root -g root -m 755 /var/spool/pr-broker
 sudo install -d -o pr-broker -g pr-requesters -m 3770 /var/spool/pr-broker/requests /var/spool/pr-broker/staging
 sudo install -d -o pr-broker -g pr-requesters -m 2750 /var/spool/pr-broker/results
 sudo /bin/sh "$src/pr-broker-runtime.sh"
-for tool in agent-push pr-lane pr-broker pr-merge-request pr-lane-merge pr-broker-lock; do
+for tool in agent-push pr-lane pr-broker pr-merge-request pr-lane-merge pr-approved-merge pr-broker-lock; do
     sudo install -o root -g root -m 755 "$src/$tool" "/usr/local/sbin/$tool"
 done
-sudo install -o root -g root -m 644 "$src/pr-broker.service" "$src/pr-broker.timer" "$src/pr-lane-merge.service" "$src/pr-lane-merge.timer" /etc/systemd/system/
+sudo install -o root -g root -m 644 "$src/pr-broker.service" "$src/pr-broker.timer" "$src/pr-lane-merge.service" "$src/pr-lane-merge.timer" \
+    "$src/pr-approved-merge.service" "$src/pr-approved-merge.timer" /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now pr-broker.timer pr-lane-merge.timer
-# Never create requests.enabled or lane-a.enabled here. The stop/start below also refreshes
+sudo systemctl enable --now pr-broker.timer pr-lane-merge.timer pr-approved-merge.timer
+# Never create requests.enabled, lane-a.enabled or approved.enabled here. The stop/start below also refreshes
 # Pi Pocket's pr-requesters membership; an existing interactive pocket shell needs relogin.
 
 sudo install -m 644 "$src/pi-pocket.service" /etc/systemd/system/

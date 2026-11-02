@@ -37,7 +37,8 @@ test('pi-pocket setup clones the Home Assistant config repo and skips it while i
         assert.ok(setup.includes(text), text);
 });
 test('pr-shepherd setup hashes every broker source and installs pinned root runtime independent of mise', () => {
-    for (const name of ['pr-broker', 'pr-broker-runtime.sh', 'pr-merge-request', 'pr-broker.service', 'pr-broker.timer', 'pr-lane-merge', 'pr-lane-merge.service', 'pr-lane-merge.timer', 'pr-broker-lock'])
+    for (const name of ['pr-broker', 'pr-broker-runtime.sh', 'pr-merge-request', 'pr-broker.service', 'pr-broker.timer', 'pr-lane-merge', 'pr-lane-merge.service', 'pr-lane-merge.timer', 'pr-broker-lock',
+        'pr-approved-merge', 'pr-approved-merge.service', 'pr-approved-merge.timer'])
         assert.ok(setup.includes(`include ".system/${name}" | sha256sum`), name);
     const runtime = source('pr-broker-runtime.sh'), mise = source('pi-pocket-mise.toml');
     for (const tool of ['node', 'gh']) {
@@ -48,7 +49,7 @@ test('pr-shepherd setup hashes every broker source and installs pinned root runt
     assert.ok(!runtime.includes('/home/pocket'));
 });
 test('pr-shepherd units share lock, empty capabilities, protect homes and explicit writable paths', () => {
-    for (const name of ['pr-broker', 'pr-lane-merge']) {
+    for (const name of ['pr-broker', 'pr-lane-merge', 'pr-approved-merge']) {
         const unit = source(`${name}.service`);
         for (const text of ['User=pr-broker', 'ProtectHome=yes', 'ProtectSystem=strict', 'NoNewPrivileges=yes',
             'PrivateTmp=yes', 'CapabilityBoundingSet=\n', 'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6',
@@ -63,6 +64,10 @@ test('pr-shepherd units share lock, empty capabilities, protect homes and explic
     assert.match(source('pr-lane-merge.service'), /TimeoutStartSec=30min/);
     assert.match(source('pr-broker.timer'), /OnUnitInactiveSec=1min/);
     assert.match(source('pr-lane-merge.timer'), /OnCalendar=\*:0\/30/);
+    assert.match(source('pr-approved-merge.service'), /ExecStart=\/usr\/local\/sbin\/pr-broker-lock approved/);
+    assert.match(source('pr-approved-merge.timer'), /OnUnitInactiveSec=5min/);
+    assert.ok(setup.includes('sudo systemctl enable --now pr-broker.timer pr-lane-merge.timer pr-approved-merge.timer'));
+    assert.ok(!setup.includes('approved.enabled\n') && !/(touch|install)[^\n]*approved\.enabled/.test(setup));
 });
 test('pr-shepherd lock wrapper: a held lock is logged, a failed run keeps its status', t => {
     const fs = require('node:fs'), cp = require('node:child_process'), os = require('node:os');
@@ -90,7 +95,8 @@ exit "$status"
         .replaceAll('/var/lib/pr-broker/merge.lock', join(root, 'merge.lock'))
         .replaceAll('/opt/pr-broker/bin/node', broker)
         .replaceAll('/usr/local/sbin/pr-broker', broker)
-        .replaceAll('/usr/local/sbin/pr-lane-merge', broker);
+        .replaceAll('/usr/local/sbin/pr-lane-merge', broker)
+        .replaceAll('/usr/local/sbin/pr-approved-merge', broker);
     fs.writeFileSync(join(root, 'pr-broker-lock'), wrapper, { mode: 0o755 });
     const run = (...args) => cp.spawnSync(join(root, 'pr-broker-lock'), args, { encoding: 'utf8' });
     // A free lock runs the broker.
@@ -106,6 +112,10 @@ exit "$status"
     result = run('lane-a');
     assert.equal(result.status, 0);
     assert.match(result.stderr, /gave up waiting 300s for the merge lock/);
+    // So does an approval run, after its own bound.
+    result = run('approved');
+    assert.equal(result.status, 0);
+    assert.match(result.stderr, /gave up waiting 120s for the merge lock/);
     // A failed run keeps its exit status.
     fs.writeFileSync(code, '1');
     result = run('requests');

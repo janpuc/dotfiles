@@ -4,7 +4,7 @@
 # run is never a silent success. It holds no merge policy of its own.
 #
 # Requests never wait: they skip a busy lock and the next timer run retries
-# them. Lane A waits a bounded time and then gives up with a line in the log.
+# them. Lane A and approvals wait a bounded time and then give up with a line in the log.
 # Waiting never holds the lock, so neither runner can starve the other.
 set -eu
 lock=/var/lib/pr-broker/merge.lock
@@ -16,6 +16,7 @@ mode=${1:-}
 case "$mode" in
     requests) program=/usr/local/sbin/pr-broker; bound=0 ;;
     lane-a) program=/usr/local/sbin/pr-lane-merge; bound=300 ;;
+    approved) program=/usr/local/sbin/pr-approved-merge; bound=120 ;;
     *) echo "pr-broker-lock: unknown mode" >&2; exit 2 ;;
 esac
 wait=${2:-$bound}
@@ -35,7 +36,7 @@ case "$status" in
         if [ "$wait" -eq 0 ]; then
             echo "pr-broker: skipped: lock held" >&2
         else
-            echo "pr-lane-merge: gave up waiting ${wait}s for the merge lock; operator cleanup needed" >&2
+            echo "${program##*/}: gave up waiting ${wait}s for the merge lock; operator cleanup needed" >&2
         fi
         exit 0 ;;
     *) exit "$status" ;;

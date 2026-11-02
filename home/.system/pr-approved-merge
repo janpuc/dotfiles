@@ -1,0 +1,7 @@
+#!/opt/pr-broker/bin/node
+// Same broker boundary, quota and head-pinned merge path, for PRs Jan approved on their current head.
+'use strict';
+require('./pr-broker').main('approved').catch(() => {
+    console.error('pr-approved-merge: stopped at first failure; check broker configuration');
+    process.exitCode = 1;
+});
