@@ -40,8 +40,8 @@ Never in this public repository:
 - `~/.ssh/id_ed25519`: the server's private SSH signing key. Git uses the corresponding
   `~/.ssh/id_ed25519.pub`, registered on GitHub as `aether-sign`.
 - `/home/pocket/.config/pi-pocket/secrets.env` (0600, owned by pocket): Pi Pocket's model
-  keys (OpenCode Go, MiniMax, and the Claude API key with its monthly plan credit) and its
-  memini key, written
+  keys (OpenCode Go, MiniMax, the Claude API key with its monthly plan credit, and the M3 Pro
+  box's llama-swap key) and its memini key, written
   by `ai-sync` from 1Password and loaded into the service by pocket's mise
   config. Run `fish -c ai-sync` again after a key rotation; it restarts the service.
 - `/home/pocket/.config/pi-pocket/github-app.pem` (0600, owned by pocket) and
@@ -53,6 +53,13 @@ Never in this public repository:
 - `/home/pocket/.kube/config` (0600): a kubeconfig for the `pi-pocket` service account in
   home-ops (`kubernetes/apps/ai/pi-pocket`, the view role). Install or refresh it from the Mac
   with `pocket-kube-sync`, which reads the account's token with the home-ops admin kubeconfig.
+- `/home/pocket/.pi/agent/models.json`: Pi's custom models, from `home/.system/pi-pocket-models.json`.
+  It holds one: the self-hosted M3 Pro (`m3pro/huihui-qwen3.8-27b`), reached straight at its
+  llama-swap (`192.168.69.249:8090`, over the tailnet), the last link of every session's fallback
+  chain because it has no quota. It is slow (about 9 tok/s writing) and its context is 32K, so
+  it is a last resort, not a default. Its key is the box's own (`op://Kubernetes/m3pro/M3PRO_API_KEY`,
+  the one LiteLLM uses), not the LiteLLM master key: this LiteLLM has no database, so it cannot
+  issue a scoped key (home-ops #1707, reverted in #1710).
 - `/home/pocket/.pi-pocket/`: Pi Pocket's database, push keys and sign-ins. Print the owner
   sign-in link from the Mac with
   `aether sudo cat /home/pocket/.pi-pocket/config.json | jq -r '"https://aether.tail17d532.ts.net/login?token=" + (.ownerToken|@uri)'`.

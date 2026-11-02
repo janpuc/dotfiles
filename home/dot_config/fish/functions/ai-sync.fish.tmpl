@@ -90,8 +90,10 @@ function ai-sync --description "Fetch AI credentials from 1Password into a local
     # Pi Pocket's model, memini and Home Assistant keys, for the pocket user only: a 0600 file its mise config loads into
     # the service. The 1Password token itself never reaches pocket.
     id pocket >/dev/null 2>&1; or return 0
-    set -l NAMES OPENCODE_API_KEY MINIMAX_API_KEY ANTHROPIC_API_KEY MEMINI_API_KEY HA_TOKEN
-    set -l PATHS op://Kubernetes/opencode/OPENCODE_GO_API_KEY op://Kubernetes/minimax/MINIMAX_API_KEY op://Kubernetes/claude/CLAUDE_API_KEY op://Kubernetes/memini/MEMINI_API_KEY_jan op://Kubernetes/hass-mcp/HASS_MCP_TOKEN
+    # M3PRO_API_KEY is the M3 Pro box's llama-swap key, the one LiteLLM uses for it: it opens that
+    # box only. Never the LiteLLM master key, since the agents can read this file.
+    set -l NAMES OPENCODE_API_KEY MINIMAX_API_KEY ANTHROPIC_API_KEY MEMINI_API_KEY HA_TOKEN M3PRO_API_KEY
+    set -l PATHS op://Kubernetes/opencode/OPENCODE_GO_API_KEY op://Kubernetes/minimax/MINIMAX_API_KEY op://Kubernetes/claude/CLAUDE_API_KEY op://Kubernetes/memini/MEMINI_API_KEY_jan op://Kubernetes/hass-mcp/HASS_MCP_TOKEN op://Kubernetes/m3pro/M3PRO_API_KEY
     set -l tmp (mktemp)
     chmod 600 $tmp
     for i in (seq (count $NAMES))

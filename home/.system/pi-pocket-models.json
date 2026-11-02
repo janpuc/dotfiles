@@ -1,0 +1,21 @@
+{
+  "providers": {
+    "m3pro": {
+      "name": "M3 Pro (sisyphus, llama-swap)",
+      "baseUrl": "http://192.168.69.249:8090/v1",
+      "api": "openai-completions",
+      "apiKey": "$M3PRO_API_KEY",
+      "models": [
+        {
+          "id": "huihui-qwen3.8-27b",
+          "name": "Huihui Qwen3.8 27B abliterated, vision (M3 Pro, last-resort fallback)",
+          "reasoning": false,
+          "input": ["text", "image"],
+          "contextWindow": 32768,
+          "maxTokens": 4096,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

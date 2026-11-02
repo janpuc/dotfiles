@@ -16,6 +16,7 @@
 #   prskill {{ include ".system/pi-pocket-skills/pr-shepherd/SKILL.md" | sha256sum }}
 #   upstream {{ include ".system/upstream-diff" | sha256sum }} {{ include ".system/upstream-sync.yaml" | sha256sum }} {{ include ".system/pi-pocket-skills/upstream-sync/SKILL.md" | sha256sum }}
 #   askjan  {{ include ".system/pi-pocket-extensions/ask-jan.ts" | sha256sum }}
+#   models  {{ include ".system/pi-pocket-models.json" | sha256sum }}
 #   broker {{ include ".system/pr-broker" | sha256sum }}
 #   broker {{ include ".system/pr-broker-runtime.sh" | sha256sum }}
 #   broker {{ include ".system/pr-merge-request" | sha256sum }}
@@ -77,6 +78,10 @@ done
 # The mapping that says which upstream paths matter to Jan's repo. It sits next to the
 # skill that reads it, and it is data: upstream-diff only parses it.
 pocket_install 644 "$src/upstream-sync.yaml" "$home/.pi/agent/skills/upstream-sync/upstream-sync.yaml"
+# Pi's custom models: the self-hosted M3 Pro, straight to its llama-swap over the tailnet, the
+# last link of every session's fallback chain because it has no quota. Its key (M3PRO_API_KEY
+# in secrets.env) opens that box only.
+pocket_install 644 "$src/pi-pocket-models.json" "$home/.pi/agent/models.json"
 # The upstream diff tool: deterministic, no model. Root-owned like the other helpers,
 # run by pocket, and it writes only under pocket's own home.
 sudo install -o root -g root -m 755 "$src/upstream-diff" /usr/local/sbin/upstream-diff
