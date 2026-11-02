@@ -10,6 +10,11 @@
 # bridge, pi-web-access and agent-guard (no push, GitHub writes or cluster changes), so memini
 # and the rest stay in the main session; each agent's tool list still decides what it can call.
 # The bridge has to load inside a child to serve claude-bridge models.
+#
+# The usual agents open as a visible Pi in a background tab of the parent's Rex session
+# (`machine: local`); `machine: sisyphus` or `aether` opens one in the `subagents` session there,
+# over SSH (~/.ssh/config names both). Placed children load their machine's own packages, not
+# defaultExtensions, so agent-guard-placed.ts brings the guard to them.
 set -eu
 managed='{
   "defaultProvider": "claude-bridge",
@@ -24,9 +29,14 @@ managed='{
     "git:github.com/janpuc/pi-title-spinner@v0.1.0",
     "git:github.com/janpuc/pi-footer@v0.1.0",
     "./local/bc250-quiet-hours.ts",
-    "./local/pocket.ts"
+    "./local/pocket.ts",
+    "./local/agent-guard-placed.ts"
   ],
   "subagents": {
+    "machines": {
+      "sisyphus": { "rex": { "ssh": "sisyphus" }, "cwd": "~" },
+      "aether": { "rex": { "ssh": "aether" }, "cwd": "~" }
+    },
     "modelScope": {
       "enforce": true,
       "strict": true,
@@ -45,13 +55,14 @@ managed='{
       "scout": {
         "model": "minimax/MiniMax-M3",
         "thinking": "medium",
+        "machine": "local",
         "description": "Fast recon in a repo, a cluster, GitHub or the web (bash, gh, kubectl, web fetch); returns compressed context for handoff",
         "tools": ["read", "grep", "find", "ls", "bash", "write", "contact_supervisor", "web_search", "fetch_content", "get_search_content"]
       },
-      "researcher": { "model": "opencode-go/deepseek-v4.1-flash", "thinking": "medium" },
-      "worker": { "model": "opencode-go/deepseek-v4.1-flash", "thinking": "medium" },
-      "reviewer": { "model": "opencode-go/deepseek-v4.1-flash", "thinking": "high" },
-      "oracle": { "model": "openai/gpt-6-astra", "thinking": "high", "defaultContext": "fresh" },
+      "researcher": { "machine": "local", "model": "opencode-go/deepseek-v4.1-flash", "thinking": "medium" },
+      "worker": { "machine": "local", "model": "opencode-go/deepseek-v4.1-flash", "thinking": "medium" },
+      "reviewer": { "machine": "local", "model": "opencode-go/deepseek-v4.1-flash", "thinking": "high" },
+      "oracle": { "machine": "local", "model": "openai/gpt-6-astra", "thinking": "high", "defaultContext": "fresh" },
       "delegate": { "disabled": true },
       "evidence-auditor": { "disabled": true },
       "claude-code": { "disabled": true },

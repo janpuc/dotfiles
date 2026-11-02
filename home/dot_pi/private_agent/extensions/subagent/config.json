@@ -4,7 +4,6 @@
   "disabledFeatures": [
     "agent-management",
     "watchdog",
-    "panes",
     "missions",
     "lane-management",
     "spawn-budget-grants",
@@ -15,13 +14,17 @@
     "tool-budgets",
     "control-overrides",
     "extension-bindings",
-    "external-machines",
     "workflow-scripts"
   ],
-  "missions": { "enabled": false },
+  "missions": {
+    "enabled": false
+  },
   "timeoutMs": 7200000,
   "maxSubagentDepth": 1,
   "maxActiveAsyncRunsPerSession": 2,
   "globalConcurrencyLimit": 2,
-  "parallel": { "maxTasks": 4, "concurrency": 2 }
+  "parallel": {
+    "maxTasks": 4,
+    "concurrency": 2
+  }
 }

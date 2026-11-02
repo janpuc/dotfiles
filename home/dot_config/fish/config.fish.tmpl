@@ -16,7 +16,9 @@ set -gx MANROFFOPT "-c"
 set -gx MANPAGER "sh -c 'col -bx | bat -l man -p'"
 set -gx PAGER bat
 {{- if eq .chezmoi.os "darwin" }}
-set -gx SSH_AUTH_SOCK "$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+# 1Password's agent through a path without spaces: tools that pass it on, such as pi-subagents'
+# `ssh -o IdentityAgent=…`, do not quote it.
+set -gx SSH_AUTH_SOCK "$HOME/.1password/agent.sock"
 {{- end }}
 set -gx VISUAL nano
 {{- if eq .chezmoi.os "darwin" }}
@@ -110,6 +112,11 @@ enable_transience
 # loaded, so call them here to both register the hook and apply it to the
 # directory this shell started in.
 __memini_namespace_prefix
+
+# Pi through its wrapper, first on PATH, so subagent children that start in Rex tabs (here or from
+# another machine over SSH, with `command -v pi` in a login shell) get the same Pi environment.
+fish_add_path --global --move --path "$HOME/.pi/agent/local/bin"
+set -gx PI_SUBAGENT_PI_BINARY "$HOME/.pi/agent/local/bin/pi"
 
 {{- if eq .chezmoi.os "darwin" }}
 # Hermes Agent — ensure ~/.local/bin is on PATH

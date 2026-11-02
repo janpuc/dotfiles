@@ -1,0 +1,31 @@
+#!/bin/sh
+# Pi with this machine's Pi environment, for every way Pi starts: the `pi` fish function, and the
+# subagent children pi-subagents opens in Rex tabs (here or on another machine), which start Pi from
+# the login shell's PATH and never see a fish function. config.fish puts this directory first on
+# PATH and names this file in PI_SUBAGENT_PI_BINARY.
+#
+# Values a caller already set win (pi-sec sets its own), so each line only fills a gap:
+# - pi-claude-bridge's Claude Code gets its own config dir and ai-sync's one-year token.
+# - ai-sync caches the OpenCode Go and MiniMax keys under PI_ names; Pi's providers read the
+#   plain names, which stay unset in every other tool.
+# - git diff inside Pi prints a plain unified diff instead of the global difftastic one.
+# - Copies also go to the terminal (OSC 52), so a Rex client on another Mac gets them.
+set -euf
+: "${CLAUDE_CONFIG_DIR:=$HOME/.pi/agent/claude}"
+: "${GIT_EXTERNAL_DIFF:=$HOME/.pi/agent/local/git-plain-diff}"
+: "${PI_CLIPBOARD_OSC52:=1}"
+export CLAUDE_CONFIG_DIR GIT_EXTERNAL_DIFF PI_CLIPBOARD_OSC52
+[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || [ -z "${PI_CLAUDE_CODE_OAUTH_TOKEN:-}" ] || export CLAUDE_CODE_OAUTH_TOKEN="$PI_CLAUDE_CODE_OAUTH_TOKEN"
+[ -n "${OPENCODE_API_KEY:-}" ] || [ -z "${PI_OPENCODE_API_KEY:-}" ] || export OPENCODE_API_KEY="$PI_OPENCODE_API_KEY"
+[ -n "${MINIMAX_API_KEY:-}" ] || [ -z "${PI_MINIMAX_API_KEY:-}" ] || export MINIMAX_API_KEY="$PI_MINIMAX_API_KEY"
+
+# The real Pi is the next `pi` on PATH after this directory.
+here=$(cd "$(dirname "$0")" && pwd -P)
+IFS=:
+for dir in $PATH; do
+	[ -n "$dir" ] && [ -x "$dir/pi" ] && [ ! -d "$dir/pi" ] || continue
+	[ "$(cd "$dir" 2>/dev/null && pwd -P)" = "$here" ] && continue
+	exec "$dir/pi" "$@"
+done
+echo "pi: no Pi on PATH besides $here/pi" >&2
+exit 127

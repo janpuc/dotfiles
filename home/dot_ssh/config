@@ -19,6 +19,19 @@ Host lg
   IdentityFile ~/.ssh/dgo_janpuc
   #IdentityAgent "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 
+# Pi subagents open tabs on these over SSH, many short connections per run: aether reuses one
+# connection (one 1Password approval per 4 h), sisyphus uses the mac-models key.
+Host aether
+  User ubuntu
+  ControlMaster auto
+  ControlPersist 4h
+
+Host sisyphus
+  HostName 192.168.69.249
+  User jan.pucilowski
+  IdentityFile ~/.local/state/mac-models/id_ed25519_sisyphus
+  IdentitiesOnly yes
+
 Host *
   ForwardAgent no
   ServerAliveInterval 0
@@ -30,4 +43,4 @@ Host *
   ControlMaster no
   ControlPath ~/.ssh/master-%r@%n:%p
   ControlPersist no
-  IdentityAgent "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+  IdentityAgent ~/.1password/agent.sock
