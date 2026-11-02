@@ -105,11 +105,72 @@ flip mode. While Home Assistant is down those eight switches do nothing at
 all, so a restart is not a maintenance detail: apply a configuration change
 with the reload service that owns it, and never restart to "make sure".
 
+## Updates
+
+Pending updates are `update.*` entities in state `on`, with `installed_version`
+and `latest_version`. Group them by integration with the template API:
+
+```sh
+curl -fsS -X POST -H "Authorization: Bearer $HA_TOKEN" -H 'Content-Type: application/json' --data '{"template":"{% for i in [\"hassio\", \"hacs\", \"shelly\"] %}{{ i }}: {{ integration_entities(i) | select(\"match\", \"update\\\\.\") | select(\"is_state\", \"on\") | join(\" \") }}\n{% endfor %}"}' "$HA_URL/api/template"
+```
+
+It is a read and runs without a phone prompt, as long as it stays this one
+`curl` to `/api/template` (no pipe, no second URL).
+
+`hassio` holds Core (`update.home_assistant_core_update`), the OS
+(`update.home_assistant_operating_system_update`), the Supervisor and the
+add-ons; `hacs` the custom integrations; `shelly` device firmware. Leave the
+Supervisor alone: it updates itself.
+
+Each install is one call, and it asks Jan on his phone, every time:
+
+```sh
+curl -fsS -X POST -H "Authorization: Bearer $HA_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"entity_id":"update.music_assistant_update","backup":true}' \
+  "$HA_URL/api/services/update/install"
+```
+
+Pass `"backup": true` for Core and add-ons (not for HACS or firmware, which
+reject it). The call can return before the install ends: read
+`/api/states/<entity_id>` every 10 seconds, up to 10 minutes, until the state
+is `off` and `installed_version` equals the version you installed. Anything
+else is a failure: report it and stop that group.
+
+Do the groups in this order, one entity at a time:
+
+1. **Add-ons** (`hassio`, except Core, OS and Supervisor). Only that add-on
+   restarts. No window needed.
+2. **Device firmware** (`shelly`). Each install reboots the device, and the
+   wall switches (`*_wall_switch_*`) are the house's light switches. One
+   device at a time: after it reports the new version, check that the
+   device's other entities are not `unavailable` before the next one. Never
+   change a device's settings or input mode.
+3. **The restart window**, which needs Jan: a Core update restarts Home
+   Assistant and an OS update reboots the host, so both are the outage above.
+   First read the release notes (`release_url` on each entity, and
+   `https://www.home-assistant.io/blog/categories/release-notes/` for Core)
+   and list any breaking change that touches an integration Jan uses. Then
+   `ask_jan` for a time, with real times and a `reminder`, naming what will
+   update and the breaking changes. In the window:
+   - install the HACS updates first: they only load after a restart, so
+     Core's restart applies them;
+   - Core, with `backup: true`; wait until `GET $HA_URL/api/` answers again and
+     the Core entity is `off`;
+   - the OS last; wait for Home Assistant to answer again;
+   - then check the house: the automations still match git (the drift check),
+     and no wall-switch entity is `unavailable`.
+
+No window answer means no Core, OS or HACS update. Never call `hassio.*`
+services (backups, restores, host reboot or shutdown) and never
+`update.skip` or `update.clear_skipped` unless Jan asks. Report every update
+as `<name>: <old> -> <new>`, plus what failed or is still pending.
+
 ## Asking Jan and memory
 
 Use `ask_jan` ONLY for:
 - choosing a time for cluster or node maintenance (Talos/Kubernetes upgrades, reboots);
-- a Home Assistant restart;
+- a Home Assistant restart, including the Core and OS update window;
 - work blocked on something only Jan can do outside GitHub.
 
 NEVER ask which fix to make: open the PR with your recommendation and the

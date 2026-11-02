@@ -88,6 +88,8 @@ const HA_ALLOWED_SERVICES = new Set([
 /** A service URL on Jan's own Home Assistant: the host, then the domain and the service. */
 const HA_SERVICE_URL =
     /^(?:https?:\/\/(?:hass|home-assistant)\.janpuc\.com|\$\{?HA_URL\}?)\/api\/services\/([^/?#\s]+)\/([^/?#\s]+)/;
+/** The template API on Jan's own Home Assistant, exactly. */
+const HA_TEMPLATE_URL = /^(?:https:\/\/(?:hass|home-assistant)\.janpuc\.com|\$\{?HA_URL\}?)\/api\/template$/;
 /** Curl options that can carry a second URL or a second request of their own. */
 const HA_AMBIGUOUS_OPTIONS = /^(?:--config|--next|--url|-[A-Za-z]*[K:].*)$/;
 /** A dry-run flag is not a curl option: such a command is not a plain service call. */
@@ -156,6 +158,8 @@ export function sharedChange(command: string): string | undefined {
     // A light, a scene or a reload needs no phone prompt: it changes the home in place,
     // the way Jan expects, and never restarts Home Assistant.
     if (change === "call a Home Assistant service" && haServiceAllowed(command)) return undefined;
+    // Rendering a template only reads states, the same as GET /api/states.
+    if (change === "change Home Assistant" && haTemplateRead(command)) return undefined;
     return change;
 }
 
@@ -223,6 +227,21 @@ export function haServiceAllowed(command: string): boolean {
     if (!service) return false;
     if (!HA_ALLOWED_SERVICES.has(`${service[1]}.${service[2]}`)) return false;
     return isPostRequest(tokens);
+}
+
+/**
+ * True when the command is one simple curl POST to Jan's own Home Assistant /api/template, and
+ * to no other URL: the template API renders a template and changes nothing.
+ */
+export function haTemplateRead(command: string): boolean {
+    if (/\$\(|`/.test(command)) return false;
+    const tokens = shellTokens(command);
+    if (!tokens || tokens.length < 2) return false;
+    if (!/^(?:[A-Za-z0-9_./-]+\/)?curl$/.test(tokens[0]!)) return false;
+    if (tokens.some((token) => HA_AMBIGUOUS_OPTIONS.test(token) || HA_DRY_RUN.test(token)))
+        return false;
+    const urls = tokens.filter((token) => /^(?:[a-z]+:\/\/|\$\{?HA_URL\b)/i.test(token));
+    return urls.length === 1 && HA_TEMPLATE_URL.test(urls[0]!) && isPostRequest(tokens);
 }
 
 /** True when a curl command sends a POST: an explicit method, or a body without a GET. */

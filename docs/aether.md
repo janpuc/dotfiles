@@ -475,10 +475,15 @@ single simple `curl` to one `/api/services/` URL on `hass.janpuc.com` or
   `input_datetime.reload`, `input_button.reload`, `timer.reload`,
   `zone.reload`.
 
-Everything else still asks: `script.*`, `switch.*`, `homeassistant.restart` and
-`homeassistant.stop`, every config-entry call and every Supervisor call (the
-token is no Supervisor admin: `/api/hassio/info` answers 401). The command has
-to be one invocation: no chaining, no substitution, one service URL, a POST.
+A single simple `curl` POST to exactly `/api/template` is a read and runs
+without a prompt too (the `Updates` part of the skill groups pending updates
+with it).
+
+Everything else still asks: `update.install`, `script.*`, `switch.*`,
+`homeassistant.restart` and `homeassistant.stop`, every config-entry call and
+every Supervisor call (the token is no Supervisor admin: `/api/hassio/info`
+answers 401). The command has to be one invocation: no chaining, no
+substitution, one service URL, a POST.
 `home/.system/pi-pocket-extensions/approvals.test.ts` covers every allowed
 service and the asking cases.
 

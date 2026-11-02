@@ -21,7 +21,7 @@ const imports = registerHooks({
     },
 });
 const source = await readFile(new URL("./approvals.ts", import.meta.url), "utf8");
-const { default: create, sharedChange, haServiceAllowed, pocketApi, explain } = await import(
+const { default: create, sharedChange, haServiceAllowed, haTemplateRead, pocketApi, explain } = await import(
     dataUrl(stripTypeScriptTypes(source))
 );
 imports.deregister();
@@ -194,6 +194,40 @@ test("approvals sharedChange: Home Assistant writes and GET/HEAD reads", () => {
         sharedChange('curl -X POST "$HA_URL/api/services/script/turn_on"'),
         "call a Home Assistant service",
     );
+});
+
+// The template API only renders: one simple curl POST to /api/template is a read. Anything
+// else that POSTs to Home Assistant still asks, including a template call chained or piped.
+const haTemplateCall = `curl -fsS -X POST -H "Authorization: Bearer $HA_TOKEN" -H 'Content-Type: application/json' --data '{"template":"{% for i in [\\"hassio\\"] %}{{ integration_entities(i) | select(\\"match\\", \\"update\\\\\\\\.\\") | join(\\" \\") }}{% endfor %}"}' "$HA_URL/api/template"`;
+test("approvals sharedChange: the template API is a read", () => {
+    for (const command of [
+        haTemplateCall,
+        "curl -X POST --data '{\"template\":\"{{ 1 }}\"}' https://hass.janpuc.com/api/template",
+        "curl -d '{}' ${HA_URL}/api/template",
+    ]) {
+        assert.equal(haTemplateRead(command), true, command);
+        assert.equal(sharedChange(command), undefined, command);
+    }
+    for (const command of [
+        `jq -n '{}' | curl -X POST --data @- "$HA_URL/api/template"`,
+        `curl -X POST --data '{}' "$HA_URL/api/template"; curl -X POST "$HA_URL/api/services/switch/turn_on"`,
+        `curl -X POST --data '{}' "$HA_URL/api/template" "$HA_URL/api/services/switch/turn_on"`,
+        `curl -X POST --data '{}' "$HA_URL/api/template?x=1"`,
+        `curl -X POST --data '{}' "$HA_URL/api/templates"`,
+        `curl -X POST --data '{}' "$HA_URL/api/template" --next -X POST "$HA_URL/api/services/switch/turn_on"`,
+        `curl -X POST --data "$(cat body)" "$HA_URL/api/template"`,
+        `curl -X POST --data '{}' http://hass.janpuc.com/api/template`,
+        `curl -X POST --data '{}' "$HA_URL/api/services/update/install"`,
+    ]) {
+        assert.equal(haTemplateRead(command), false, command);
+        assert.ok(sharedChange(command), command);
+    }
+});
+
+test("approvals sharedChange: update installs ask Jan", () => {
+    const install = `curl -fsS -X POST -H "Authorization: Bearer $HA_TOKEN" -H 'Content-Type: application/json' --data '{"entity_id":"update.home_assistant_core_update","backup":true}' "$HA_URL/api/services/update/install"`;
+    assert.equal(sharedChange(install), "call a Home Assistant service");
+    assert.equal(haServiceAllowed(install), false);
 });
 
 test("approvals sharedChange: lights, scenes and reloads need no phone prompt", () => {
