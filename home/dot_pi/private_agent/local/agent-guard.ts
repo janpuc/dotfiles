@@ -1,6 +1,6 @@
 // Agents never change shared systems: no push, no GitHub writes, no cluster, node or dotfiles
 // changes. The parent does those after Jan says yes (AGENTS.md). Loaded only into subagent
-// sessions, through subagents.defaultExtensions, this blocks bash commands that would. A pattern
+// sessions, through agent-guard-child.ts, this blocks bash commands that would. A pattern
 // check that catches mistakes, not a sandbox: a script can still do anything.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
