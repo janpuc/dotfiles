@@ -17,6 +17,11 @@ while agents run in the background and relay their results when they arrive.
   models, make separate async calls.
 - Each result is saved automatically and its path is in the result; don't ask agents to write
   a copy.
+- The usual agents open as a visible Pi in a background tab of your Rex session. Pass
+  `machine: "sisyphus"` (M3 Pro, free local models next door) or `machine: "aether"` to run one
+  there, in its `subagents` Rex session; it works on that machine's own checkout, so name the
+  repo path in the brief. Remote placement runs in the background only (`async: false` fails on
+  a pi-subagents bug).
 - Long or background work that should keep going when the laptop sleeps or this session ends,
   or that Jan wants to follow from his phone, goes to Pi Pocket on aether with `pocket_start`
   (folder `~/work/<repo>` for home-ops, dotfiles and BC250, `~/scratch` otherwise), checked with

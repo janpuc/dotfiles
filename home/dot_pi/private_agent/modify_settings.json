@@ -15,6 +15,8 @@
 # there is no `defaultExtensions`: every child loads its machine's packages, the bridge and
 # pi-web-access among them, and agent-guard-child.ts turns the guard (no push, GitHub writes or
 # cluster changes) on in children only.
+# pi-subagents 0.84 checks a machine's cwd on the parent's disk as well (a bug), so each needs a
+# path that exists on both ends: the shared home path on sisyphus, /tmp on aether.
 set -eu
 managed='{
   "defaultProvider": "claude-bridge",
@@ -34,8 +36,8 @@ managed='{
   ],
   "subagents": {
     "machines": {
-      "sisyphus": { "rex": { "ssh": "sisyphus" }, "cwd": "~" },
-      "aether": { "rex": { "ssh": "aether" }, "cwd": "~" }
+      "sisyphus": { "rex": { "ssh": "sisyphus" }, "cwd": "/Users/jan.pucilowski" },
+      "aether": { "rex": { "ssh": "aether" }, "cwd": "/tmp" }
     },
     "modelScope": {
       "enforce": true,

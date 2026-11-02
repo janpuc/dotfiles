@@ -1,0 +1,1 @@
+pi-subagents' state; chezmoi keeps this directory 0700, which its Rex/Herdr placement locks require.
