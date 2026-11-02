@@ -1,0 +1,40 @@
+[Unit]
+Description=Fall the Pi Pocket sessions back to another model when a provider runs out of quota
+Wants=network-online.target
+After=network-online.target pi-pocket.service
+
+[Service]
+Type=oneshot
+User=pocket
+Group=pocket
+WorkingDirectory=/var/lib/pocket-watchdog
+Environment=PATH=/usr/bin:/bin HOME=/home/pocket
+UnsetEnvironment=NODE_OPTIONS NODE_PATH GH_TOKEN GITHUB_TOKEN GH_HOST XDG_CONFIG_HOME LD_PRELOAD LD_LIBRARY_PATH
+# The owner's token comes from Pi Pocket's own config, which only pocket can read.
+ExecStart=/usr/local/sbin/pocket-watchdog
+TimeoutStartSec=5min
+UMask=0077
+StateDirectory=pocket-watchdog
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+# The Pi Pocket config is read, never written; the state lives in its own directory.
+ProtectHome=read-only
+ProtectSystem=strict
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+SystemCallArchitectures=native
+LimitCORE=0

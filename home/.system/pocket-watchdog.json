@@ -1,0 +1,62 @@
+{
+  "pocket": {
+    "baseUrl": "http://127.0.0.1:8787",
+    "tokenFile": "/home/pocket/.pi-pocket/config.json",
+    "tokenKey": "ownerToken"
+  },
+  "alertmanager": {
+    "url": "https://alertmanager.janpuc.com/api/v2/alerts"
+  },
+  "sessions": [
+    {
+      "id": 548,
+      "name": "Alerts",
+      "chain": [
+        "minimax/MiniMax-M3.1-Flash:medium",
+        "openai/gpt-6.1-sol:medium",
+        "anthropic/claude-sonnet-5-5:medium",
+        "m3pro/huihui-qwen3.8-27b:off"
+      ]
+    },
+    {
+      "id": 1356,
+      "name": "PRs",
+      "chain": [
+        "minimax/MiniMax-M3.1-Flash:high",
+        "openai/gpt-6.1-sol:high",
+        "anthropic/claude-sonnet-5-5:medium",
+        "m3pro/huihui-qwen3.8-27b:off"
+      ]
+    },
+    {
+      "id": 1838,
+      "name": "Upstream",
+      "chain": [
+        "minimax/MiniMax-M3.1-Flash:medium",
+        "openai/gpt-6.1-sol:medium",
+        "anthropic/claude-sonnet-5-5:medium",
+        "m3pro/huihui-qwen3.8-27b:off"
+      ]
+    },
+    {
+      "id": 3120,
+      "name": "Home",
+      "chain": [
+        "minimax/MiniMax-M3.1-Flash:medium",
+        "openai/gpt-6.1-sol:medium",
+        "anthropic/claude-sonnet-5-5:medium",
+        "m3pro/huihui-qwen3.8-27b:off"
+      ]
+    },
+    {
+      "id": 7766,
+      "name": "Upgrades",
+      "chain": [
+        "anthropic/claude-sonnet-5-5:medium",
+        "openai/gpt-6.1-sol:medium",
+        "minimax/MiniMax-M3.1-Flash:high",
+        "m3pro/huihui-qwen3.8-27b:off"
+      ]
+    }
+  ]
+}

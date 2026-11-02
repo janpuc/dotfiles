@@ -1,0 +1,693 @@
+#!/usr/bin/env python3
+"""pocket-watchdog: keep Pi Pocket's sessions on aether working when a provider runs out of quota.
+
+Pi Pocket waits for a provider's usage limit for up to six hours and then gives that run up
+("Not waiting: it did not clear in 6 h"), which leaves the session failed. It has no model
+fallback of its own, so a quota that ran out on Friday left three sessions dead until Monday.
+
+This runs every fifteen minutes and, for each session it is configured for:
+  - reads the state: idle, working or failed, the last error, a wait for a provider's limit, the
+    last activity and the model the session runs on,
+  - moves a session that ran out of quota (a failure with a limit error, or a wait for one that
+    lasts over half an hour) to the next model of its chain, and tells the agent what happened,
+  - moves a session that has been on a fallback for half a day back to its primary model,
+  - pages Jan through Alertmanager when no model is left, when a session hangs, or when a session
+    fails for another reason.
+
+It is plain code, with no model in it. The sessions and their chains are in the config file
+(/etc/pocket-watchdog/config.json), not in this script. A run that cannot read Pi Pocket or the
+config changes nothing and exits non-zero.
+"""
+import argparse
+import json
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+
+DEFAULT_CONFIG = "/etc/pocket-watchdog/config.json"
+DEFAULT_STATE = "/var/lib/pocket-watchdog/state.json"
+
+MINUTE = 60_000
+HOUR = 60 * MINUTE
+
+# A wait for a provider's limit that lasts this long needs another model, not more patience,
+# when Pi Pocket does not know when the limit resets.
+LIMIT_WAIT = 30 * MINUTE
+# A limit that resets sooner than this is waited out: the next model may be a metered API, and a
+# 5-hour window that clears within the hour is not worth hours on it.
+NEAR_RESET = 2 * HOUR
+# A fallback is this old before an idle session goes back to its primary model.
+FALLBACK_BACK = 12 * HOUR
+# The limit failures that count as the chain being spent.
+CHAIN_SPENT = 12 * HOUR
+# A working session with no news for this long is stuck.
+STUCK = 2 * HOUR
+# A failure that is not a limit waits this long before it pages Jan.
+FAILED = 30 * MINUTE
+# How long an alert lives when no run posts it again.
+ALERT_LIFE = 45 * MINUTE
+
+# The words Pi Pocket itself uses for a limit it waited on (src/server/limit-gate.ts): the gate's
+# reason ("ChatGPT's usage limit") and its refusal ("Not waiting: it did not clear in 6 h.").
+LIMIT_WORDS = re.compile(
+    r"usage limit|usage_limit|monthly usage|weekly usage|quota|rate limit|rate_limit"
+    r"|too many requests|overloaded|not waiting:",
+    re.IGNORECASE,
+)
+
+# The names a phone reads best: the provider ids Pi Pocket uses, in words.
+PROVIDER_NAMES = {
+    "anthropic": "Claude",
+    "openai": "OpenAI",
+    "openai-codex": "ChatGPT",
+    "minimax": "MiniMax",
+    "m3pro": "the M3 Pro",
+}
+
+TIMEOUT = 20
+
+
+class WatchdogError(Exception):
+    """Something the watchdog cannot do: the run fails and no session is changed."""
+
+
+class Link:
+    """One link of a session's chain: the model, and the thinking level it runs with."""
+
+    def __init__(self, provider, model_id, thinking):
+        self.provider = provider
+        self.model_id = model_id
+        self.thinking = thinking
+
+    @property
+    def key(self):
+        return f"{self.provider}/{self.model_id}"
+
+    def __str__(self):
+        return f"{self.key}:{self.thinking}"
+
+
+def parse_link(text):
+    """A chain link, "provider/modelId:thinking". Pi Pocket splits the id at the first slash."""
+    if not isinstance(text, str) or text.strip() == "":
+        raise WatchdogError(f"a chain link is not text: {text!r}")
+
+    raw = text.strip()
+    body, _, thinking = raw.rpartition(":")
+    if body == "":
+        body, thinking = raw, "off"
+    provider, slash, model_id = body.partition("/")
+    if slash == "" or provider == "" or model_id == "":
+        raise WatchdogError(f"the chain link {raw!r} is not provider/modelId:thinking")
+
+    return Link(provider, model_id, thinking or "off")
+
+
+def provider_name(provider):
+    """The provider as a sentence reads it: "MiniMax", not "minimax"."""
+    if provider is None:
+        return "the provider"
+
+    return PROVIDER_NAMES.get(provider, provider)
+
+
+def is_limit_error(text):
+    """Whether an error is a provider's limit, the words Pi Pocket's limit gate writes."""
+    return bool(text) and LIMIT_WORDS.search(str(text)) is not None
+
+
+class Pocket:
+    """Pi Pocket's HTTP API: the owner's token, and never a word of it in a log."""
+
+    def __init__(self, base_url, token, timeout=TIMEOUT):
+        self.base = base_url.rstrip("/")
+        self.token = token
+        self.timeout = timeout
+
+    def _request(self, method, path, body=None):
+        headers = {"Authorization": f"Bearer {self.token}", "X-Pocket": "1"}
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(f"{self.base}{path}", data=data, method=method, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                text = response.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", "replace").replace("\n", " ")[:200]
+            raise WatchdogError(f"{method} {path}: Pi Pocket answered HTTP {error.code}: {detail}") from None
+        except (urllib.error.URLError, OSError) as error:
+            raise WatchdogError(f"{method} {path}: Pi Pocket is not reachable: {error}") from None
+        try:
+            return json.loads(text) if text.strip() != "" else {}
+        except json.JSONDecodeError:
+            raise WatchdogError(f"{method} {path}: Pi Pocket answered something that is not JSON") from None
+
+    def get(self, path):
+        return self._request("GET", path)
+
+    def post(self, path, body):
+        return self._request("POST", path, body)
+
+    def models(self):
+        """The models Pi Pocket knows and can run: the ones with a sign-in that works."""
+        me = self.get("/api/me")
+        models = me.get("models") if isinstance(me, dict) else None
+        if not isinstance(models, list):
+            raise WatchdogError("/api/me: Pi Pocket answered without a model list")
+        known = set()
+        for model in models:
+            if isinstance(model, dict) and isinstance(model.get("provider"), str) and isinstance(model.get("id"), str):
+                known.add(f"{model['provider']}/{model['id']}")
+        return known
+
+    def sessions(self):
+        """Every session Pi Pocket knows, with its state."""
+        sessions = self.get("/api/sessions")
+        if not isinstance(sessions, list):
+            raise WatchdogError("/api/sessions: Pi Pocket answered without a session list")
+        return {int(s["id"]): s for s in sessions if isinstance(s, dict) and isinstance(s.get("id"), int)}
+
+    def view(self, conversation_id):
+        """One session's view: its model, its live run and the entries it shows."""
+        poll = self.get(f"/api/poll?c={conversation_id}&p=5")
+        events = poll.get("events") if isinstance(poll, dict) else None
+        if not isinstance(events, list):
+            raise WatchdogError(f"/api/poll?c={conversation_id}: Pi Pocket answered without events")
+        view = None
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            if event.get("event") == "view" and isinstance(event.get("data"), dict) and event["data"].get("full"):
+                view = event["data"]
+        if view is None:
+            raise WatchdogError(f"/api/poll?c={conversation_id}: Pi Pocket answered without a view")
+        session = poll.get("session")
+        if isinstance(session, str) and session != "":
+            # The poller is closed again, so the session list does not keep a tab for it.
+            try:
+                self.get(f"/api/poll?session={urllib.parse.quote(session)}&close=1")
+            except WatchdogError:
+                pass
+        return view
+
+
+def load_config(path):
+    """The config: where Pi Pocket is, where the alerts go, and the sessions to watch."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            config = json.load(handle)
+    except OSError as error:
+        raise WatchdogError(f"the config {path} cannot be read: {error}") from None
+    except json.JSONDecodeError as error:
+        raise WatchdogError(f"the config {path} is not valid JSON: {error}") from None
+    if not isinstance(config, dict):
+        raise WatchdogError(f"the config {path} is not an object")
+
+    pocket = config.get("pocket")
+    if not isinstance(pocket, dict) or not isinstance(pocket.get("baseUrl"), str):
+        raise WatchdogError(f"the config {path} has no pocket.baseUrl")
+    if not isinstance(pocket.get("tokenFile"), str):
+        raise WatchdogError(f"the config {path} has no pocket.tokenFile")
+
+    alerts = config.get("alertmanager")
+    if not isinstance(alerts, dict) or not isinstance(alerts.get("url"), str):
+        raise WatchdogError(f"the config {path} has no alertmanager.url")
+
+    sessions = config.get("sessions")
+    if not isinstance(sessions, list) or sessions == []:
+        raise WatchdogError(f"the config {path} has no sessions")
+    for session in sessions:
+        if not isinstance(session, dict):
+            raise WatchdogError(f"the config {path} has a session that is not an object")
+        if not isinstance(session.get("id"), int) or not isinstance(session.get("name"), str):
+            raise WatchdogError(f"the config {path} has a session without an id and a name")
+        if not isinstance(session.get("chain"), list) or session["chain"] == []:
+            raise WatchdogError(f"the config {path} has no chain for {session.get('name')}")
+
+    return config
+
+
+def read_token(config):
+    """The owner's token, read from Pi Pocket's own config. It is never printed."""
+    pocket = config["pocket"]
+    key = pocket.get("tokenKey") or "ownerToken"
+    try:
+        with open(pocket["tokenFile"], encoding="utf-8") as handle:
+            stored = json.load(handle)
+    except OSError as error:
+        raise WatchdogError(f"the Pi Pocket config {pocket['tokenFile']} cannot be read: {error}") from None
+    except json.JSONDecodeError as error:
+        raise WatchdogError(f"the Pi Pocket config {pocket['tokenFile']} is not valid JSON: {error}") from None
+    token = stored.get(key) if isinstance(stored, dict) else None
+    if not isinstance(token, str) or token.strip() == "":
+        raise WatchdogError(f"the Pi Pocket config {pocket['tokenFile']} has no {key}")
+    return token.strip()
+
+
+def load_state(path):
+    """What the watchdog remembers: the model of each session and its limit failures."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            state = json.load(handle)
+    except FileNotFoundError:
+        return {"version": 1, "sessions": {}}
+    except OSError as error:
+        raise WatchdogError(f"the state {path} cannot be read: {error}") from None
+    except json.JSONDecodeError:
+        return {"version": 1, "sessions": {}}
+    if not isinstance(state, dict) or not isinstance(state.get("sessions"), dict):
+        return {"version": 1, "sessions": {}}
+    return state
+
+
+def save_state(path, state):
+    """The state, written whole, so a run that stops halfway leaves the last one standing."""
+    temporary = f"{path}.tmp"
+    try:
+        with open(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as handle:
+            json.dump(state, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        os.replace(temporary, path)
+    except OSError as error:
+        raise WatchdogError(f"the state {path} cannot be written: {error}") from None
+
+
+def log(line):
+    """One line in the journal."""
+    print(f"pocket-watchdog: {line}", flush=True)
+
+
+def session_state(meta, view, error_text):
+    """The state of a session: idle, working, failed, or waiting for an approval.
+
+    The order is the one Pi Pocket's own client uses: an approval first, then a run, then the
+    error of the newest answer.
+    """
+    if meta.get("waiting") is True or (isinstance(view.get("approvals"), list) and view["approvals"]):
+        return "waiting for approval"
+    subagents = view.get("subagents") if isinstance(view.get("subagents"), list) else []
+    live = view.get("live") if isinstance(view.get("live"), dict) else {}
+    if meta.get("busy") is True or live.get("busy") is True or any(
+        isinstance(agent, dict) and agent.get("busy") is True for agent in subagents
+    ):
+        return "working"
+    if error_text:
+        return "failed"
+    return "idle"
+
+
+def last_assistant(view):
+    """The newest answer of a session, with its error: (entry, error text)."""
+    entries = view.get("entries") if isinstance(view, dict) else None
+    if not isinstance(entries, list):
+        return None
+    found = None
+    # Entry ids grow with the transcript; the list itself is not promised in order.
+    ordered = sorted(
+        (entry for entry in entries if isinstance(entry, dict) and isinstance(entry.get("id"), int)),
+        key=lambda entry: entry["id"],
+    )
+    for entry in ordered:
+        if entry.get("kind") != "assistant":
+            continue
+        error = entry.get("error")
+        if not isinstance(error, str) or error.strip() == "":
+            if entry.get("stopReason") == "error":
+                error = "the model ended the run with an error"
+        else:
+            error = error.strip()
+        found = (entry, error)
+    return found
+
+
+def last_activity(meta, view):
+    """When the session last did something: its newest entry, or the session's own clock."""
+    entries = view.get("entries") if isinstance(view, dict) else None
+    if isinstance(entries, list):
+        times = [entry["at"] for entry in entries if isinstance(entry, dict) and isinstance(entry.get("at"), (int, float))]
+        if times:
+            return int(max(times))
+    updated = meta.get("updatedAt")
+    return int(updated) if isinstance(updated, (int, float)) else 0
+
+
+def agent_model(view):
+    """The model a session runs on: (provider, model id), or None."""
+    agent = view.get("agent") if isinstance(view, dict) else None
+    model = agent.get("model") if isinstance(agent, dict) else None
+    if not isinstance(model, dict):
+        return None
+    provider = model.get("provider")
+    model_id = model.get("id") or model.get("modelId")
+    if not isinstance(provider, str) or not isinstance(model_id, str):
+        return None
+    return provider, model_id
+
+
+def limit_wait(view):
+    """The wait for a provider's limit a session is in, or None."""
+    live = view.get("live") if isinstance(view, dict) else None
+    wait = live.get("limit") if isinstance(live, dict) else None
+    return wait if isinstance(wait, dict) else None
+
+
+def usable_links(chain, known):
+    """The links of a chain Pi Pocket can run: the ones whose model it knows."""
+    usable = []
+    for link in chain:
+        if link.key in known:
+            usable.append(link)
+    return usable
+
+
+def next_link(usable, position, failed_provider):
+    """The next link of the chain, past the one that failed and past its provider."""
+    for index in range(position + 1, len(usable)):
+        if usable[index].provider != failed_provider:
+            return usable[index]
+    return None
+
+
+def post_alert(url, alert):
+    """One alert to Alertmanager. A failure here is a failure of the run."""
+    data = json.dumps([alert]).encode("utf-8")
+    request = urllib.request.Request(
+        url, data=data, method="POST", headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            response.read()
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", "replace").replace("\n", " ")[:200]
+        raise WatchdogError(f"the alert was refused: HTTP {error.code}: {detail}") from None
+    except (urllib.error.URLError, OSError) as error:
+        raise WatchdogError(f"Alertmanager is not reachable: {error}") from None
+
+
+def switch_model(pocket, session_id, link):
+    """Put a session on another model: Pi Pocket's own configure route."""
+    pocket.post(
+        f"/api/c/{session_id}/configure",
+        {
+            "model": {"provider": link.provider, "modelId": link.model_id},
+            "thinkingLevel": link.thinking,
+        },
+    )
+
+
+def stop_run(pocket, session_id):
+    """End a run that waits on a limit: Pi Pocket's abort route ends the wait and the run.
+
+    src/server/commands.ts, `abort`: the conversation's abort withdraws what waits in the queue and
+    ends the run; the wait at the limit gate ends with it.
+    """
+    pocket.post(f"/api/c/{session_id}/abort", {})
+
+
+def send_message(pocket, session_id, text):
+    """The one message that starts the session again, as the owner (src/server/scratch/owner-submit.py)."""
+    pocket.post(f"/api/c/{session_id}/submit", {"text": text, "requestId": str(uuid.uuid4())})
+
+
+def recovery_message(failed_provider, link):
+    """What the agent is told, in plain words."""
+    return (
+        f"Your last run stopped because {provider_name(failed_provider)}'s usage limit ran out. "
+        f"You now run on {link.model_id}. Finish the request you were working on; "
+        f"if it was a scheduled pass, run it now."
+    )
+
+
+def iso(at):
+    """A moment as Alertmanager wants it."""
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at / 1000))
+
+
+def handle_session(config, pocket, entry, meta, view, known, state, now, counts):
+    """One session: what it needs, and what the watchdog does about it."""
+    name = entry["name"]
+    session_id = entry["id"]
+    chain = [parse_link(link) for link in entry["chain"]]
+    usable = usable_links(chain, known)
+    primary = usable[0].key if usable else None
+
+    record = state["sessions"].setdefault(str(session_id), {})
+    failures = record.setdefault("failures", {})
+    current = agent_model(view)
+    current_key = f"{current[0]}/{current[1]}" if current is not None else None
+
+    # A model that changed outside the watchdog starts the fallback clock again.
+    if record.get("model") != current_key:
+        record["model"] = current_key
+        record["fallbackSince"] = None if current_key == primary else now
+
+    position = -1
+    for index, link in enumerate(usable):
+        if link.key == current_key:
+            position = index
+            break
+
+    failure = last_assistant(view)
+    error_text = (failure[1] if failure is not None else None) or ""
+    failure_id = failure[0].get("id") if failure is not None and error_text else None
+    status = session_state(meta, view, error_text)
+    activity = last_activity(meta, view)
+    wait = limit_wait(view)
+
+    # A failure on a limit, or a wait for one that lasts too long: another model.
+    limit_failure = status == "failed" and is_limit_error(error_text)
+    # How long a wait has lasted is counted from the run that first saw it: the last entry can be
+    # hours old when a scheduled run meets a closed gate at once. A reset that is far away needs
+    # no waiting at all.
+    if wait is None:
+        record.pop("waitSince", None)
+    else:
+        record.setdefault("waitSince", now)
+    until = wait.get("resetAt", wait.get("until")) if wait is not None else None
+    if not isinstance(until, (int, float)):
+        until = None
+    long_wait = wait is not None and (
+        until - now > NEAR_RESET if until is not None else now - record["waitSince"] > LIMIT_WAIT
+    )
+    # A failure is acted on once. The error stays the newest answer until the session answers
+    # again, so the same entry seen on a later run is not a new failure: the switch already
+    # happened. If the session did not start again, that pages Jan below instead of walking the
+    # rest of the chain.
+    already_handled = limit_failure and failure_id is not None and failure_id == record.get("handledFailure")
+    if already_handled:
+        limit_failure = False
+    failed_provider = None
+    if limit_failure or long_wait:
+        if current is not None:
+            failed_provider = current[0]
+        elif wait is not None:
+            failed_provider = wait.get("provider")
+        else:
+            failed_provider = None
+        if current_key is not None:
+            failures[current_key] = now
+        if failure_id is not None:
+            record["handledFailure"] = failure_id
+            record["handledAt"] = now
+        record.pop("waitSince", None)
+        # When the provider's limit resets, if Pi Pocket knows: the session goes back then.
+        resets = record.setdefault("resets", {})
+        if failed_provider is not None and until is not None:
+            resets[failed_provider] = until
+        link = next_link(usable, position, failed_provider)
+        if link is not None:
+            switch_model(pocket, session_id, link)
+            counts["switched"] += 1
+            log(f"switched {name} to {link.key} ({link.thinking}): {provider_name(failed_provider)}'s limit ran out")
+            if status == "working":
+                # The run waits on the old provider's limit: it ends here, so the new model runs.
+                stop_run(pocket, session_id)
+                counts["stopped"] += 1
+                log(f"stopped the run of {name}, which waited on {provider_name(failed_provider)}'s limit")
+            send_message(pocket, session_id, recovery_message(failed_provider, link))
+            counts["messaged"] += 1
+            log(f"told {name} to finish its work on {link.model_id}")
+            record["model"] = link.key
+            record["fallbackSince"] = None if link.key == primary else now
+        else:
+            log(f"{name} has no model left in its chain: every model it can use is spent")
+
+    # An idle session goes back to its primary model once the primary's limit has reset, or,
+    # when that time is not known, after half a day on a fallback.
+    primary_reset = (record.get("resets") or {}).get(usable[0].provider) if usable else None
+    due = isinstance(record.get("fallbackSince"), (int, float)) and (
+        now >= primary_reset if isinstance(primary_reset, (int, float))
+        else now - record["fallbackSince"] >= FALLBACK_BACK
+    )
+    if (
+        not limit_failure
+        and not long_wait
+        and status == "idle"
+        and usable
+        and current_key is not None
+        and current_key != primary
+        and due
+    ):
+        primary_link = usable[0]
+        switch_model(pocket, session_id, primary_link)
+        counts["switched"] += 1
+        log(f"moved {name} back to its primary model {primary_link.key} ({primary_link.thinking})")
+        record["model"] = primary_link.key
+        record["fallbackSince"] = None
+        (record.get("resets") or {}).pop(primary_link.provider, None)
+
+    # What pages Jan.
+    reasons = []
+    spent = [
+        link
+        for link in usable
+        if isinstance(failures.get(link.key), (int, float)) and (now - failures[link.key]) <= CHAIN_SPENT
+    ]
+    # Spent only counts while the session is held up by a limit right now: once it runs again,
+    # the old failures are history.
+    held = (status == "failed" and is_limit_error(error_text)) or wait is not None
+    if usable and held and len(spent) == len(usable):
+        reasons.append(("chain", "every model it can use is out of quota"))
+    # A wait for a limit is the fallback's business, not a hang.
+    if status == "working" and wait is None and activity > 0 and (now - activity) > STUCK:
+        reasons.append(("stuck", "it has been working for hours without a word"))
+    if (
+        already_handled
+        and isinstance(record.get("handledAt"), (int, float))
+        and now - record["handledAt"] > FAILED
+    ):
+        reasons.append(("restart", "it ran out of quota and did not start again on another model"))
+    if status == "failed" and not is_limit_error(error_text):
+        ended = meta.get("endedAt")
+        since = int(ended) if isinstance(ended, (int, float)) and ended > 0 else activity
+        if since > 0 and (now - since) > FAILED:
+            reasons.append(("failed", "it failed with an error that is not a quota problem"))
+    if reasons:
+        alert(config, name, session_id, reasons, current_key, error_text, activity, now, failures, usable)
+        counts["alerted"] += 1
+
+
+def alert(config, name, session_id, reasons, current_key, error_text, activity, now, failures, usable):
+    """One critical alert for a session, with a sentence a phone reads."""
+    because = reasons[0][1]
+    summary = f"The {name} agent on aether has stopped: {because}."
+    lines = [summary]
+    for _, each in reasons[1:]:
+        lines.append(f"Also: {each}.")
+    lines.append(f"Session {session_id} ({name}).")
+    if current_key is not None:
+        lines.append(f"It runs on {current_key}.")
+    if error_text:
+        lines.append(f"The last error: {error_text[:300]}")
+    if activity > 0:
+        lines.append(f"Last activity: {iso(activity)}.")
+    if failures:
+        spent = ", ".join(
+            f"{key} at {iso(when)}" for key, when in sorted(failures.items()) if when >= now - CHAIN_SPENT
+        )
+        if spent:
+            lines.append(f"Limit failures in the last 12 hours: {spent}.")
+    if usable:
+        lines.append("Chain: " + ", ".join(str(link) for link in usable) + ".")
+    post_alert(
+        config["alertmanager"]["url"],
+        {
+            "labels": {
+                "alertname": "PocketSessionStuck",
+                "severity": "critical",
+                "session": name,
+                "namespace": "pi-pocket",
+            },
+            "annotations": {"summary": summary, "description": "\n".join(lines)},
+            "endsAt": iso(now + ALERT_LIFE),
+        },
+    )
+    log(f"posted a PocketSessionStuck alert for {name}: {summary}")
+
+
+def watchdog(config_path, state_path):
+    """One run: read everything, then change what needs changing."""
+    config = load_config(config_path)
+    token = read_token(config)
+    pocket = Pocket(config["pocket"]["baseUrl"], token)
+
+    known = pocket.models()
+    sessions = pocket.sessions()
+
+    chains = {}
+    for entry in config["sessions"]:
+        chains[entry["name"]] = [parse_link(link) for link in entry["chain"]]
+
+    # A link Pi Pocket does not know is not a link: it is skipped, once per run.
+    skipped = set()
+    for chain in chains.values():
+        for link in chain:
+            if link.key not in known:
+                skipped.add(link.key)
+    for key in sorted(skipped):
+        log(f"skipping {key}: Pi Pocket does not know that model")
+
+    views = {}
+    for entry in config["sessions"]:
+        session_id = entry["id"]
+        if session_id not in sessions:
+            log(f"the session {entry['name']} ({session_id}) is not in Pi Pocket: skipping it")
+            continue
+        views[session_id] = pocket.view(session_id)
+
+    # Everything is read: from here on the run changes sessions.
+    now = int(time.time() * 1000)
+    state = load_state(state_path)
+    counts = {"switched": 0, "stopped": 0, "messaged": 0, "alerted": 0}
+
+    problems = []
+    try:
+        for entry in config["sessions"]:
+            session_id = entry["id"]
+            if session_id not in views:
+                continue
+            try:
+                handle_session(config, pocket, entry, sessions[session_id], views[session_id], known, state, now, counts)
+            except WatchdogError as error:
+                problems.append(f"{entry['name']}: {error}")
+                log(f"{entry['name']}: {error}")
+    finally:
+        save_state(state_path, state)
+    log(
+        f"{len(views)} sessions checked, {counts['switched']} model switches, "
+        f"{counts['stopped']} runs stopped, {counts['messaged']} messages sent, {counts['alerted']} alerts posted"
+    )
+    if problems:
+        raise WatchdogError(f"{len(problems)} sessions could not be handled; see the lines above")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Keep the Pi Pocket sessions working when a provider runs out of quota.")
+    parser.add_argument(
+        "--config",
+        default=os.environ.get("POCKET_WATCHDOG_CONFIG", DEFAULT_CONFIG),
+        help="the sessions and their chains (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--state",
+        default=os.environ.get("POCKET_WATCHDOG_STATE", DEFAULT_STATE),
+        help="what the watchdog remembers (default: %(default)s)",
+    )
+    args = parser.parse_args(argv)
+    try:
+        watchdog(args.config, args.state)
+    except WatchdogError as error:
+        print(f"pocket-watchdog: {error}", file=sys.stderr, flush=True)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

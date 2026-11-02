@@ -510,6 +510,42 @@ Assistant without an `ask_jan` yes, and says why.
 3. Add a pull request workflow to that repository running
    `frenck/action-home-assistant` on the configuration files.
 
+## Session watchdog — model fallback and paging
+
+Pi Pocket waits for a provider's usage limit for up to six hours, then gives that run up, and it
+has no model fallback. On 2026-10-30 ChatGPT's weekly limit ran out, then MiniMax's: the PRs,
+Home, Upgrades and Upstream sessions failed every run until Monday and nobody knew.
+
+`pocket-watchdog` (`/usr/local/sbin`, from `home/.system/pocket-watchdog`) is plain Python with
+no model in it. `pocket-watchdog.timer` runs it every 15 minutes as `pocket`, the only user that
+can read the owner token in `/home/pocket/.pi-pocket/config.json`. Root owns the script and the
+chains (`/etc/pocket-watchdog/config.json`, from `pocket-watchdog.json`); its memory is
+`/var/lib/pocket-watchdog/state.json`.
+
+Each session has a chain of models, the primary first and the M3 Pro last, because it has no
+quota. Each run, for each session:
+
+- A newest answer that is a limit error, or a limit wait whose reset is more than 2 hours away
+  (or, with no reset time, that has lasted 30 minutes), moves the session to the next model
+  whose provider is not the one that ran out, ends a waiting run, and sends one message saying
+  what happened and asking it to finish its request. A failure is acted on once, by its entry
+  id. A limit that resets within 2 hours is waited out: the next model may be the metered
+  Claude API, and MiniMax's 5-hour window is not worth hours on it.
+- An idle session on a fallback goes back to its primary model once the primary's reset time
+  has passed, or after 12 hours when Pi Pocket did not know that time.
+- Jan is paged with one critical `PocketSessionStuck` alert (Alertmanager, so Pushover) when
+  every usable model of the chain hit a limit in the last 12 hours, when a session did not
+  start again 30 minutes after a switch, when it has been working for 2 hours without a new
+  entry, or when it failed for another reason and stayed failed for 30 minutes. The alert is
+  posted again on each run with a 45-minute end, so it resolves on its own once the cause is
+  gone.
+- A chain link Pi Pocket does not know (no sign-in, or not in `models.json`) is skipped.
+
+The session state is the one `pocket_check` derives (`dot_pi/private_agent/local/pocket-api.md`):
+an approval waiting, else working (root or subagent busy), else failed (the newest answer has an
+error), else idle. A run that cannot read Pi Pocket or its config changes nothing and exits 1.
+Its journal: `journalctl -u pocket-watchdog`.
+
 ## PR shepherd — Step 2: separate merge broker
 
 The **PRs** session uses `pr-shepherd/SKILL.md`. `pr-lane <N> [--json]` and

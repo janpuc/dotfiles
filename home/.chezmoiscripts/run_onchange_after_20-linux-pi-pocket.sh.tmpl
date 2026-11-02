@@ -25,6 +25,8 @@
 #   broker {{ include ".system/pr-lane-merge.service" | sha256sum }}
 #   broker {{ include ".system/pr-lane-merge.timer" | sha256sum }}
 #   broker {{ include ".system/pr-broker-lock" | sha256sum }}
+#   watchdog {{ include ".system/pocket-watchdog" | sha256sum }} {{ include ".system/pocket-watchdog.json" | sha256sum }}
+#   watchdog {{ include ".system/pocket-watchdog.service" | sha256sum }} {{ include ".system/pocket-watchdog.timer" | sha256sum }}
 set -eu
 repos="home-ops dotfiles BC250"
 # The Home Assistant config repo is new, and the App installation may not have it yet: a
@@ -236,4 +238,15 @@ if json.dumps(config, sort_keys=True) != before:
 fi
 sudo systemctl start pi-pocket.service
 sudo tailscale serve --bg --https=443 http://127.0.0.1:8787
+
+# The watchdog: plain code, no model. Every 15 minutes it moves a session whose provider ran
+# out of quota to the next model of its chain, and pages Jan through Alertmanager when none is
+# left or a session hangs. Root owns the script and the chains; it runs as pocket, which alone
+# can read the owner token it needs.
+sudo install -o root -g root -m 755 "$src/pocket-watchdog" /usr/local/sbin/pocket-watchdog
+sudo install -d -o root -g root -m 755 /etc/pocket-watchdog
+sudo install -o root -g root -m 644 "$src/pocket-watchdog.json" /etc/pocket-watchdog/config.json
+sudo install -o root -g root -m 644 "$src/pocket-watchdog.service" "$src/pocket-watchdog.timer" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now pocket-watchdog.timer
 {{- end }}
