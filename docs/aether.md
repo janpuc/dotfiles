@@ -535,7 +535,9 @@ chains (`/etc/pocket-watchdog/config.json`, from `pocket-watchdog.json`); its me
 `/var/lib/pocket-watchdog/state.json`.
 
 Each session has a chain of models, the primary first and the M3 Pro last, because it has no
-quota. Each run, for each session:
+quota. Sol is in no chain: ChatGPT Plus's week is too small for background
+sessions (they emptied it on 2026-10-30 and again by 2026-11-03), so it stays for Jan and the
+advisor. Each run, for each session:
 
 - A newest answer that is a limit error, or a limit wait whose reset is more than 2 hours away
   (or, with no reset time, that has lasted 30 minutes), moves the session to the next model

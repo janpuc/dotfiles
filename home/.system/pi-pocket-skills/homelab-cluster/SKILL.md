@@ -25,6 +25,15 @@ kubectl get gateways,httproutes -A
 kubectl get externalsecrets -A
 ```
 
+## One short pass, then stop
+
+Every call in a long session re-reads the whole conversation; in the week to
+2026-11-03 the Alerts session used about 366M tokens that way. So never wait
+inside a pass: no `sleep`, no polling, no watching a rollout or an alert until
+it changes. Read what you need once, report, and stop; the next alert or
+scheduled scan picks up what is still moving. Use no subagent for a routine
+check. End with a summary of at most five lines.
+
 ## Firing alert triage
 
 The `view` role cannot exec into pods; use the internal HTTP endpoints instead.

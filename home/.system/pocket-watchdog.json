@@ -13,7 +13,6 @@
       "name": "Alerts",
       "chain": [
         "minimax/MiniMax-M3.1-Flash:medium",
-        "openai/gpt-6.1-sol:medium",
         "anthropic/claude-sonnet-5-5:medium",
         "m3pro/huihui-qwen3.8-27b:off"
       ]
@@ -23,7 +22,6 @@
       "name": "PRs",
       "chain": [
         "minimax/MiniMax-M3.1-Flash:high",
-        "openai/gpt-6.1-sol:high",
         "anthropic/claude-sonnet-5-5:medium",
         "m3pro/huihui-qwen3.8-27b:off"
       ]
@@ -33,7 +31,6 @@
       "name": "Upstream",
       "chain": [
         "minimax/MiniMax-M3.1-Flash:medium",
-        "openai/gpt-6.1-sol:medium",
         "anthropic/claude-sonnet-5-5:medium",
         "m3pro/huihui-qwen3.8-27b:off"
       ]
@@ -43,7 +40,6 @@
       "name": "Home",
       "chain": [
         "minimax/MiniMax-M3.1-Flash:medium",
-        "openai/gpt-6.1-sol:medium",
         "anthropic/claude-sonnet-5-5:medium",
         "m3pro/huihui-qwen3.8-27b:off"
       ]
@@ -53,7 +49,6 @@
       "name": "Upgrades",
       "chain": [
         "anthropic/claude-sonnet-5-5:medium",
-        "openai/gpt-6.1-sol:medium",
         "minimax/MiniMax-M3.1-Flash:high",
         "m3pro/huihui-qwen3.8-27b:off"
       ]

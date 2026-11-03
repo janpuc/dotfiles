@@ -119,18 +119,18 @@ test('a limit failure moves the session to the next model and tells it once', as
     const am = await fakeAlertmanager(t);
     const result = await run(t, { pocketUrl: pocket.url, alertUrl: am.url });
     assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(configures(pocket.posts), [{ provider: 'openai', modelId: 'gpt-6.1-sol' }]);
+    assert.deepEqual(configures(pocket.posts), [{ provider: 'anthropic', modelId: 'claude-sonnet-5-5' }]);
     assert.equal(submits(pocket.posts).length, 1);
-    assert.match(submits(pocket.posts)[0].body.text, /MiniMax's usage limit ran out\. You now run on gpt-6\.1-sol\./);
+    assert.match(submits(pocket.posts)[0].body.text, /MiniMax's usage limit ran out\. You now run on claude-sonnet-5-5\./);
     assert.equal(result.state.handledFailure, 2);
-    assert.equal(result.state.model, 'openai/gpt-6.1-sol');
+    assert.equal(result.state.model, 'anthropic/claude-sonnet-5-5');
     assert.equal(am.alerts.length, 0);
 });
 
 test('the same failure seen again is not a new one: no second switch, and a page after 30 minutes', async (t) => {
     const now = Date.now();
-    const view = { ...onModel('openai', 'gpt-6.1-sol'), live: { busy: false }, entries: [limitError(2, now - 40 * MINUTE)] };
-    const state = (handledAt) => ({ model: 'openai/gpt-6.1-sol', fallbackSince: handledAt, handledFailure: 2, handledAt,
+    const view = { ...onModel('anthropic', 'claude-sonnet-5-5'), live: { busy: false }, entries: [limitError(2, now - 40 * MINUTE)] };
+    const state = (handledAt) => ({ model: 'anthropic/claude-sonnet-5-5', fallbackSince: handledAt, handledFailure: 2, handledAt,
         failures: { 'minimax/MiniMax-M3.1-Flash': handledAt } });
 
     const fresh = await fakePocket(t, { view });
@@ -151,13 +151,13 @@ test('the same failure seen again is not a new one: no second switch, and a page
 
 test('a second limit failure on the fallback moves on to the third model', async (t) => {
     const now = Date.now();
-    const pocket = await fakePocket(t, { view: { ...onModel('openai', 'gpt-6.1-sol'), live: { busy: false },
+    const pocket = await fakePocket(t, { view: { ...onModel('anthropic', 'claude-sonnet-5-5'), live: { busy: false },
         entries: [limitError(2, now - 2 * HOUR), answer(3, now - HOUR), limitError(4, now - 2 * MINUTE)] } });
     const am = await fakeAlertmanager(t);
-    const result = await run(t, { pocketUrl: pocket.url, alertUrl: am.url, state: { model: 'openai/gpt-6.1-sol',
+    const result = await run(t, { pocketUrl: pocket.url, alertUrl: am.url, state: { model: 'anthropic/claude-sonnet-5-5',
         fallbackSince: now - 2 * HOUR, handledFailure: 2, handledAt: now - 2 * HOUR, failures: { 'minimax/MiniMax-M3.1-Flash': now - 2 * HOUR } } });
     assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(configures(pocket.posts), [{ provider: 'anthropic', modelId: 'claude-sonnet-5-5' }]);
+    assert.deepEqual(configures(pocket.posts), [{ provider: 'm3pro', modelId: 'huihui-qwen3.8-27b' }]);
     assert.equal(submits(pocket.posts).length, 1);
     assert.equal(am.alerts.length, 0);
 });
@@ -171,7 +171,7 @@ test('a long limit wait stops the run, switches, and starts it again', async (t)
     const result = await run(t, { pocketUrl: pocket.url, alertUrl: am.url });
     assert.equal(result.code, 0, result.stderr);
     assert.deepEqual(pocket.posts.map((post) => post.path.split('/').at(-1)), ['configure', 'abort', 'submit']);
-    assert.deepEqual(configures(pocket.posts), [{ provider: 'openai', modelId: 'gpt-6.1-sol' }]);
+    assert.deepEqual(configures(pocket.posts), [{ provider: 'anthropic', modelId: 'claude-sonnet-5-5' }]);
 });
 
 test('a wait met after hours of quiet is not old: it is counted from the run that saw it', async (t) => {
@@ -193,7 +193,7 @@ test('a wait met after hours of quiet is not old: it is counted from the run tha
     const old = await run(t, { pocketUrl: second.url, alertUrl: am2.url, state: { model: 'minimax/MiniMax-M3.1-Flash',
         fallbackSince: null, failures: {}, waitSince: now - 40 * MINUTE } });
     assert.equal(old.code, 0, old.stderr);
-    assert.deepEqual(configures(second.posts), [{ provider: 'openai', modelId: 'gpt-6.1-sol' }]);
+    assert.deepEqual(configures(second.posts), [{ provider: 'anthropic', modelId: 'claude-sonnet-5-5' }]);
     assert.equal(am2.alerts.length, 0, 'the run that switched does not page');
     assert.equal(old.state.waitSince, undefined);
 });
@@ -231,11 +231,11 @@ test('a switch remembers the reset, and the session goes back to its primary onc
     assert.equal(switched.code, 0, switched.stderr);
     assert.equal(switched.state.resets.minimax, now + 3 * HOUR);
 
-    const idle = { ...onModel('openai', 'gpt-6.1-sol'), live: { busy: false }, entries: [answer(3, now - 10 * MINUTE)] };
+    const idle = { ...onModel('anthropic', 'claude-sonnet-5-5'), live: { busy: false }, entries: [answer(3, now - 10 * MINUTE)] };
     for (const [reset, back] of [[now + HOUR, false], [now - MINUTE, true]]) {
         const pocket = await fakePocket(t, { view: idle });
         const am = await fakeAlertmanager(t);
-        const result = await run(t, { pocketUrl: pocket.url, alertUrl: am.url, state: { model: 'openai/gpt-6.1-sol',
+        const result = await run(t, { pocketUrl: pocket.url, alertUrl: am.url, state: { model: 'anthropic/claude-sonnet-5-5',
             fallbackSince: now - 2 * HOUR, failures: {}, resets: { minimax: reset } } });
         assert.equal(result.code, 0, result.stderr);
         assert.deepEqual(configures(pocket.posts), back ? [{ provider: 'minimax', modelId: 'MiniMax-M3.1-Flash' }] : []);
@@ -292,9 +292,9 @@ test('working for over two hours without news pages Jan; under two hours does no
 
 test('an idle session half a day on a fallback goes back to its primary model', async (t) => {
     const now = Date.now();
-    const pocket = await fakePocket(t, { view: { ...onModel('openai', 'gpt-6.1-sol'), live: { busy: false }, entries: [answer(3, now - HOUR)] } });
+    const pocket = await fakePocket(t, { view: { ...onModel('anthropic', 'claude-sonnet-5-5'), live: { busy: false }, entries: [answer(3, now - HOUR)] } });
     const am = await fakeAlertmanager(t);
-    const result = await run(t, { pocketUrl: pocket.url, alertUrl: am.url, state: { model: 'openai/gpt-6.1-sol', fallbackSince: now - 13 * HOUR, failures: {} } });
+    const result = await run(t, { pocketUrl: pocket.url, alertUrl: am.url, state: { model: 'anthropic/claude-sonnet-5-5', fallbackSince: now - 13 * HOUR, failures: {} } });
     assert.equal(result.code, 0, result.stderr);
     assert.deepEqual(configures(pocket.posts), [{ provider: 'minimax', modelId: 'MiniMax-M3.1-Flash' }]);
     assert.equal(submits(pocket.posts).length, 0);
