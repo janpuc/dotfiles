@@ -1,0 +1,20 @@
+{{- if eq .chezmoi.os "linux" -}}
+#!/bin/sh
+# pocket-usage-report on the aether server: an hourly check of what the agents spend, a runaway
+# push at once and a quiet daily summary (docs/aether.md). It does not touch Pi Pocket, so it has a
+# script of its own and never restarts it. The Pushover keys come from ai-sync. Re-runs when any
+# of it changes.
+#   {{ include ".system/pocket-usage-report" | sha256sum }}
+#   {{ include ".system/pocket-usage-report.json" | sha256sum }}
+#   {{ include ".system/pocket-usage-report.service" | sha256sum }}
+#   {{ include ".system/pocket-usage-report.timer" | sha256sum }}
+set -eu
+src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
+sudo install -o root -g root -m 755 "$src/pocket-usage-report" /usr/local/sbin/pocket-usage-report
+sudo install -d -o root -g root -m 700 /etc/pocket-usage-report
+sudo install -o root -g root -m 644 "$src/pocket-usage-report.json" /etc/pocket-usage-report/config.json
+sudo install -o root -g root -m 644 "$src/pocket-usage-report.service" "$src/pocket-usage-report.timer" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now pocket-usage-report.timer
+[ -f /etc/pocket-usage-report/pushover.env ] || echo "pocket-usage-report: no Pushover keys yet; run ai-sync" >&2
+{{- end }}

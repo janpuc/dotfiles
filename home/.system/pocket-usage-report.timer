@@ -1,0 +1,10 @@
+[Unit]
+Description=Check the agents' spending every hour; the daily summary goes out at 07:50
+
+[Timer]
+OnCalendar=*-*-* *:50:00
+Persistent=true
+Unit=pocket-usage-report.service
+
+[Install]
+WantedBy=timers.target

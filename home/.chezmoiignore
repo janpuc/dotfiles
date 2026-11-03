@@ -15,6 +15,7 @@
 !.chezmoiscripts/*-linux-rex.sh
 !.chezmoiscripts/*-linux-mise.sh
 !.chezmoiscripts/*-linux-pi-pocket.sh
+!.chezmoiscripts/*-linux-pocket-usage-report.sh
 !.chezmoiscripts/*-linux-aether-backup.sh
 !.config
 !.config/git

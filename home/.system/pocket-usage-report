@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+"""pocket-usage-report: tell Jan what the agents on aether spend, before it empties a plan.
+
+In the week to 2026-11-03 two Pi Pocket sessions used over a billion tokens, nearly all re-reading
+a conversation that never reset, and nobody saw it until every plan was out. This runs every hour:
+
+  - once a day (at the configured hour, Europe/Warsaw), it sends a quiet Pushover summary of the
+    last 24 hours: tokens per Pi Pocket session (subagents counted with the session that started
+    them), calls and context per call, LiteLLM's tokens per model (kritika, memini, Open WebUI),
+    paid fallbacks, and the providers Pi Pocket waits on;
+  - every run, it sends one normal-priority push for a session that runs away: too many tokens in
+    24 hours, or calls that each re-read a very large context. Once per session per day.
+
+It is plain code, with no model in it. It reads Pi Pocket's database and limits file and never
+writes them. The thresholds are in the config file (/etc/pocket-usage-report/config.json), the
+Pushover keys in a root-only env file. `--dry-run` prints instead of sending, `--report` sends the
+summary now.
+"""
+import argparse
+import datetime
+import json
+import os
+import sqlite3
+import sys
+import time
+import urllib.parse
+import urllib.request
+import zoneinfo
+
+DEFAULT_CONFIG = "/etc/pocket-usage-report/config.json"
+DEFAULT_STATE = "/var/lib/pocket-usage-report/state.json"
+HOUR = 3600 * 1000
+DAY = 24 * HOUR
+ZONE = zoneinfo.ZoneInfo("Europe/Warsaw")
+# Pushover's limits: a title of 250 characters, a message of 1024.
+TITLE_MAX, MESSAGE_MAX = 250, 1024
+
+
+def log(line):
+    print(f"pocket-usage-report: {line}", flush=True)
+
+
+def millions(n):
+    return f"{n / 1e6:.0f}M" if n >= 10e6 else f"{n / 1e6:.1f}M"
+
+
+def thousands(n):
+    return f"{n / 1e3:.0f}K"
+
+
+def http_json(url, *, headers=None, data=None, timeout=20):
+    request = urllib.request.Request(url, data=data, headers=headers or {})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def read_env(path):
+    values = {}
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                values[key.strip()] = value.strip().strip("'\"")
+    return values
+
+
+def load_state(path):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            state = json.load(handle)
+        return state if isinstance(state, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(path, state):
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(state, handle)
+    os.replace(tmp, path)
+
+
+def pocket_usage(db_path, now, window):
+    """Model calls since now - window, per root session: tokens, calls, context and models."""
+    db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=30)
+    try:
+        owner = dict(db.execute("select id, owner_conversation_id from conversations"))
+        started = {}
+        for task_id, record in db.execute("select id, record from tasks"):
+            try:
+                started[task_id] = json.loads(record).get("startedAt")
+            except ValueError:
+                pass
+        sessions = {}
+        for conversation, record in db.execute("select conversation_id, record from entries"):
+            try:
+                entry = json.loads(record)
+            except ValueError:
+                continue
+            messages = entry.get("model") if isinstance(entry.get("model"), list) else []
+            for message in messages:
+                usage = message.get("usage") if isinstance(message, dict) else None
+                if not isinstance(usage, dict):
+                    continue
+                at = started.get(entry.get("byTaskId")) or message.get("timestamp")
+                if not isinstance(at, (int, float)) or now - at > window:
+                    continue
+                root = conversation
+                for _ in range(8):
+                    if owner.get(root) is None:
+                        break
+                    root = owner[root]
+                context = usage.get("input", 0) + usage.get("cacheRead", 0) + usage.get("cacheWrite", 0)
+                s = sessions.setdefault(root, {"tokens": 0, "calls": 0, "context": 0, "peak": 0, "models": {},
+                                               "recent": []})
+                s["tokens"] += usage.get("totalTokens", 0) or context + usage.get("output", 0)
+                s["calls"] += 1
+                s["context"] += context
+                s["peak"] = max(s["peak"], context)
+                model = str(message.get("model", "?"))
+                s["models"][model] = s["models"].get(model, 0) + 1
+                s["recent"].append((at, context))
+        return sessions
+    finally:
+        db.close()
+
+
+def session_titles(config):
+    """Session titles from Pi Pocket's API; numbers alone when it does not answer."""
+    pocket = config.get("pocket") or {}
+    try:
+        with open(pocket["tokenFile"], encoding="utf-8") as handle:
+            token = json.load(handle)[pocket.get("tokenKey", "ownerToken")]
+        listed = http_json(f"{pocket['baseUrl']}/api/sessions",
+                           headers={"Authorization": f"Bearer {token}", "X-Pocket": "1"})
+        return {s["id"]: s.get("title") or f"#{s['id']}" for s in listed if isinstance(s, dict) and "id" in s}
+    except Exception as error:  # noqa: BLE001 - titles are a nicety; the numbers still go out
+        log(f"no session titles ({type(error).__name__})")
+        return {}
+
+
+def prometheus(config, query):
+    url = f"{config['prometheus']}/api/v1/query?" + urllib.parse.urlencode({"query": query})
+    result = http_json(url)["data"]["result"]
+    return [(r["metric"], float(r["value"][1])) for r in result]
+
+
+def litellm_usage(config):
+    """LiteLLM's tokens per requested model and its paid fallbacks over 24 h, or None."""
+    try:
+        tokens = prometheus(config, "sum by (requested_model) (increase(litellm_total_tokens_metric_total[24h]))")
+        fallbacks = prometheus(config, "sum by (requested_model, fallback_model) "
+                                       "(increase(litellm_deployment_successful_fallbacks_total[24h]))")
+    except Exception as error:  # noqa: BLE001 - one missing source must not stop the report
+        log(f"no LiteLLM numbers ({type(error).__name__})")
+        return None
+    per_model = {m.get("requested_model", "?"): v for m, v in tokens if v >= 1}
+    paid = sum(v for m, v in fallbacks if str(m.get("fallback_model", "")).startswith("opencode-go/")
+               and not str(m.get("requested_model", "")).startswith("opencode-go/"))
+    return {"models": per_model, "paid_fallbacks": round(paid)}
+
+
+def waiting_limits(path, now):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            gates = json.load(handle).get("gates", [])
+    except (OSError, ValueError):
+        return []
+    out = []
+    for gate in gates:
+        until = gate.get("until")
+        if gate.get("state") == "waiting" and isinstance(until, (int, float)) and until > now:
+            local = datetime.datetime.fromtimestamp(until / 1000, ZONE).strftime("%a %H:%M")
+            out.append(f"{gate.get('provider', '?')} until {local}")
+    return out
+
+
+def summary(sessions, titles, litellm, limits):
+    total = sum(s["tokens"] for s in sessions.values()) + (sum(litellm["models"].values()) if litellm else 0)
+    lines = []
+    for sid, s in sorted(sessions.items(), key=lambda kv: -kv[1]["tokens"])[:6]:
+        if s["tokens"] < 1e6:
+            continue
+        model = max(s["models"], key=s["models"].get)
+        lines.append(f"{titles.get(sid, f'#{sid}')}: {millions(s['tokens'])}, {s['calls']} calls, "
+                     f"~{thousands(s['context'] / s['calls'])} a call ({model})")
+    quiet = sum(1 for s in sessions.values() if s["tokens"] < 1e6)
+    if quiet:
+        lines.append(f"{quiet} more session{'s' if quiet > 1 else ''} under 1M")
+    if litellm is None:
+        lines.append("LiteLLM: no numbers (Prometheus did not answer)")
+    else:
+        top = sorted(litellm["models"].items(), key=lambda kv: -kv[1])[:3]
+        lines.append(f"LiteLLM {millions(sum(litellm['models'].values()))}: "
+                     + ", ".join(f"{m.split('/')[-1]} {millions(v)}" for m, v in top) if top else "LiteLLM: idle")
+        if litellm["paid_fallbacks"]:
+            lines.append(f"Paid fallbacks to OpenCode Go: {litellm['paid_fallbacks']}")
+    if limits:
+        lines.append("Waiting on: " + ", ".join(limits))
+    return f"Agents, last 24 h: {millions(total)} tokens", "\n".join(lines) or "No model calls."
+
+
+def runaways(config, sessions, now):
+    """Sessions over a threshold, each with the plain reason."""
+    rules = config.get("runaway", {})
+    found = {}
+    for sid, s in sessions.items():
+        if s["tokens"] > rules.get("tokens24h", 100e6):
+            found[sid] = f"{millions(s['tokens'])} tokens in 24 h ({s['calls']} calls)"
+            continue
+        window = rules.get("windowHours", 2) * HOUR
+        recent = [c for at, c in s["recent"] if now - at <= window]
+        if len(recent) >= rules.get("minCalls", 10) and sum(recent) / len(recent) > rules.get("contextPerCall", 300e3):
+            found[sid] = (f"each call re-reads ~{thousands(sum(recent) / len(recent))} tokens "
+                          f"({len(recent)} calls in {rules.get('windowHours', 2)} h)")
+    return found
+
+
+def push(config, title, message, priority, dry_run):
+    title, message = title[:TITLE_MAX], message[:MESSAGE_MAX]
+    if dry_run:
+        print(f"[priority {priority}] {title}\n{message}\n", flush=True)
+        return
+    keys = read_env(config["pushover"]["envFile"])
+    data = urllib.parse.urlencode({"token": keys["PUSHOVER_TOKEN"], "user": keys["PUSHOVER_USER"],
+                                   "title": title, "message": message, "priority": priority}).encode()
+    http_json(config["pushover"].get("url", "https://api.pushover.net/1/messages.json"), data=data)
+
+
+def run(config_path, state_path, dry_run, force_report, now_ms=None):
+    with open(config_path, encoding="utf-8") as handle:
+        config = json.load(handle)
+    now = now_ms if now_ms is not None else int(time.time() * 1000)
+    state = load_state(state_path)
+    sessions = pocket_usage(config["db"], now, DAY)
+    titles = session_titles(config)
+
+    sent = state.get("runaway", {})
+    sent = {k: v for k, v in sent.items() if now - v < DAY}
+    for sid, reason in runaways(config, sessions, now).items():
+        if str(sid) in sent:
+            continue
+        name = titles.get(sid, f"#{sid}")
+        push(config, f"Runaway agent: {name}",
+             f"{name} on aether: {reason}. Reset its context or stop it in Pi Pocket.", 0, dry_run)
+        sent[str(sid)] = now
+        log(f"runaway pushed for {name}")
+    state["runaway"] = sent
+
+    today = datetime.datetime.fromtimestamp(now / 1000, ZONE)
+    due = today.hour == config.get("reportHour", 7) and state.get("reported") != today.date().isoformat()
+    if force_report or due:
+        title, message = summary(sessions, titles, litellm_usage(config),
+                                 waiting_limits(config.get("limits", ""), now))
+        push(config, title, message, -1, dry_run)
+        state["reported"] = today.date().isoformat()
+        log("summary sent")
+    if not dry_run:
+        save_state(state_path, state)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--config", default=os.environ.get("POCKET_USAGE_REPORT_CONFIG", DEFAULT_CONFIG))
+    parser.add_argument("--state", default=os.environ.get("POCKET_USAGE_REPORT_STATE", DEFAULT_STATE))
+    parser.add_argument("--dry-run", action="store_true", help="print the pushes instead of sending them")
+    parser.add_argument("--report", action="store_true", help="send the daily summary now")
+    parser.add_argument("--now", type=int, help=argparse.SUPPRESS)
+    args = parser.parse_args(argv)
+    try:
+        run(args.config, args.state, args.dry_run, args.report, args.now)
+    except Exception as error:  # noqa: BLE001 - one line in the journal, a non-zero exit
+        log(f"failed: {type(error).__name__}: {error}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

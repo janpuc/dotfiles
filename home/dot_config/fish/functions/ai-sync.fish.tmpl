@@ -68,6 +68,20 @@ function ai-sync --description "Fetch AI credentials from 1Password into a local
     echo "Wrote $CRED_FILE (0600) and exported into this shell."
 {{- if eq .chezmoi.os "linux" }}
 
+    # pocket-usage-report's Pushover keys (the Alertmanager app's token and Jan's user key), for
+    # root alone: the agents never read them.
+    set -l push_tmp (mktemp)
+    chmod 600 $push_tmp
+    if set -l push_token (op read op://Kubernetes/alertmanager/ALERTMANAGER_PUSHOVER_TOKEN 2>/dev/null); and set -l push_user (op read op://Kubernetes/pushover/PUSHOVER_USER_KEY 2>/dev/null)
+        printf 'PUSHOVER_TOKEN=%s\nPUSHOVER_USER=%s\n' $push_token $push_user >$push_tmp
+        sudo install -d -o root -g root -m 700 /etc/pocket-usage-report
+        sudo install -o root -g root -m 600 $push_tmp /etc/pocket-usage-report/pushover.env
+        echo "Gave pocket-usage-report its Pushover keys."
+    else
+        echo "  ! could not read the Pushover keys; pocket-usage-report keeps its old ones" >&2
+    end
+    rm -f $push_tmp
+
     # The separate merger App never reaches pocket. Missing item is expected before Step 2
     # provisioning: warn and retain existing credentials, without failing the rest of ai-sync.
     if id pr-broker >/dev/null 2>&1

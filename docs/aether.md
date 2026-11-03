@@ -560,6 +560,34 @@ an approval waiting, else working (root or subagent busy), else failed (the newe
 error), else idle. A run that cannot read Pi Pocket or its config changes nothing and exits 1.
 Its journal: `journalctl -u pocket-watchdog`.
 
+## Usage report — what the agents spend
+
+In the week to 2026-11-03 the PRs and Alerts sessions used over a billion tokens between them,
+nearly all re-reading a conversation that never reset, and LiteLLM sent 1,218 requests to the
+per-token OpenCode Go copy of MiniMax. Nobody saw it until every plan was out.
+
+`pocket-usage-report` (`/usr/local/sbin`, from `home/.system/pocket-usage-report`, installed by
+`21-linux-pocket-usage-report`) is plain Python with no model in it, run every hour at :50 by
+`pocket-usage-report.timer`, as root: it reads Pi Pocket's database read-only and keeps the
+Pushover keys away from the agents. Its config is `/etc/pocket-usage-report/config.json` (from
+`pocket-usage-report.json`), its state `/var/lib/pocket-usage-report/state.json`.
+
+- **Runaway, at once:** a session (its subagents counted with it) over `runaway.tokens24h` tokens
+  in 24 hours, or whose last `runaway.minCalls`+ calls within `runaway.windowHours` re-read over
+  `runaway.contextPerCall` tokens each on average, gets one normal-priority Pushover push, at
+  most once a day per session.
+- **Summary, at 07:50 Warsaw time:** a quiet (priority -1) push with the last 24 hours: tokens,
+  calls and context per call for each session, LiteLLM's tokens per model (kritika, memini,
+  Open WebUI) from Prometheus, the paid fallbacks into OpenCode Go, and the providers Pi Pocket
+  waits on.
+
+The Pushover keys are the Alertmanager app's token and Jan's user key
+(`op://Kubernetes/alertmanager/ALERTMANAGER_PUSHOVER_TOKEN`,
+`op://Kubernetes/pushover/PUSHOVER_USER_KEY`), written by `ai-sync` to
+`/etc/pocket-usage-report/pushover.env` (root, 0600). `sudo pocket-usage-report --dry-run
+--report` prints both messages instead of sending them. Tests:
+`node --test home/.system/pocket-usage-report.test.cjs`.
+
 ## PR shepherd — Step 2: separate merge broker
 
 The **PRs** session uses `pr-shepherd/SKILL.md`. `pr-lane <N> [--json]` and

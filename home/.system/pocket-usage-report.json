@@ -1,0 +1,21 @@
+{
+  "db": "/home/pocket/.pi-pocket/pocket.sqlite",
+  "limits": "/home/pocket/.pi-pocket/provider-limits.json",
+  "pocket": {
+    "baseUrl": "http://127.0.0.1:8787",
+    "tokenFile": "/home/pocket/.pi-pocket/config.json",
+    "tokenKey": "ownerToken"
+  },
+  "prometheus": "https://prometheus.janpuc.com",
+  "pushover": {
+    "envFile": "/etc/pocket-usage-report/pushover.env",
+    "url": "https://api.pushover.net/1/messages.json"
+  },
+  "reportHour": 7,
+  "runaway": {
+    "tokens24h": 100000000,
+    "contextPerCall": 300000,
+    "minCalls": 10,
+    "windowHours": 2
+  }
+}

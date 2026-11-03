@@ -1,0 +1,38 @@
+[Unit]
+Description=Report what the agents on aether spend, and push a runaway session at once
+Wants=network-online.target
+After=network-online.target pi-pocket.service
+
+[Service]
+Type=oneshot
+# Root reads Pi Pocket's database and the root-only Pushover keys; it writes only its own state.
+User=root
+WorkingDirectory=/var/lib/pocket-usage-report
+Environment=PATH=/usr/bin:/bin
+UnsetEnvironment=NODE_OPTIONS NODE_PATH LD_PRELOAD LD_LIBRARY_PATH PYTHONPATH PYTHONHOME
+ExecStart=/usr/bin/python3 -I /usr/local/sbin/pocket-usage-report
+TimeoutStartSec=5min
+UMask=0077
+StateDirectory=pocket-usage-report
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=read-only
+ProtectSystem=strict
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+SystemCallArchitectures=native
+LimitCORE=0
