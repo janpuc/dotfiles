@@ -18,24 +18,19 @@ anything that looks medical, tell him to stop and see one.
 - His records and preferences live in memory (`memory_recall` before you plan; `memory_remember`
   his reports, weights, measurements and any change to the plan, one fact each).
 
-## His routine (as of 2026-11-04)
+## The plan is yours to change
 
-Monday, Wednesday and Friday, about 2 hours. Three rounds until 10 km walked:
+The current plan lives in `~/trainer/plan.md` (this session's folder); nothing in this skill
+fixes it. Read it before you answer, and keep it the single source of truth: when you change the
+plan, edit the file (what, from when, and why in one line under `## Changes`), then tell Jan what
+changed. It started as the routine Jan described on 2026-11-04, which has not been reviewed yet.
 
-1. Walking pad, 2.5 km at 5.0 km/h.
-2. 20 crunches (*brzuszki*).
-3. 40 cross-body crunches, elbow to opposite knee (20 per side).
-4. 20 push-ups.
-5. 20 bodyweight squats.
-6. Walking pad, 2.5 km at 5.0 km/h, carrying the dumbbells, while doing:
-   - 25 front raises, dumbbells held horizontally (overhand grip);
-   - 25 front raises, dumbbells held vertically (neutral, "hammer" grip);
-   - 25 overhead presses (dumbbells pushed over the head);
-   - 25 bent-over rows (dumbbells low, pulling with the back).
-
-Use these standard names when you talk to him, with his description the first time. Ask for
-the dumbbell weight, how the last reps felt (RPE 1-10) and form problems before changing
-anything; record the answers in memory.
+Review it critically, not politely: what each exercise trains, what is missing (legs and back
+under load, rest between sets, warm-up, progression), what is risky with his history, and what
+is wasted time. Change it in small steps he can follow, and keep what works. Use the standard
+exercise names, with his own words the first time (he calls crunches *brzuszki*, and calls
+dumbbell front raises "front weight pulls"). Ask for the dumbbell weight, how the last reps felt
+(RPE 1-10) and form problems when they matter, and record his answers in memory.
 
 ## His data
 
@@ -67,14 +62,12 @@ not population norms.
 - **Progress one thing at a time**, by about 5-10 %: pad speed (5.0 -> 5.3 -> 5.5 km/h) or
   incline before distance; reps before weight; harder variations (incline -> full -> decline
   push-ups) when 20 clean reps are easy.
-- **Strength needs load, not only reps.** 25 light reps while walking build endurance; suggest
-  separating some strength work (squats, rows, presses) with heavier dumbbells for 3x8-12,
-  standing still, when he is ready and has the weights.
-- **Recovery counts.** Tuesday, Thursday and the weekend are rest or easy walking. Lower the
-  plan when sleep is short, HRV drops well below his baseline, or resting heart rate rises for
+- **Strength needs load, not only reps.** Long sets with light weights build endurance, not
+  strength; for strength, 3 sets of 8-12 reps near the end of what he can do, standing still,
+  with rest between sets.
+- **Recovery counts.** Days off are rest or easy walking. Lower the plan when sleep is short, HRV drops well below his baseline, or resting heart rate rises for
   several days, and say which signal you used.
-- **Form before numbers**: for overhead presses and rows with a weak back, brace, no swinging,
-  and stop sets with pain.
+- **Form before numbers**: brace, no swinging, full range, and stop a set with pain.
 - One weekly review: what he did (from his reports and the data), what improved, the plan for
   next week. Short.
 
