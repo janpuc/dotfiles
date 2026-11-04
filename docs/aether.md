@@ -560,6 +560,22 @@ an approval waiting, else working (root or subagent busy), else failed (the newe
 error), else idle. A run that cannot read Pi Pocket or its config changes nothing and exits 1.
 Its journal: `journalctl -u pocket-watchdog`.
 
+## Trainer — Jan's personal trainer
+
+The **Trainer** session (id 24161, folder `~pocket/trainer`) runs on Claude Sonnet 5.5 (medium
+thinking, Pocket's metered Anthropic key) with the `personal-trainer` skill
+(`home/.system/pi-pocket-skills/personal-trainer/SKILL.md`): Jan's profile and routine, how to
+read his Apple Health data, and how to coach. Its session instructions say to follow that skill;
+a schedule sends "Run the weekly training review." every Sunday at 19:00 Warsaw time. Its
+watchdog chain is Sonnet, then MiniMax Flash, then the M3 Pro.
+
+Apple Health data lives in `apple-health-victoria-metrics` (namespace `selfhosted`), which has no
+route. home-ops gives the `ai/pi-pocket` service account a Role that may GET through the API
+server's service proxy to that one Service, so the agent reads it with
+`kubectl get --raw /api/v1/namespaces/selfhosted/services/apple-health-victoria-metrics:8428/proxy/api/v1/query?...`.
+Writes are POSTs, which the Role does not allow, and VictoriaMetrics' delete and admin endpoints
+want the ingest token.
+
 ## Usage report — what the agents spend
 
 In the week to 2026-11-03 the PRs and Alerts sessions used over a billion tokens between them,

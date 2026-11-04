@@ -52,6 +52,15 @@
         "minimax/MiniMax-M3.1-Flash:high",
         "m3pro/huihui-qwen3.8-27b:off"
       ]
+    },
+    {
+      "id": 24161,
+      "name": "Trainer",
+      "chain": [
+        "anthropic/claude-sonnet-5-5:medium",
+        "minimax/MiniMax-M3.1-Flash:medium",
+        "m3pro/huihui-qwen3.8-27b:off"
+      ]
     }
   ]
 }

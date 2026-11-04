@@ -108,7 +108,7 @@ const configures = (posts) => posts.filter((post) => post.path.endsWith('/config
 const submits = (posts) => posts.filter((post) => post.path.endsWith('/submit'));
 
 test('shipped config: every session has a chain ending on the M3 Pro', () => {
-    assert.deepEqual(shipped.sessions.map((session) => session.id).sort((a, b) => a - b), [548, 1356, 1838, 3120, 7766]);
+    assert.deepEqual(shipped.sessions.map((session) => session.id).sort((a, b) => a - b), [548, 1356, 1838, 3120, 7766, 24161]);
     for (const session of shipped.sessions) assert.equal(session.chain.at(-1), 'm3pro/huihui-qwen3.8-27b:off');
 });
 

@@ -10,7 +10,7 @@
 #   memini  {{ include ".system/pi-pocket-extensions/memini.ts" | sha256sum }}
 #   approvals {{ include ".system/pi-pocket-extensions/approvals.ts" | sha256sum }}
 #   web     {{ include ".system/pi-pocket-extensions/web.ts" | sha256sum }}
-#   skills  {{ include ".system/pi-pocket-skills/homelab-cluster/SKILL.md" | sha256sum }} {{ include ".system/pi-pocket-skills/home-assistant/SKILL.md" | sha256sum }} {{ include ".system/pi-pocket-skills/github/SKILL.md" | sha256sum }}
+#   skills  {{ include ".system/pi-pocket-skills/homelab-cluster/SKILL.md" | sha256sum }} {{ include ".system/pi-pocket-skills/home-assistant/SKILL.md" | sha256sum }} {{ include ".system/pi-pocket-skills/github/SKILL.md" | sha256sum }} {{ include ".system/pi-pocket-skills/personal-trainer/SKILL.md" | sha256sum }}
 #   ghtoken {{ include ".system/pi-pocket-gh-token" | sha256sum }} {{ include ".system/pi-pocket-gh-token.service" | sha256sum }} {{ include ".system/pi-pocket-gh-token.timer" | sha256sum }}
 #   shepherd {{ include ".system/agent-push" | sha256sum }} {{ include ".system/pr-lane" | sha256sum }}
 #   prskill {{ include ".system/pi-pocket-skills/pr-shepherd/SKILL.md" | sha256sum }}
@@ -74,7 +74,7 @@ os.close(parent)
 PYHOME
 as_pocket install -d -m 700 "$home/.config" "$home/.config/mise" "$home/.config/pi-pocket" "$home/work" "$home/.kube"
 # Pi's skills, which Pi Pocket loads from Pi's own folder.
-for skill in homelab-cluster home-assistant github pr-shepherd upstream-sync; do
+for skill in homelab-cluster home-assistant github pr-shepherd upstream-sync personal-trainer; do
     as_pocket install -d -m 755 "$home/.pi" "$home/.pi/agent" "$home/.pi/agent/skills" "$home/.pi/agent/skills/$skill"
     pocket_install 644 "$src/pi-pocket-skills/$skill/SKILL.md" "$home/.pi/agent/skills/$skill/SKILL.md"
 done
