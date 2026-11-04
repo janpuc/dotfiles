@@ -16,6 +16,7 @@
 !.chezmoiscripts/*-linux-mise.sh
 !.chezmoiscripts/*-linux-pi-pocket.sh
 !.chezmoiscripts/*-linux-pocket-usage-report.sh
+!.chezmoiscripts/30-pi-subagents-3158.sh
 !.chezmoiscripts/*-linux-aether-backup.sh
 !.config
 !.config/git
