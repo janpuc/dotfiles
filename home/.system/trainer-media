@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""trainer-media: exercise pictures the Trainer can show Jan in Pi Pocket's chat.
+
+Pi Pocket shows an image inline only when it is a file in the session's folder (a web image becomes
+a link, and video is not allowed in replies). This finds an exercise in Free Exercise DB (public
+domain, about 870 exercises with a start and an end photo each, pinned to one commit), saves the
+photos under ~/trainer/media/, joins them into a looping GIF, and prints the Markdown line to put
+in the reply.
+
+  trainer-media search <words>    exercises whose name matches, with their ids
+  trainer-media show <id>         save the GIF (once) and print its Markdown, with the steps
+"""
+import io
+import json
+import os
+import sys
+import urllib.request
+
+COMMIT = "f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5"
+BASE = f"https://raw.githubusercontent.com/yuhonas/free-exercise-db/{COMMIT}"
+MEDIA = os.path.join(os.environ.get("TRAINER_DIR", os.path.expanduser("~/trainer")), "media")
+CATALOG = os.path.join(MEDIA, f".exercises-{COMMIT[:12]}.json")
+
+
+def fetch(url):
+    with urllib.request.urlopen(url, timeout=30) as response:
+        return response.read()
+
+
+def catalog():
+    if not os.path.exists(CATALOG):
+        os.makedirs(MEDIA, exist_ok=True)
+        data = fetch(f"{BASE}/dist/exercises.json")
+        json.loads(data)
+        with open(f"{CATALOG}.tmp", "wb") as handle:
+            handle.write(data)
+        os.replace(f"{CATALOG}.tmp", CATALOG)
+    with open(CATALOG, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def search(words):
+    terms = [w.lower() for w in words]
+    hits = [e for e in catalog() if all(t in e["name"].lower() for t in terms)]
+    for e in hits[:25]:
+        print(f"{e['id']}\t{e['name']}\t{', '.join(e.get('equipment') and [e['equipment']] or [])}"
+              f"\t{', '.join(e.get('primaryMuscles', []))}")
+    if not hits:
+        print("no match; try fewer or other words (e.g. 'raise', 'row', 'crunch')")
+    return 0 if hits else 1
+
+
+def show(exercise_id):
+    from PIL import Image
+
+    entry = next((e for e in catalog() if e["id"] == exercise_id), None)
+    if entry is None:
+        print(f"no exercise with id {exercise_id}; use: trainer-media search <words>", file=sys.stderr)
+        return 1
+    safe = exercise_id.replace("/", "_")
+    gif = os.path.join(MEDIA, f"{safe}.gif")
+    if not os.path.exists(gif):
+        frames = [Image.open(io.BytesIO(fetch(f"{BASE}/exercises/{path}"))).convert("RGB")
+                  for path in entry["images"]]
+        width = min(480, min(f.width for f in frames))
+        frames = [f.resize((width, round(f.height * width / f.width))) for f in frames]
+        frames[0].save(f"{gif}.tmp", format="GIF", save_all=True, append_images=frames[1:],
+                       duration=900, loop=0)
+        os.replace(f"{gif}.tmp", gif)
+    rel = os.path.relpath(gif, os.path.dirname(MEDIA))
+    print(f"![{entry['name']}]({rel})")
+    print()
+    for n, step in enumerate(entry.get("instructions", []), 1):
+        print(f"{n}. {step}")
+    return 0
+
+
+def main(argv):
+    if len(argv) >= 2 and argv[0] == "search":
+        return search(argv[1:])
+    if len(argv) == 2 and argv[0] == "show":
+        return show(argv[1])
+    print(__doc__.split("\n\n", 2)[2].rstrip(), file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

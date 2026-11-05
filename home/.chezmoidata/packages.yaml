@@ -141,5 +141,6 @@ packages:
       - fish
       - git
       - jq            # Pi's modify_settings.json, which runs during apply
+      - python3-pil   # trainer-media's exercise GIFs
       - python3-yaml  # aether-hosts-sync
       - zsh

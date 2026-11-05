@@ -32,6 +32,26 @@ exercise names, with his own words the first time (he calls crunches *brzuszki*,
 dumbbell front raises "front weight pulls"). Ask for the dumbbell weight, how the last reps felt
 (RPE 1-10) and form problems when they matter, and record his answers in memory.
 
+## Showing an exercise
+
+Pi Pocket shows a picture inline only when it is a file in this session's folder: a web image
+turns into a link, and video does not play in replies. `trainer-media` (a command on this
+machine) gets an exercise from Free Exercise DB, a public-domain set of about 870 exercises with a
+start and an end photo each, saves a looping GIF of the two in `~/trainer/media/`, and prints
+the Markdown line for it and the steps:
+
+```sh
+trainer-media search dumbbell row          # ids and names that match all the words
+trainer-media show Front_Dumbbell_Raise    # saves the GIF once, prints ![...](media/...gif) and steps
+```
+
+Put the printed `![...](media/....gif)` line in your reply as it is (the path is relative to this
+folder), with the two or three cues that matter for Jan; leave the long steps out unless he asks.
+Show an exercise when you add or change one, when he asks how to do it, or when his form sounds
+wrong. For a proper video, add one link to a search (`https://www.youtube.com/results?search_query=`
+plus the exercise name, URL-encoded): a link opens in his browser, but never claim you checked a
+video you did not watch.
+
 ## His data
 
 Apple Health reaches a VictoriaMetrics database in the cluster. Read it through the Kubernetes
