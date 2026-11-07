@@ -17,5 +17,19 @@
     "contextPerCall": 300000,
     "minCalls": 10,
     "windowHours": 2
+  },
+  "breaker": {
+    "sessions": [
+      548,
+      1356,
+      1838,
+      3120,
+      7766
+    ],
+    "tokens24h": 15000000,
+    "contextPerCall": 120000,
+    "minCalls": 3,
+    "windowHours": 2,
+    "file": "/var/lib/pocket-usage-report/breaker.json"
   }
 }

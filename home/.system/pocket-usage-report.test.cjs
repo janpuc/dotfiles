@@ -57,9 +57,12 @@ db.commit()
 
 async function fakes(t, { prometheusUp = true } = {}) {
     const pushes = [];
+    const posts = [];
     const pocket = await listen((req, res) => {
+        if (req.method === 'POST') posts.push(req.url);
         res.writeHead(req.headers.authorization === `Bearer ${TOKEN}` ? 200 : 401, { 'content-type': 'application/json' });
-        res.end(JSON.stringify([{ id: 1356, title: 'PRs' }, { id: 548, title: 'Alerts' }, { id: 3120, title: 'Home' }]));
+        res.end(JSON.stringify(req.method === 'POST' ? { ok: true }
+            : [{ id: 1356, title: 'PRs' }, { id: 548, title: 'Alerts' }, { id: 3120, title: 'Home' }, { id: 4242, title: 'Chat' }]));
     });
     const prom = await listen((req, res) => {
         if (!prometheusUp) { res.writeHead(503); res.end(); return; }
@@ -79,7 +82,7 @@ async function fakes(t, { prometheusUp = true } = {}) {
     });
     t.after(() => { pocket.close(); prom.close(); pushover.close(); });
     const url = (s) => `http://127.0.0.1:${s.address().port}`;
-    return { pocketUrl: url(pocket), promUrl: url(prom), pushUrl: `${url(pushover)}/1/messages.json`, pushes };
+    return { pocketUrl: url(pocket), promUrl: url(prom), pushUrl: `${url(pushover)}/1/messages.json`, pushes, posts };
 }
 
 async function run(t, f, { sessions, calls, state, args = [], now = NOW }) {
@@ -91,7 +94,8 @@ async function run(t, f, { sessions, calls, state, args = [], now = NOW }) {
     fs.writeFileSync(envFile, `PUSHOVER_TOKEN=${PUSH_TOKEN}\nPUSHOVER_USER=user-key\n`);
     const limits = path.join(dir, 'limits.json');
     fs.writeFileSync(limits, JSON.stringify({ gates: [{ state: 'waiting', provider: 'minimax', until: now + HOUR }] }));
-    const config = { ...shipped, db: fixtureDb(dir, sessions, calls, now), limits,
+    const breaker = path.join(dir, 'breaker.json');
+    const config = { ...shipped, db: fixtureDb(dir, sessions, calls, now), limits, breaker: { ...shipped.breaker, file: breaker },
         pocket: { ...shipped.pocket, baseUrl: f.pocketUrl, tokenFile }, prometheus: f.promUrl,
         pushover: { envFile, url: f.pushUrl } };
     const configFile = path.join(dir, 'config.json');
@@ -104,7 +108,8 @@ async function run(t, f, { sessions, calls, state, args = [], now = NOW }) {
     });
     const out = `${result.stdout}${result.stderr}`;
     assert.ok(!out.includes(TOKEN) && !out.includes(PUSH_TOKEN), 'no token is ever printed');
-    return { ...result, state: fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')) : null };
+    return { ...result, state: fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')) : null,
+        breaker: fs.existsSync(breaker) ? { ...JSON.parse(fs.readFileSync(breaker, 'utf8')), mode: fs.statSync(breaker).mode & 0o777 } : null };
 }
 
 const quiet = { sessions: [[1356, null], [548, null], [9001, 1356]], calls: [
@@ -140,13 +145,13 @@ test('a subagent counts with the session that started it', async (t) => {
 
 test('a runaway session is pushed at once, at normal priority, and only once a day', async (t) => {
     const f = await fakes(t);
-    const heavy = { sessions: [[1356, null]], calls: Array.from({ length: 12 }, (_, i) => [1356, 5 * i, 500000, 1000]) };
+    const heavy = { sessions: [[4242, null]], calls: Array.from({ length: 12 }, (_, i) => [4242, 5 * i, 500000, 1000]) };
     const at = NOW + 3 * HOUR; // not the report hour
     const first = await run(t, f, { ...heavy, now: at });
     assert.equal(first.code, 0, first.stderr);
     assert.equal(f.pushes.length, 1);
     assert.equal(f.pushes[0].priority, '0');
-    assert.equal(f.pushes[0].title, 'Runaway agent: PRs');
+    assert.equal(f.pushes[0].title, 'Runaway agent: Chat');
     assert.match(f.pushes[0].message, /each call re-reads ~500K tokens \(12 calls in 2 h\)/);
 
     const again = await run(t, f, { ...heavy, now: at + HOUR, state: first.state });
@@ -156,10 +161,12 @@ test('a runaway session is pushed at once, at normal priority, and only once a d
 
 test('too many tokens in a day is a runaway too', async (t) => {
     const f = await fakes(t);
-    const many = { sessions: [[548, null]], calls: Array.from({ length: 5 }, (_, i) => [548, 300 + i, 25000000, 1000]) };
-    await run(t, f, { ...many, now: NOW + 3 * HOUR });
+    const many = { sessions: [[4242, null]], calls: Array.from({ length: 5 }, (_, i) => [4242, 300 + i, 25000000, 1000]) };
+    const result = await run(t, f, { ...many, now: NOW + 3 * HOUR });
     assert.equal(f.pushes.length, 1);
-    assert.match(f.pushes[0].message, /^Alerts on aether: 125M tokens in 24 h \(5 calls\)/);
+    assert.match(f.pushes[0].message, /^Chat on aether: 125M tokens in 24 h \(5 calls\)/);
+    assert.deepEqual(f.posts, [], 'a session outside the breaker is never stopped');
+    assert.equal(result.breaker, null);
 });
 
 test('Prometheus down still sends the summary, saying so', async (t) => {
@@ -182,4 +189,68 @@ test('shipped config: Pushover keys in a root-only file, quiet summary at 07:00 
     assert.equal(shipped.pushover.envFile, '/etc/pocket-usage-report/pushover.env');
     assert.equal(shipped.reportHour, 7);
     assert.equal(shipped.db, '/home/pocket/.pi-pocket/pocket.sqlite');
+});
+
+test('the breaker: a background session over 15M tokens in 24 h is stopped, paused until midnight, pushed once', async (t) => {
+    const f = await fakes(t);
+    const heavy = { sessions: [[548, null], [9001, 548]], calls: Array.from({ length: 8 }, (_, i) => [i % 2 ? 9001 : 548, 300 + i, 2000000, 1000]) };
+    const at = NOW + 3 * HOUR; // 10:50 in Warsaw
+    const first = await run(t, f, { ...heavy, now: at, state: { breakerSince: 0 } });
+    assert.equal(first.code, 0, first.stderr);
+    assert.deepEqual(f.posts, ['/api/c/548/abort'], 'the root session is stopped, subagents counted with it');
+    assert.equal(f.pushes.length, 1);
+    assert.equal(f.pushes[0].title, 'Breaker: Alerts stopped');
+    assert.match(f.pushes[0].message, /^Alerts on aether: 16M tokens in 24 h \(8 calls\)\. Its run stopped, and its scheduled passes are paused until midnight\./);
+    assert.equal(first.breaker.mode, 0o644, 'pocket-watchdog reads it as pocket');
+    assert.equal(first.breaker.paused['548'].until, Date.UTC(2026, 10, 4, 23, 0), 'midnight in Warsaw');
+    assert.match(first.breaker.paused['548'].reason, /16M tokens in 24 h/);
+
+    const again = await run(t, f, { ...heavy, now: at + HOUR, state: first.state });
+    assert.equal(again.code, 0, again.stderr);
+    assert.equal(f.pushes.length, 1, 'pushed once');
+    assert.equal(f.posts.length, 1, 'stopped once');
+});
+
+test('the breaker: calls that each re-read over 120K trip it; the same calls in a session outside it do not', async (t) => {
+    const f = await fakes(t);
+    const calls = (sid) => Array.from({ length: 3 }, (_, i) => [sid, 10 * i, 130000, 500]);
+    const trips = await run(t, f, { sessions: [[1356, null]], calls: calls(1356), now: NOW + 3 * HOUR, state: { breakerSince: 0 } });
+    assert.equal(trips.code, 0, trips.stderr);
+    assert.equal(f.pushes[0].title, 'Breaker: PRs stopped');
+    assert.match(f.pushes[0].message, /each call re-reads ~130K tokens \(3 calls in 2 h\)/);
+
+    const g = await fakes(t);
+    const other = await run(t, g, { sessions: [[4242, null]], calls: calls(4242), now: NOW + 3 * HOUR, state: { breakerSince: 0 } });
+    assert.equal(other.code, 0, other.stderr);
+    assert.deepEqual(g.pushes, []);
+    assert.deepEqual(g.posts, []);
+});
+
+test('the breaker in a dry run stops nothing and writes no pause', async (t) => {
+    const f = await fakes(t);
+    const result = await run(t, f, { sessions: [[1356, null]], calls: Array.from({ length: 8 }, (_, i) => [1356, 300 + i, 2000000, 1000]),
+        now: NOW + 3 * HOUR, args: ['--dry-run'], state: { breakerSince: 0 } });
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /\[breaker\] would stop PRs \(1356\)/);
+    assert.deepEqual(f.posts, []);
+    assert.equal(result.breaker, null);
+});
+
+test('shipped config: the breaker guards the five background sessions at 15M a day and 120K a call', () => {
+    assert.deepEqual(shipped.breaker.sessions, [548, 1356, 1838, 3120, 7766]);
+    assert.equal(shipped.breaker.tokens24h, 15000000);
+    assert.equal(shipped.breaker.contextPerCall, 120000);
+    assert.equal(shipped.breaker.file, '/var/lib/pocket-usage-report/breaker.json');
+    const watchdog = JSON.parse(fs.readFileSync(path.join(__dirname, 'pocket-watchdog.json'), 'utf8'));
+    assert.equal(watchdog.breakerFile, shipped.breaker.file);
+});
+
+test('the breaker counts from its first run: usage from before it was deployed does not trip it', async (t) => {
+    const f = await fakes(t);
+    const before = { sessions: [[1356, null]], calls: Array.from({ length: 8 }, (_, i) => [1356, 300 + i, 2000000, 1000]) };
+    const first = await run(t, f, { ...before, now: NOW + 3 * HOUR });
+    assert.equal(first.code, 0, first.stderr);
+    assert.deepEqual(f.posts, []);
+    assert.deepEqual(f.pushes, []);
+    assert.equal(first.state.breakerSince, NOW + 3 * HOUR);
 });

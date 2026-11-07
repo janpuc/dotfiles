@@ -14,7 +14,8 @@ ExecStart=/usr/bin/python3 -I /usr/local/sbin/pocket-usage-report
 TimeoutStartSec=5min
 UMask=0077
 StateDirectory=pocket-usage-report
-StateDirectoryMode=0700
+# 0755: pocket-watchdog (as pocket) reads the breaker file here; state.json stays 0600.
+StateDirectoryMode=0755
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes

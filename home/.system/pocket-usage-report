@@ -10,10 +10,13 @@ a conversation that never reset, and nobody saw it until every plan was out. Thi
     paid fallbacks, and the providers Pi Pocket waits on;
   - every run, it sends one normal-priority push for a session that runs away: too many tokens in
     24 hours, or calls that each re-read a very large context. Once per session per day.
+  - for the background sessions (`breaker.sessions`) the limits are much lower, and a breach is a
+    circuit breaker: the session's run is stopped through Pi Pocket's API, and its scheduled passes
+    are paused until midnight (the breaker file, which pocket-watchdog reads), with one push.
 
 It is plain code, with no model in it. It reads Pi Pocket's database and limits file and never
-writes them. The thresholds are in the config file (/etc/pocket-usage-report/config.json), the
-Pushover keys in a root-only env file. `--dry-run` prints instead of sending, `--report` sends the
+writes them; the only change it makes in Pi Pocket is the breaker's stop. The thresholds are in
+the config file (/etc/pocket-usage-report/config.json), the Pushover keys in a root-only env file. `--dry-run` prints instead of sending, `--report` sends the
 summary now.
 """
 import argparse
@@ -120,20 +123,29 @@ def pocket_usage(db_path, now, window):
                 s["peak"] = max(s["peak"], context)
                 model = str(message.get("model", "?"))
                 s["models"][model] = s["models"].get(model, 0) + 1
-                s["recent"].append((at, context))
+                s["recent"].append((at, context, usage.get("totalTokens", 0) or context + usage.get("output", 0)))
         return sessions
     finally:
         db.close()
 
 
+def pocket_request(config, path, body=None):
+    """One call to Pi Pocket's API as its owner. The token is read here and never printed."""
+    pocket = config.get("pocket") or {}
+    with open(pocket["tokenFile"], encoding="utf-8") as handle:
+        token = json.load(handle)[pocket.get("tokenKey", "ownerToken")]
+    headers = {"Authorization": f"Bearer {token}", "X-Pocket": "1"}
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    return http_json(f"{pocket['baseUrl']}{path}", headers=headers, data=data)
+
+
 def session_titles(config):
     """Session titles from Pi Pocket's API; numbers alone when it does not answer."""
-    pocket = config.get("pocket") or {}
     try:
-        with open(pocket["tokenFile"], encoding="utf-8") as handle:
-            token = json.load(handle)[pocket.get("tokenKey", "ownerToken")]
-        listed = http_json(f"{pocket['baseUrl']}/api/sessions",
-                           headers={"Authorization": f"Bearer {token}", "X-Pocket": "1"})
+        listed = pocket_request(config, "/api/sessions")
         return {s["id"]: s.get("title") or f"#{s['id']}" for s in listed if isinstance(s, dict) and "id" in s}
     except Exception as error:  # noqa: BLE001 - titles are a nicety; the numbers still go out
         log(f"no session titles ({type(error).__name__})")
@@ -201,20 +213,84 @@ def summary(sessions, titles, litellm, limits):
     return f"Agents, last 24 h: {millions(total)} tokens", "\n".join(lines) or "No model calls."
 
 
-def runaways(config, sessions, now):
-    """Sessions over a threshold, each with the plain reason."""
-    rules = config.get("runaway", {})
+def since(s, start):
+    """A session's numbers counted from `start` on."""
+    recent = [call for call in s["recent"] if call[0] >= start]
+    return {**s, "tokens": sum(call[2] for call in recent), "calls": len(recent), "recent": recent}
+
+
+def runaways(config, sessions, now, armed=0):
+    """Sessions over a threshold, each with the plain reason and whether the breaker trips.
+
+    A background session (`breaker.sessions`) is held to the breaker's limits, counted from the
+    moment the breaker was armed (`armed`: what came before it is not the breaker's business);
+    any other session, Jan's own among them, only to the runaway push's.
+    """
+    breaker = config.get("breaker") or {}
+    guarded = {int(sid) for sid in breaker.get("sessions", [])}
     found = {}
     for sid, s in sessions.items():
-        if s["tokens"] > rules.get("tokens24h", 100e6):
-            found[sid] = f"{millions(s['tokens'])} tokens in 24 h ({s['calls']} calls)"
-            continue
-        window = rules.get("windowHours", 2) * HOUR
-        recent = [c for at, c in s["recent"] if now - at <= window]
-        if len(recent) >= rules.get("minCalls", 10) and sum(recent) / len(recent) > rules.get("contextPerCall", 300e3):
-            found[sid] = (f"each call re-reads ~{thousands(sum(recent) / len(recent))} tokens "
-                          f"({len(recent)} calls in {rules.get('windowHours', 2)} h)")
+        trips = sid in guarded
+        rules = breaker if trips else config.get("runaway", {})
+        reason = runaway_reason(rules, since(s, armed) if trips else s, now)
+        if reason is not None:
+            found[sid] = (reason, trips)
     return found
+
+
+def runaway_reason(rules, s, now):
+    """Why one session is over these limits, or None."""
+    if s["tokens"] > rules.get("tokens24h", 100e6):
+        return f"{millions(s['tokens'])} tokens in 24 h ({s['calls']} calls)"
+    window = rules.get("windowHours", 2) * HOUR
+    recent = [call[1] for call in s["recent"] if now - call[0] <= window]
+    if len(recent) >= rules.get("minCalls", 10) and sum(recent) / len(recent) > rules.get("contextPerCall", 300e3):
+        return (f"each call re-reads ~{thousands(sum(recent) / len(recent))} tokens "
+                f"({len(recent)} calls in {rules.get('windowHours', 2)} h)")
+    return None
+
+
+def next_midnight(now):
+    """Midnight after `now`, Europe/Warsaw, in milliseconds."""
+    local = datetime.datetime.fromtimestamp(now / 1000, ZONE)
+    tomorrow = datetime.datetime.combine(local.date() + datetime.timedelta(days=1), datetime.time(), ZONE)
+    return int(tomorrow.timestamp() * 1000)
+
+
+def write_breaker(path, paused):
+    """The paused sessions, for pocket-watchdog. Readable by pocket: it holds no secret."""
+    tmp = f"{path}.tmp"
+    with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644), "w", encoding="utf-8") as handle:
+        os.fchmod(handle.fileno(), 0o644)
+        json.dump({"paused": paused}, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    os.replace(tmp, path)
+
+
+def trip(config, sid, name, reason, now, dry_run):
+    """The breaker: stop the session's run and pause its passes until midnight."""
+    breaker = config.get("breaker") or {}
+    if dry_run:
+        print(f"[breaker] would stop {name} ({sid}) and pause its passes: {reason}", flush=True)
+        return "would be stopped"
+    stopped = "stopped"
+    try:
+        pocket_request(config, f"/api/c/{sid}/abort", {})
+    except Exception as error:  # noqa: BLE001 - the pause and the push still go out
+        log(f"could not stop {name}: {type(error).__name__}")
+        stopped = "could not be stopped"
+    path = breaker.get("file")
+    if path:
+        try:
+            with open(path, encoding="utf-8") as handle:
+                paused = json.load(handle).get("paused") or {}
+        except (OSError, ValueError, AttributeError):
+            paused = {}
+        paused = {k: v for k, v in paused.items() if isinstance(v, dict) and v.get("until", 0) > now}
+        paused[str(sid)] = {"until": next_midnight(now), "reason": reason, "at": now}
+        write_breaker(path, paused)
+    log(f"breaker tripped for {name}: {reason}")
+    return stopped
 
 
 def push(config, title, message, priority, dry_run):
@@ -238,12 +314,20 @@ def run(config_path, state_path, dry_run, force_report, now_ms=None):
 
     sent = state.get("runaway", {})
     sent = {k: v for k, v in sent.items() if now - v < DAY}
-    for sid, reason in runaways(config, sessions, now).items():
+    # The breaker counts from its first run on: the usage before it was deployed is history.
+    armed = state.setdefault("breakerSince", now)
+    for sid, (reason, trips) in runaways(config, sessions, now, armed).items():
         if str(sid) in sent:
             continue
         name = titles.get(sid, f"#{sid}")
-        push(config, f"Runaway agent: {name}",
-             f"{name} on aether: {reason}. Reset its context or stop it in Pi Pocket.", 0, dry_run)
+        if trips:
+            stopped = trip(config, sid, name, reason, now, dry_run)
+            push(config, f"Breaker: {name} {stopped}",
+                 f"{name} on aether: {reason}. Its run {stopped}, and its scheduled passes are paused "
+                 f"until midnight.", 0, dry_run)
+        else:
+            push(config, f"Runaway agent: {name}",
+                 f"{name} on aether: {reason}. Reset its context or stop it in Pi Pocket.", 0, dry_run)
         sent[str(sid)] = now
         log(f"runaway pushed for {name}")
     state["runaway"] = sent

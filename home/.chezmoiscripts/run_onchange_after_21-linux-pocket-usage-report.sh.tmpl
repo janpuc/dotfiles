@@ -1,8 +1,8 @@
 {{- if eq .chezmoi.os "linux" -}}
 #!/bin/sh
 # pocket-usage-report on the aether server: an hourly check of what the agents spend, a runaway
-# push at once and a quiet daily summary (docs/aether.md). It does not touch Pi Pocket, so it has a
-# script of its own and never restarts it. The Pushover keys come from ai-sync. Re-runs when any
+# push at once and a quiet daily summary (docs/aether.md), and the breaker that stops a background
+# session over its limits. It never restarts Pi Pocket, so it has a script of its own. The Pushover keys come from ai-sync. Re-runs when any
 # of it changes.
 #   {{ include ".system/pocket-usage-report" | sha256sum }}
 #   {{ include ".system/pocket-usage-report.json" | sha256sum }}
