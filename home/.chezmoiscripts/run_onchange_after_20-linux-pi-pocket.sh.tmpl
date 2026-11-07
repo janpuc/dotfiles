@@ -32,6 +32,9 @@
 #   broker {{ include ".system/pr-approved-merge.timer" | sha256sum }}
 #   watchdog {{ include ".system/pocket-watchdog" | sha256sum }} {{ include ".system/pocket-watchdog.json" | sha256sum }}
 #   watchdog {{ include ".system/pocket-watchdog.service" | sha256sum }} {{ include ".system/pocket-watchdog.timer" | sha256sum }}
+#   sessions {{ include ".system/pi-pocket-sessions/alerts.md" | sha256sum }} {{ include ".system/pi-pocket-sessions/prs.md" | sha256sum }} {{ include ".system/pi-pocket-sessions/upstream.md" | sha256sum }}
+#   sessions {{ include ".system/pi-pocket-sessions/home.md" | sha256sum }} {{ include ".system/pi-pocket-sessions/upgrades.md" | sha256sum }}
+#   settings {{ include ".system/pi-pocket-settings.json" | sha256sum }}
 set -eu
 repos="home-ops dotfiles BC250"
 # The Home Assistant config repo is new, and the App installation may not have it yet: a
@@ -74,6 +77,9 @@ os.close(home)
 os.close(parent)
 PYHOME
 as_pocket install -d -m 700 "$home/.config" "$home/.config/mise" "$home/.config/pi-pocket" "$home/work" "$home/.kube"
+# Each background session keeps what it must remember here, not in its conversation, which
+# pocket-watchdog starts afresh (~/work/state/<session>.md).
+as_pocket install -d -m 700 "$home/work/state"
 # Pi's skills, which Pi Pocket loads from Pi's own folder.
 for skill in homelab-cluster home-assistant github pr-shepherd upstream-sync personal-trainer; do
     as_pocket install -d -m 755 "$home/.pi" "$home/.pi/agent" "$home/.pi/agent/skills" "$home/.pi/agent/skills/$skill"
@@ -218,6 +224,13 @@ as_pocket install -d -m 700 "$home/.pi-pocket" "$home/.pi-pocket/extensions"
 for extension in memini.ts approvals.ts web.ts ask-jan.ts; do
     pocket_install 644 "$src/pi-pocket-extensions/$extension" "$home/.pi-pocket/extensions/$extension"
 done
+# Pi's settings, merged into what Pi writes there itself (its deviceId), while Pi Pocket is
+# stopped: the models the picker offers, and compaction well before the 1M windows fill (Pi
+# compacts at window - reserveTokens: ~120K for the background models, ~300K for Jan's Opus).
+current=$(as_pocket cat "$home/.pi/agent/settings.json" 2>/dev/null || true)
+printf '%s' "${current:-"{}"}" |
+    jq --slurpfile m "$src/pi-pocket-settings.json" '. * $m[0] | .enabledModels = $m[0].enabledModels | .compaction.modelOverrides = $m[0].compaction.modelOverrides' |
+    as_pocket sh -c 'umask 077; cat > "$1.tmp"; chmod 644 "$1.tmp"; mv "$1.tmp" "$1"' sh "$home/.pi/agent/settings.json"
 if as_pocket test -e "$home/.pi-pocket/config.json"; then
     as_pocket python3 -c '
 import json, os, sys
@@ -253,11 +266,16 @@ sudo tailscale serve --bg --https=443 http://127.0.0.1:8787
 
 # The watchdog: plain code, no model. Every 15 minutes it moves a session whose provider ran
 # out of quota to the next model of its chain, and pages Jan through Alertmanager when none is
-# left or a session hangs. Root owns the script and the chains; it runs as pocket, which alone
-# can read the owner token it needs.
+# left or a session hangs. It starts an idle background session afresh on a large context, sets
+# its instructions from the files below, and sends its scheduled passes only when a check in code
+# finds work. Root owns the script, the chains and the instructions; it runs as pocket, which
+# alone can read the owner token it needs.
 sudo install -o root -g root -m 755 "$src/pocket-watchdog" /usr/local/sbin/pocket-watchdog
-sudo install -d -o root -g root -m 755 /etc/pocket-watchdog
+sudo install -d -o root -g root -m 755 /etc/pocket-watchdog /etc/pocket-watchdog/sessions
 sudo install -o root -g root -m 644 "$src/pocket-watchdog.json" /etc/pocket-watchdog/config.json
+sudo install -o root -g root -m 644 "$src/pi-pocket-sessions/alerts.md" "$src/pi-pocket-sessions/prs.md" \
+    "$src/pi-pocket-sessions/upstream.md" "$src/pi-pocket-sessions/home.md" "$src/pi-pocket-sessions/upgrades.md" \
+    /etc/pocket-watchdog/sessions/
 sudo install -o root -g root -m 644 "$src/pocket-watchdog.service" "$src/pocket-watchdog.timer" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now pocket-watchdog.timer

@@ -20,7 +20,7 @@ test('pi-pocket setup installs upstream-diff root-owned, its mapping and skill a
     for (const text of [
         'sudo install -o root -g root -m 755 "$src/upstream-diff" /usr/local/sbin/upstream-diff',
         'pocket_install 644 "$src/upstream-sync.yaml" "$home/.pi/agent/skills/upstream-sync/upstream-sync.yaml"',
-        'for skill in homelab-cluster home-assistant github pr-shepherd upstream-sync; do',
+        'for skill in homelab-cluster home-assistant github pr-shepherd upstream-sync personal-trainer; do',
         'for extension in memini.ts approvals.ts web.ts ask-jan.ts; do',
         '("memini.ts", "approvals.ts", "web.ts", "ask-jan.ts", "triggers.ts", "schedules.ts")'])
         assert.ok(setup.includes(text), text);

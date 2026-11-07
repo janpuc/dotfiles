@@ -1,0 +1,17 @@
+{
+  "enabledModels": [
+    "anthropic/claude-opus-5-5",
+    "anthropic/claude-sonnet-5-5",
+    "minimax/MiniMax-M3.1-Flash",
+    "opencode-go/deepseek-v4.1-flash",
+    "m3pro/huihui-qwen3.8-27b"
+  ],
+  "compaction": {
+    "modelOverrides": {
+      "minimax/MiniMax-M3.1-Flash": { "reserveTokens": 880000 },
+      "opencode-go/deepseek-v4.1-flash": { "reserveTokens": 880000 },
+      "anthropic/claude-sonnet-5-5": { "reserveTokens": 880000 },
+      "anthropic/claude-opus-5-5": { "reserveTokens": 700000 }
+    }
+  }
+}

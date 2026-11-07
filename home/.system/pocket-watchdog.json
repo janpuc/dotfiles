@@ -7,57 +7,194 @@
   "alertmanager": {
     "url": "https://alertmanager.janpuc.com/api/v2/alerts"
   },
+  "prometheus": "https://prometheus.janpuc.com",
+  "homeAssistant": {
+    "url": "https://hass.janpuc.com",
+    "envFile": "/home/pocket/.config/pi-pocket/secrets.env",
+    "tokenKey": "HA_TOKEN"
+  },
+  "breakerFile": "/var/lib/pocket-usage-report/breaker.json",
+  "limits": "/home/pocket/.pi-pocket/provider-limits.json",
+  "resetAboveTokens": 30000,
+  "resetIdleMinutes": 30,
+  "commands": {
+    "prLane": [
+      "/usr/local/sbin/pr-lane",
+      "--all",
+      "--json"
+    ],
+    "upstreamDiff": [
+      "/opt/pr-broker/bin/node",
+      "/usr/local/sbin/upstream-diff"
+    ],
+    "gh": [
+      "/opt/pr-broker/bin/gh"
+    ]
+  },
   "sessions": [
     {
       "id": 548,
       "name": "Alerts",
       "chain": [
         "minimax/MiniMax-M3.1-Flash:medium",
-        "anthropic/claude-sonnet-5-5:medium",
+        "opencode-go/deepseek-v4.1-flash:medium",
         "m3pro/huihui-qwen3.8-27b:off"
-      ]
+      ],
+      "reset": true,
+      "stateFile": "alerts.md",
+      "dispatch": {
+        "gate": "cluster",
+        "hours": [
+          7
+        ],
+        "replaces": "Run the daily cluster scan.",
+        "checks": [
+          {
+            "name": "Flux resource not Ready",
+            "query": "flux_resource_info{ready=\"False\",suspended=\"False\"} == 1"
+          },
+          {
+            "name": "Flux resource suspended",
+            "query": "flux_resource_info{suspended=\"True\"} == 1"
+          },
+          {
+            "name": "Pod waiting",
+            "query": "sum by (namespace, pod, reason) (kube_pod_container_status_waiting_reason{reason=~\"CrashLoopBackOff|ImagePullBackOff|ErrImagePull|CreateContainerConfigError\"}) > 0"
+          },
+          {
+            "name": "Pod Pending over 15 min",
+            "query": "(sum by (namespace, pod) (kube_pod_status_phase{phase=\"Pending\"}) == 1) and on (namespace, pod) (time() - kube_pod_created > 900)"
+          },
+          {
+            "name": "Pod restarted over 5 times in 24 h",
+            "query": "sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total[24h])) > 5"
+          },
+          {
+            "name": "Pod Failed over 1 h",
+            "query": "(sum by (namespace, pod) (kube_pod_status_phase{phase=\"Failed\"}) == 1) and on (namespace, pod) (time() - kube_pod_created > 3600)"
+          },
+          {
+            "name": "Job failed in 24 h",
+            "query": "sum by (namespace, job_name) (kube_job_status_failed > 0) and on (namespace, job_name) (time() - kube_job_status_start_time < 86400)"
+          },
+          {
+            "name": "kopiur snapshot failing",
+            "query": "kopiur_snapshot_consecutive_failures > 0"
+          },
+          {
+            "name": "kopiur backup older than 36 h",
+            "query": "time() - kopiur_policy_last_backup_success_timestamp_seconds > 129600"
+          },
+          {
+            "name": "PVC over 85% full",
+            "query": "max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) > 0.85"
+          },
+          {
+            "name": "Certificate expiring within 14 days",
+            "query": "min by (namespace, name) (certmanager_certificate_expiration_timestamp_seconds - time()) < 14 * 86400"
+          },
+          {
+            "name": "Node under pressure",
+            "query": "max by (node, condition) (kube_node_status_condition{condition=~\"MemoryPressure|DiskPressure|PIDPressure\",status=\"true\"}) == 1"
+          },
+          {
+            "name": "Node memory requests over 90%",
+            "query": "sum by (node) (kube_pod_container_resource_requests{resource=\"memory\"}) / on (node) group_left max by (node) (kube_node_status_allocatable{resource=\"memory\"}) > 0.9"
+          }
+        ]
+      },
+      "instructions": "/etc/pocket-watchdog/sessions/alerts.md"
     },
     {
       "id": 1356,
       "name": "PRs",
       "chain": [
-        "minimax/MiniMax-M3.1-Flash:high",
-        "anthropic/claude-sonnet-5-5:medium",
+        "minimax/MiniMax-M3.1-Flash:medium",
+        "opencode-go/deepseek-v4.1-flash:medium",
         "m3pro/huihui-qwen3.8-27b:off"
-      ]
+      ],
+      "reset": true,
+      "stateFile": "prs.md",
+      "dispatch": {
+        "gate": "prs",
+        "hours": [
+          8,
+          11,
+          14,
+          18,
+          21
+        ],
+        "replaces": "Run one PR shepherd pass."
+      },
+      "instructions": "/etc/pocket-watchdog/sessions/prs.md"
     },
     {
       "id": 1838,
       "name": "Upstream",
       "chain": [
         "minimax/MiniMax-M3.1-Flash:medium",
-        "anthropic/claude-sonnet-5-5:medium",
+        "opencode-go/deepseek-v4.1-flash:medium",
         "m3pro/huihui-qwen3.8-27b:off"
-      ]
+      ],
+      "reset": true,
+      "stateFile": "upstream.md",
+      "dispatch": {
+        "gate": "upstream",
+        "hours": [
+          9
+        ],
+        "replaces": "Run the daily upstream pass."
+      },
+      "instructions": "/etc/pocket-watchdog/sessions/upstream.md"
     },
     {
       "id": 3120,
       "name": "Home",
       "chain": [
         "minimax/MiniMax-M3.1-Flash:medium",
-        "anthropic/claude-sonnet-5-5:medium",
+        "opencode-go/deepseek-v4.1-flash:medium",
         "m3pro/huihui-qwen3.8-27b:off"
-      ]
+      ],
+      "reset": true,
+      "stateFile": "home.md",
+      "dispatch": {
+        "gate": "home",
+        "hours": [
+          12
+        ],
+        "replaces": "Run the Home Assistant drift check.",
+        "atLeastEveryDays": 7
+      },
+      "instructions": "/etc/pocket-watchdog/sessions/home.md"
     },
     {
       "id": 7766,
       "name": "Upgrades",
       "chain": [
         "anthropic/claude-sonnet-5-5:medium",
-        "minimax/MiniMax-M3.1-Flash:high",
+        "opencode-go/deepseek-v4.1-flash:medium",
+        "minimax/MiniMax-M3.1-Flash:medium",
         "m3pro/huihui-qwen3.8-27b:off"
-      ]
+      ],
+      "reset": true,
+      "stateFile": "upgrades.md",
+      "dispatch": {
+        "gate": "upgrades",
+        "hours": [
+          9,
+          15,
+          21
+        ],
+        "replaces": "Run the daily upgrades pass."
+      },
+      "instructions": "/etc/pocket-watchdog/sessions/upgrades.md"
     },
     {
       "id": 24161,
       "name": "Trainer",
       "chain": [
         "anthropic/claude-sonnet-5-5:medium",
+        "opencode-go/deepseek-v4.1-flash:medium",
         "minimax/MiniMax-M3.1-Flash:medium",
         "m3pro/huihui-qwen3.8-27b:off"
       ]

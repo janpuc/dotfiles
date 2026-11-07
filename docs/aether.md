@@ -327,9 +327,10 @@ never secrets, cluster-specific values or Intel-specific bits, published with
 `chore(upstream): port onedr0p <shortsha> <subject>`. Every PR it opens is
 lane C: Jan merges it himself.
 
-The standing instructions for the daily **Upstream** session are
-`home/.system/pi-pocket-sessions/upstream.md` in this repository. The
-installer does not create the session: the main agent creates it with them.
+The standing instructions for the **Upstream** session are
+`home/.system/pi-pocket-sessions/upstream.md` in this repository; pocket-watchdog
+sets them in the session (see below). The installer does not create the
+session: the main agent creates it.
 
 ### Talos and Kubernetes upgrades are gated on upstream
 
@@ -535,9 +536,12 @@ chains (`/etc/pocket-watchdog/config.json`, from `pocket-watchdog.json`); its me
 `/var/lib/pocket-watchdog/state.json`.
 
 Each session has a chain of models, the primary first and the M3 Pro last, because it has no
-quota. Sol is in no chain: ChatGPT Plus's week is too small for background
-sessions (they emptied it on 2026-10-30 and again by 2026-11-03), so it stays for Jan and the
-advisor. Each run, for each session:
+quota. Alerts, PRs, Upstream and Home run MiniMax-M3.1-Flash (medium), then OpenCode Go's
+deepseek-v4.1-flash (medium, Pocket's `OPENCODE_API_KEY`), then the M3 Pro: no Claude and no Sol.
+Upgrades and the Trainer run Sonnet 5.5 first, then deepseek-v4.1-flash, Flash and the M3 Pro.
+Sol is in no chain: ChatGPT Plus's week is too small for background sessions (they emptied it on
+2026-10-30 and again by 2026-11-03), so it stays for Jan and the advisor. Each run, for each
+session:
 
 - A newest answer that is a limit error, or a limit wait whose reset is more than 2 hours away
   (or, with no reset time, that has lasted 30 minutes), moves the session to the next model
@@ -554,11 +558,70 @@ advisor. Each run, for each session:
   posted again on each run with a 45-minute end, so it resolves on its own once the cause is
   gone.
 - A chain link Pi Pocket does not know (no sign-in, or not in `models.json`) is skipped.
+- An idle session on a model its chain does not name (the chain changed, or someone picked a
+  model by hand) is moved onto its chain: the first link whose provider is not known to be out,
+  from the watchdog's own reset times or a closed gate in Pi Pocket's
+  `~pocket/.pi-pocket/provider-limits.json`.
+
+### Fresh contexts, state files and dispatched passes
+
+Every model call re-reads the whole context. From 29 October to 4 November the PRs session used
+840M tokens and Alerts about 400M, at 450-560K tokens a call: their conversations never reset,
+and with 1M windows Pi compacts only at the window minus 16K. After the 3 November "one short
+pass" change they still re-read 130-360K a call, and once they fell to Sonnet, 92% of Alerts'
+cost was cache writes of the same stale context. So the five background sessions (Alerts 548,
+PRs 1356, Upstream 1838, Home 3120, Upgrades 7766; `"reset": true`) work like this:
+
+- **Reset when idle.** A session that is idle (no run, no approval waiting, nothing queued) for
+  `resetIdleMinutes` (30) on a context above `resetAboveTokens` (30,000) gets Pi Pocket's
+  `POST /api/c/<id>/reset` with a handoff note that names its state file. The context is Pi
+  Pocket's own figure (`stats.contextTokens` of the poll view: the newest answer since the last
+  reset or compaction, prompt, cache and answer), so a session that has not answered since is
+  never reset twice. A pass the watchdog sends resets first, however recently the session spoke.
+  A session the chain logic just moved or messaged keeps its context: it has work to finish.
+- **State in files.** Each session keeps what it must remember in
+  `~pocket/work/state/<session>.md` (alerts, prs, upstream, home, upgrades): read first, rewritten
+  last, at most 50 lines. The skills and the session instructions say so.
+- **Instructions from the repo.** `home/.system/pi-pocket-sessions/<session>.md` is installed in
+  `/etc/pocket-watchdog/sessions/`; the watchdog sets it as the session's instructions
+  (`POST /api/c/<id>/instructions`) each time the file changes. An edit made in the app stands
+  until the file changes again.
+- **Dispatched passes.** Pi Pocket's own daily schedules for these sessions are cancelled by the
+  watchdog (it cancels a schedule whose text is exactly the session's `dispatch.replaces`; the
+  reminders `ask_jan` sets have other texts and stay). At its dispatch hours (Europe/Warsaw) the
+  watchdog runs a check in plain code and messages the session (`[dispatch] ...`) only when there
+  is work, naming it:
+
+  | Session | Hours | Sent when |
+  |---|---|---|
+  | Alerts | 07 | a Prometheus check of the daily scan (Flux not Ready or suspended, pods waiting, Pending, Failed or restarting, failed Jobs, kopiur failing or older than 36 h, PVC > 85%, certificate < 14 days, node pressure, node memory requests > 90%) finds something it was not told about in the last 7 days |
+  | PRs | 08, 11, 14, 18, 21 | `pr-lane --all --json` shows a PR whose head, lane, kritika review, CI or konflate status changed, or that closed; lane A (the broker's) and the Talos and Kubernetes groups are left out |
+  | Upstream | 09 | `upstream-diff --json` shows non-bot commits it has not sent yet; on Mondays, the digest |
+  | Home | 12 | the automation and script configs Home Assistant serves changed since the last check, or 7 days passed |
+  | Upgrades | 09, 15, 21 | a Talos or Kubernetes group PR is new, moved, closed, or `upstream-diff --upgrade` changed |
+
+  Each hour is looked at once; a session that is working or waiting for an approval gets it on
+  the next run. A check that fails sends the whole pass, as the schedule would have. The checks
+  run as pocket with the broker's `node` and `gh`; `upstream-diff` fetches into
+  `~pocket/work/home-ops/.git`, the one path in pocket's home the unit may write.
+  Alertmanager's webhook deliveries to Alerts are not dispatched: they arrive as before, on a
+  context the reset keeps small.
+- **Paused by the breaker.** A session in pocket-usage-report's breaker file gets no pass until
+  midnight (below).
+
+Pi itself compacts sooner on Pocket: `~pocket/.pi/agent/settings.json` gets
+`home/.system/pi-pocket-settings.json` merged in with jq by the pi-pocket installer (Pi's own keys,
+such as its deviceId, stay). `compaction.modelOverrides` sets `reserveTokens` 880,000 for
+MiniMax-M3.1-Flash, deepseek-v4.1-flash and Sonnet (compaction above ~120K of their 1M windows)
+and 700,000 for Opus, Jan's interactive model (~300K); `enabledModels` limits the picker to Opus,
+Sonnet, Flash, deepseek-v4.1-flash and the M3 Pro.
 
 The session state is the one `pocket_check` derives (`dot_pi/private_agent/local/pocket-api.md`):
 an approval waiting, else working (root or subagent busy), else failed (the newest answer has an
 error), else idle. A run that cannot read Pi Pocket or its config changes nothing and exits 1.
-Its journal: `journalctl -u pocket-watchdog`.
+Its journal: `journalctl -u pocket-watchdog`; each run ends with one line that counts the
+switches, resets, passes sent and passes with nothing to do. Tests:
+`node --test home/.system/pocket-watchdog.test.cjs`.
 
 ## Trainer — Jan's personal trainer
 
@@ -567,7 +630,9 @@ thinking, Pocket's metered Anthropic key) with the `personal-trainer` skill
 (`home/.system/pi-pocket-skills/personal-trainer/SKILL.md`): Jan's profile and routine, how to
 read his Apple Health data, and how to coach. Its session instructions say to follow that skill;
 a schedule sends "Run the weekly training review." every Sunday at 19:00 Warsaw time. Its
-watchdog chain is Sonnet, then MiniMax Flash, then the M3 Pro.
+watchdog chain is Sonnet, then deepseek-v4.1-flash, MiniMax Flash and the M3 Pro. Its context is
+never reset and its schedule stays Pi Pocket's: the plan lives in `~/trainer/plan.md`, but the
+conversation is the coaching history.
 
 Apple Health data lives in `apple-health-victoria-metrics` (namespace `selfhosted`), which has no
 route. home-ops gives the `ai/pi-pocket` service account a Role that may GET through the API
@@ -592,6 +657,15 @@ Pushover keys away from the agents. Its config is `/etc/pocket-usage-report/conf
   in 24 hours, or whose last `runaway.minCalls`+ calls within `runaway.windowHours` re-read over
   `runaway.contextPerCall` tokens each on average, gets one normal-priority Pushover push, at
   most once a day per session.
+- **Breaker, for the background sessions:** a session in `breaker.sessions` (Alerts, PRs,
+  Upstream, Home, Upgrades) is held to much lower limits: over `breaker.tokens24h` (15M) tokens
+  in 24 hours, or its last 3+ calls within 2 hours re-reading over `breaker.contextPerCall`
+  (120K) on average. Then the breaker stops its run (`POST /api/c/<id>/abort`), writes it to
+  `/var/lib/pocket-usage-report/breaker.json` until midnight Warsaw time (the state directory is
+  0755 and the file 0644, so pocket-watchdog, running as pocket, can read it, and sends that
+  session no pass), and pushes once: "Breaker: <session> stopped". It counts from its own first
+  run (`breakerSince` in its state), so the usage from before it was deployed does not trip it.
+  Every other session, Jan's own among them, only gets the runaway push.
 - **Summary, at 07:50 Warsaw time:** a quiet (priority -1) push with the last 24 hours: tokens,
   calls and context per call for each session, LiteLLM's tokens per model (kritika, memini,
   Open WebUI) from Prometheus, the paid fallbacks into OpenCode Go, and the providers Pi Pocket

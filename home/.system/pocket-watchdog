@@ -12,22 +12,35 @@ This runs every fifteen minutes and, for each session it is configured for:
     lasts over half an hour) to the next model of its chain, and tells the agent what happened,
   - moves a session that has been on a fallback for half a day back to its primary model,
   - pages Jan through Alertmanager when no model is left, when a session hangs, or when a session
-    fails for another reason.
+    fails for another reason,
+  - starts a new context for a background session that sits idle on a large one: every call
+    re-reads the whole context, and in the week to 2026-11-04 two sessions spent over a billion
+    tokens that way. The handoff note names the session's state file, which carries what it
+    must remember,
+  - keeps each background session's instructions as the repo's file has them, and
+  - runs the scheduled passes of the background sessions in place of Pi Pocket's own schedules:
+    at the configured hours it checks in plain code whether there is anything to do (open PRs that
+    changed, new upstream commits, a Home Assistant config that moved, a Prometheus finding) and
+    messages the session only then, with what changed.
 
 It is plain code, with no model in it. The sessions and their chains are in the config file
 (/etc/pocket-watchdog/config.json), not in this script. A run that cannot read Pi Pocket or the
 config changes nothing and exits non-zero.
 """
 import argparse
+import datetime
+import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import zoneinfo
 
 DEFAULT_CONFIG = "/etc/pocket-watchdog/config.json"
 DEFAULT_STATE = "/var/lib/pocket-watchdog/state.json"
@@ -51,6 +64,16 @@ STUCK = 2 * HOUR
 FAILED = 30 * MINUTE
 # How long an alert lives when no run posts it again.
 ALERT_LIFE = 45 * MINUTE
+# A context above this many tokens is started fresh once the session is idle (resetAboveTokens).
+RESET_ABOVE = 30_000
+# A session is idle this long before its context is reset, so a conversation with Jan keeps its
+# thread; a dispatched pass resets at once (resetIdleMinutes).
+RESET_IDLE = 30 * MINUTE
+# A finding the cluster scan was told about is told again after a week, if it is still there.
+FINDING_AGAIN = 7 * 24 * HOUR
+# How long one check of a scheduled pass may take (pr-lane reads every open PR).
+GATE_TIMEOUT = 300
+ZONE = zoneinfo.ZoneInfo("Europe/Warsaw")
 
 # The words Pi Pocket itself uses for a limit it waited on (src/server/limit-gate.ts): the gate's
 # reason ("ChatGPT's usage limit") and its refusal ("Not waiting: it did not clear in 6 h.").
@@ -65,6 +88,7 @@ PROVIDER_NAMES = {
     "anthropic": "Claude",
     "openai": "OpenAI",
     "openai-codex": "ChatGPT",
+    "opencode-go": "OpenCode Go",
     "minimax": "MiniMax",
     "m3pro": "the M3 Pro",
 }
@@ -74,6 +98,14 @@ TIMEOUT = 20
 
 class WatchdogError(Exception):
     """Something the watchdog cannot do: the run fails and no session is changed."""
+
+
+class GateError(Exception):
+    """A pass's check that could not run: the pass is sent whole, as the schedule would have."""
+
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 class Link:
@@ -230,6 +262,15 @@ def load_config(path):
             raise WatchdogError(f"the config {path} has a session without an id and a name")
         if not isinstance(session.get("chain"), list) or session["chain"] == []:
             raise WatchdogError(f"the config {path} has no chain for {session.get('name')}")
+        plan = session.get("dispatch")
+        if plan is not None:
+            if not isinstance(plan, dict) or plan.get("gate") not in GATES:
+                raise WatchdogError(f"the config {path} has a dispatch for {session['name']} without a known gate")
+            hours = plan.get("hours")
+            if not isinstance(hours, list) or hours == [] or not all(isinstance(h, int) and 0 <= h <= 23 for h in hours):
+                raise WatchdogError(f"the config {path} has dispatch hours for {session['name']} that are not 0-23")
+            if not isinstance(session.get("stateFile"), str):
+                raise WatchdogError(f"the config {path} has a dispatch for {session['name']} without a stateFile")
 
     return config
 
@@ -430,7 +471,26 @@ def iso(at):
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(at / 1000))
 
 
-def handle_session(config, pocket, entry, meta, view, known, state, now, counts):
+def closed_gates(config, now):
+    """The providers Pi Pocket's limit gates hold shut now: {provider: until}, from its limits
+    file (`limits`). None of it is required: no file, no gates."""
+    path = config.get("limits")
+    if not isinstance(path, str):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            gates = json.load(handle).get("gates") or []
+    except (OSError, ValueError, AttributeError):
+        return {}
+    shut = {}
+    for gate in gates:
+        until = gate.get("until") if isinstance(gate, dict) else None
+        if gate.get("state") == "waiting" and isinstance(until, (int, float)) and until > now and isinstance(gate.get("provider"), str):
+            shut[gate["provider"]] = until
+    return shut
+
+
+def handle_session(config, pocket, entry, meta, view, known, state, now, counts, shut=None):
     """One session: what it needs, and what the watchdog does about it."""
     name = entry["name"]
     session_id = entry["id"]
@@ -454,6 +514,7 @@ def handle_session(config, pocket, entry, meta, view, known, state, now, counts)
             position = index
             break
 
+    acted = False
     failure = last_assistant(view)
     error_text = (failure[1] if failure is not None else None) or ""
     failure_id = failure[0].get("id") if failure is not None and error_text else None
@@ -513,11 +574,25 @@ def handle_session(config, pocket, entry, meta, view, known, state, now, counts)
                 log(f"stopped the run of {name}, which waited on {provider_name(failed_provider)}'s limit")
             send_message(pocket, session_id, recovery_message(failed_provider, link))
             counts["messaged"] += 1
+            acted = True
             log(f"told {name} to finish its work on {link.model_id}")
             record["model"] = link.key
             record["fallbackSince"] = None if link.key == primary else now
         else:
             log(f"{name} has no model left in its chain: every model it can use is spent")
+
+    # A session on a model its chain does not name (a chain that changed, or a model picked by
+    # hand) is moved onto the chain once it is idle: the first link whose provider is not known
+    # to be out until later.
+    if not limit_failure and not long_wait and status == "idle" and usable and current_key is not None and position == -1:
+        out = {**(shut or {}), **{k: v for k, v in (record.get("resets") or {}).items() if isinstance(v, (int, float))}}
+        onto = next((link for link in usable if not out.get(link.provider, 0) > now), usable[-1])
+        switch_model(pocket, session_id, onto)
+        counts["switched"] += 1
+        log(f"moved {name} from {current_key}, which its chain does not name, to {onto.key} ({onto.thinking})")
+        record["model"] = onto.key
+        record["fallbackSince"] = None if onto.key == primary else now
+        current_key = onto.key
 
     # An idle session goes back to its primary model once the primary's limit has reset, or,
     # when that time is not known, after half a day on a fallback.
@@ -573,6 +648,8 @@ def handle_session(config, pocket, entry, meta, view, known, state, now, counts)
         alert(config, name, session_id, reasons, current_key, error_text, activity, now, failures, usable)
         counts["alerted"] += 1
 
+    return {"status": status, "acted": acted, "limited": held}
+
 
 def alert(config, name, session_id, reasons, current_key, error_text, activity, now, failures, usable):
     """One critical alert for a session, with a sentence a phone reads."""
@@ -612,7 +689,484 @@ def alert(config, name, session_id, reasons, current_key, error_text, activity, 
     log(f"posted a PocketSessionStuck alert for {name}: {summary}")
 
 
-def watchdog(config_path, state_path):
+# ---------------------------------------------------------------------------------------------
+# Fresh contexts.
+
+
+def context_tokens(view):
+    """The tokens the session's context holds, as Pi Pocket measures it (the newest answer since
+    the last reset or compaction: its prompt, cache reads and writes, and answer). None when no
+    answer has measured it since, which is the case right after a reset."""
+    stats = view.get("stats") if isinstance(view, dict) else None
+    if not isinstance(stats, dict) or stats.get("contextEstimated") is True:
+        return None
+    tokens = stats.get("contextTokens")
+    return int(tokens) if isinstance(tokens, (int, float)) else None
+
+
+def newest_entry(view):
+    """The id of the session's newest entry, or 0."""
+    entries = view.get("entries") if isinstance(view, dict) else None
+    ids = [entry["id"] for entry in entries or [] if isinstance(entry, dict) and isinstance(entry.get("id"), int)]
+    return max(ids) if ids else 0
+
+
+def state_path(entry):
+    """The session's state file, as the agent names it."""
+    return f"~/work/state/{entry['stateFile']}"
+
+
+def handoff_note(entry, tokens):
+    """What the fresh context starts with: where the session's memory is, and nothing to do."""
+    return (
+        f"pocket-watchdog started a new context: the old one held about {tokens // 1000}K tokens, "
+        f"and every call re-read all of it. What this session must remember is in "
+        f"{state_path(entry)}: read it first in every pass, and rewrite it, at most 50 lines, last. "
+        f"Your instructions and skills still apply. Nothing to do until the next message."
+    )
+
+
+def maybe_reset(config, pocket, entry, meta, view, record, now, counts, status, force=False):
+    """Start the session afresh when it is idle on a large context: once per idle period.
+
+    `force` is a pass about to be sent: it starts afresh however recently the session spoke.
+    """
+    if not entry.get("reset"):
+        return False
+    tokens = context_tokens(view)
+    limit = config.get("resetAboveTokens", RESET_ABOVE)
+    if tokens is None or tokens <= limit or status != "idle":
+        return False
+    if isinstance(view.get("inbox"), list) and view["inbox"]:
+        return False
+    newest = newest_entry(view)
+    if record.get("resetEntry") == newest:
+        return False
+    idle = config.get("resetIdleMinutes", RESET_IDLE // MINUTE) * MINUTE
+    if not force and now - last_activity(meta, view) < idle:
+        return False
+    pocket.post(f"/api/c/{entry['id']}/reset", {"note": handoff_note(entry, tokens)})
+    record["resetEntry"] = newest
+    record["resetAt"] = now
+    counts["reset"] += 1
+    log(f"started a new context for {entry['name']}: it was idle on {tokens // 1000}K tokens")
+    return True
+
+
+# ---------------------------------------------------------------------------------------------
+# Scheduled passes, sent only when there is something to do.
+
+
+def due_slot(now, hours):
+    """The newest of today's dispatch hours that has come (Europe/Warsaw), as "YYYY-MM-DDTHH"."""
+    local = datetime.datetime.fromtimestamp(now / 1000, ZONE)
+    past = [hour for hour in hours if hour <= local.hour]
+    if not past:
+        return None
+    return f"{local.date().isoformat()}T{max(past):02d}"
+
+
+def command_env():
+    """The environment the checks run in: pocket's home, the broker's node and gh, no prompts."""
+    env = {key: value for key, value in os.environ.items() if key in ("HOME", "LANG", "TZ")}
+    env.setdefault("HOME", "/home/pocket")
+    env["PATH"] = "/opt/pr-broker/bin:/usr/bin:/bin"
+    env["GH_NO_UPDATE_NOTIFIER"] = "1"
+    env["GH_PROMPT_DISABLED"] = "1"
+    return env
+
+
+def run_command(argv, what):
+    """One check's command, its standard output, or a GateError that says what failed."""
+    try:
+        done = subprocess.run(
+            argv, capture_output=True, text=True, timeout=GATE_TIMEOUT, env=command_env(), check=False
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise GateError(f"{what} did not run: {error}") from None
+    if done.returncode != 0:
+        detail = (done.stderr or done.stdout).strip().replace("\n", " ")[:200]
+        raise GateError(f"{what} failed with exit {done.returncode}: {detail}")
+    return done.stdout
+
+
+def run_json(argv, what):
+    try:
+        return json.loads(run_command(argv, what))
+    except json.JSONDecodeError:
+        raise GateError(f"{what} printed something that is not JSON") from None
+
+
+def command(config, name):
+    commands = config.get("commands") or {}
+    argv = commands.get(name)
+    if not isinstance(argv, list) or not argv or not all(isinstance(arg, str) for arg in argv):
+        raise GateError(f"the config has no command {name}")
+    return list(argv)
+
+
+def digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
+def http_get_json(url, headers=None):
+    request = urllib.request.Request(url, headers={"User-Agent": "pocket-watchdog/1", **(headers or {})})
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            return json.loads(response.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as error:
+        raise GateError(f"{urllib.parse.urlsplit(url).netloc} answered HTTP {error.code}", error.code) from None
+    except (urllib.error.URLError, OSError) as error:
+        raise GateError(f"{urllib.parse.urlsplit(url).netloc} is not reachable: {error}") from None
+    except json.JSONDecodeError:
+        raise GateError(f"{urllib.parse.urlsplit(url).netloc} answered something that is not JSON") from None
+
+
+def pr_lane(ctx):
+    """`pr-lane --all --json`, once per run: the PRs and Upgrades checks share it."""
+    if "prLane" not in ctx["cache"]:
+        results = run_json(command(ctx["config"], "prLane"), "pr-lane")
+        if not isinstance(results, list):
+            raise GateError("pr-lane did not print a list")
+        ctx["cache"]["prLane"] = results
+    return ctx["cache"]["prLane"]
+
+
+def upgrade_group(result):
+    """"talos" or "kubernetes" for a PR pr-lane says names that group, else None."""
+    for reason in result.get("reasons") or []:
+        match = re.match(r"(talos|kubernetes) group named in ", str(reason))
+        if match:
+            return match.group(1)
+    return None
+
+
+def pr_parts(result):
+    """What a PR's pass looks at, each part hashed, so a change says which part moved."""
+    facts = result.get("facts") if isinstance(result.get("facts"), dict) else {}
+    kritika = facts.get("kritika") if isinstance(facts.get("kritika"), dict) else {}
+    konflate = facts.get("konflate") if isinstance(facts.get("konflate"), dict) else {}
+    checks = sorted(
+        (str(c.get("name")), str(c.get("status")), str(c.get("conclusion"))) for c in facts.get("checks") or [] if isinstance(c, dict)
+    )
+    statuses = sorted(
+        (str(s.get("context")), str(s.get("state"))) for s in facts.get("statuses") or [] if isinstance(s, dict)
+    )
+    return {
+        "head": str(result.get("head")),
+        "lane": str(result.get("lane")),
+        "kritika": digest([kritika.get(k) for k in ("state", "description", "reviewedHead", "confidence", "risk")]),
+        "ci": digest([checks, [s for s in statuses if s[0] != "Kritika / Review"]]),
+        "konflate": digest([konflate.get("head"), konflate.get("status")]),
+    }
+
+
+PART_WORDS = {"kritika": "kritika's review changed", "ci": "CI changed", "konflate": "konflate changed", "upstream": "upstream changed"}
+
+
+def pr_changes(old, new):
+    """The words for what moved between two looks at a PR."""
+    if old is None:
+        return "new"
+    words = []
+    if old.get("head") != new["head"]:
+        words.append(f"new head {new['head'][:9]}")
+    if old.get("lane") != new["lane"]:
+        words.append(f"lane {old.get('lane')} -> {new['lane']}")
+    for part, word in PART_WORDS.items():
+        if part in new and old.get(part) != new[part]:
+            words.append(word)
+    return ", ".join(words)
+
+
+def changed_prs(previous, current, skip_lane=None):
+    """Lines for the PRs that are new, changed or gone since the last pass."""
+    lines = []
+    for number, parts in sorted(current.items(), key=lambda item: int(item[0])):
+        old = previous.get(number)
+        if parts["lane"] == skip_lane or old == parts:
+            continue
+        lines.append(f"- #{number} (lane {parts['lane']}): {pr_changes(old, parts)}")
+    for number, old in sorted(previous.items(), key=lambda item: int(item[0])):
+        if number not in current and old.get("lane") != skip_lane:
+            lines.append(f"- #{number}: closed or merged")
+    return lines
+
+
+def gate_prs(ctx):
+    """PRs: the open home-ops PRs whose head, kritika, CI or konflate moved. Lane A is the broker's,
+    and the Talos and Kubernetes groups are the Upgrades session's."""
+    current = {}
+    for result in pr_lane(ctx):
+        if isinstance(result, dict) and isinstance(result.get("pr"), int) and upgrade_group(result) is None:
+            current[str(result["pr"])] = pr_parts(result)
+    lines = changed_prs(ctx["state"].get("prs") or {}, current, skip_lane="A")
+    message = None
+    if lines:
+        message = "\n".join(
+            ["Run one PR shepherd pass. pr-lane shows these changes since the last pass:", *lines[:20],
+             *([f"- and {len(lines) - 20} more: run pr-lane --all --json yourself."] if len(lines) > 20 else []),
+             "Every other open PR is as it was: leave it."]
+        )
+    return message, {"prs": current}
+
+
+def upgrade_version(ctx, number):
+    """The version a Talos or Kubernetes PR moves to: the first `-> version` of its update table."""
+    body = run_command(command(ctx["config"], "gh") + ["api", f"repos/janpuc/home-ops/pulls/{number}", "--jq", ".body"], "gh")
+    match = re.search(r"(?:→|->)\s*`?v?([0-9][0-9A-Za-z.+-]*)", body)
+    return match.group(1) if match else None
+
+
+def gate_upgrades(ctx):
+    """Upgrades: a Talos or Kubernetes PR that is new, moved, merged upstream, or closed."""
+    current = {}
+    for result in pr_lane(ctx):
+        group = upgrade_group(result) if isinstance(result, dict) else None
+        if group is None or not isinstance(result.get("pr"), int):
+            continue
+        parts = pr_parts(result)
+        version = upgrade_version(ctx, result["pr"])
+        upstream = None
+        if version is not None:
+            found = run_json(command(ctx["config"], "upstreamDiff") + ["--upgrade", group, version, "--window", "14", "--json"], "upstream-diff --upgrade")
+            upstream = [bool(found.get("merged")), (found.get("upstream") or {}).get("sha")] if isinstance(found, dict) else None
+        parts["upstream"] = digest([group, version, upstream])
+        current[str(result["pr"])] = parts
+    lines = changed_prs(ctx["state"].get("prs") or {}, current)
+    message = None
+    if lines:
+        message = "\n".join(
+            ["Run the daily upgrades pass. These Talos and Kubernetes PRs changed since the last pass:", *lines[:20]]
+        )
+    return message, {"prs": current}
+
+
+def gate_upstream(ctx):
+    """Upstream: non-bot upstream commits after the cursor that no pass was sent yet, and the
+    Monday digest."""
+    found = run_json(command(ctx["config"], "upstreamDiff") + ["--json"], "upstream-diff")
+    commits = [c for c in (found.get("commits") if isinstance(found, dict) else None) or [] if isinstance(c, dict)]
+    sent = set(ctx["state"].get("sent") or [])
+    fresh = [c for c in commits if c.get("sha") not in sent]
+    local = datetime.datetime.fromtimestamp(ctx["now"] / 1000, ZONE)
+    monday = local.date().isoformat() if local.weekday() == 0 else None
+    want_digest = monday is not None and ctx["state"].get("digest") != monday
+    remember = {"sent": sorted(str(c.get("sha")) for c in commits), "digest": ctx["state"].get("digest")}
+    if not fresh and not want_digest:
+        return None, remember
+    lines = []
+    if fresh:
+        relevant = sum(1 for c in commits if c.get("relevant"))
+        lines.append(f"Run the daily upstream pass. upstream-diff shows {len(commits)} non-bot commits after the cursor ({relevant} relevant), {len(fresh)} new since the last pass:")
+        for c in fresh[:15]:
+            lines.append(f"- {str(c.get('sha'))[:9]} {'relevant' if c.get('relevant') else 'irrelevant'}: {str(c.get('subject'))[:100]}")
+    else:
+        lines.append("Run the daily upstream pass: there are no new upstream commits.")
+    if want_digest:
+        lines.append("It is Monday: post the weekly digest of the skipped commits.")
+        remember["digest"] = monday
+    return "\n".join(lines), remember
+
+
+def read_env_value(path, key):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                name, sep, value = line.strip().partition("=")
+                if sep and name.strip() == key:
+                    return value.strip().strip("'\"")
+    except OSError as error:
+        raise GateError(f"{path} cannot be read: {error}") from None
+    raise GateError(f"{path} has no {key}")
+
+
+def gate_home(ctx):
+    """Home: the automations and scripts Home Assistant runs, compared with the last drift check.
+    A UI edit, and a merge the Git pull add-on brought in, both change them."""
+    settings = ctx["config"].get("homeAssistant") or {}
+    if not isinstance(settings.get("url"), str) or not isinstance(settings.get("envFile"), str):
+        raise GateError("the config has no homeAssistant url and envFile")
+    base = settings["url"].rstrip("/")
+    token = read_env_value(settings["envFile"], settings.get("tokenKey", "HA_TOKEN"))
+    headers = {"Authorization": f"Bearer {token}"}
+    states = http_get_json(f"{base}/api/states", headers)
+    if not isinstance(states, list):
+        raise GateError("Home Assistant's states are not a list")
+    current = {}
+    for state in states:
+        entity = state.get("entity_id") if isinstance(state, dict) else None
+        if not isinstance(entity, str):
+            continue
+        if entity.startswith("automation."):
+            ident = (state.get("attributes") or {}).get("id")
+            if ident is None:
+                continue
+            path = f"automation/config/{urllib.parse.quote(str(ident), safe='')}"
+        elif entity.startswith("script."):
+            path = f"script/config/{urllib.parse.quote(entity.split('.', 1)[1], safe='')}"
+        else:
+            continue
+        try:
+            current[entity] = digest(http_get_json(f"{base}/api/config/{path}", headers))
+        except GateError as error:
+            # An entity whose config Home Assistant does not keep in YAML (made by an
+            # integration): nothing of it can drift from git.
+            if error.status != 404:
+                raise
+            current[entity] = "not in the YAML"
+    previous = ctx["state"].get("configs")
+    days = ctx["plan"].get("atLeastEveryDays")
+    stale = isinstance(days, int) and ctx["now"] - (ctx["state"].get("sentAt") or 0) > days * 24 * HOUR
+    if previous == current and not stale:
+        return None, {"configs": current}
+    lines = ["Run the Home Assistant drift check."]
+    if previous is None:
+        lines.append("It is the first check pocket-watchdog sends.")
+    else:
+        moved = sorted(e for e in set(current) | set(previous) if current.get(e) != previous.get(e))
+        if moved:
+            lines.append(f"Home Assistant's automations or scripts changed since the last check: {', '.join(moved[:30])}.")
+        else:
+            lines.append(f"Nothing moved, but the last check was over {days} days ago.")
+    return "\n".join(lines), {"configs": current}
+
+
+FINDING_NOISE = {"__name__", "prometheus", "endpoint", "instance", "job", "service", "container", "uid"}
+
+
+def gate_cluster(ctx):
+    """Alerts' daily scan: the scan's checks as Prometheus queries; a pass only for findings the
+    session was not told about this week."""
+    url = ctx["config"].get("prometheus")
+    checks = ctx["plan"].get("checks")
+    if not isinstance(url, str) or not isinstance(checks, list) or not checks:
+        raise GateError("the config has no prometheus URL or no checks")
+    findings = {}
+    for check in checks:
+        query = urllib.parse.urlencode({"query": check["query"]})
+        answer = http_get_json(f"{url.rstrip('/')}/api/v1/query?{query}")
+        if not isinstance(answer, dict) or answer.get("status") != "success":
+            raise GateError(f"Prometheus did not answer the {check['name']} check")
+        for series in (answer.get("data") or {}).get("result") or []:
+            labels = {k: v for k, v in (series.get("metric") or {}).items() if k not in FINDING_NOISE}
+            key = check["name"] + (" " + ", ".join(f"{k}={v}" for k, v in sorted(labels.items())) if labels else "")
+            findings[key] = True
+    told = ctx["state"].get("findings") or {}
+    now = ctx["now"]
+    new = [key for key in sorted(findings) if not isinstance(told.get(key), (int, float)) or now - told[key] > FINDING_AGAIN]
+    remember = {"findings": {key: (now if key in new else told[key]) for key in findings}}
+    if not new:
+        return None, remember
+    lines = ["Run the daily cluster scan. pocket-watchdog ran the scan's checks in Prometheus; new since the last scan:"]
+    lines += [f"- {key}" for key in new[:20]]
+    known = [key for key in sorted(findings) if key not in new]
+    if known:
+        lines.append(f"Still there, already reported: {'; '.join(known[:10])}.")
+    lines.append("Every other check is clean in Prometheus: look into the new findings only (steps 1-6).")
+    return "\n".join(lines), remember
+
+
+GATES = {"prs": gate_prs, "upgrades": gate_upgrades, "upstream": gate_upstream, "home": gate_home, "cluster": gate_cluster}
+
+
+def apply_instructions(pocket, entry, view, record, counts):
+    """The session's instructions, from the repo's file, set once each time the file changes. An
+    edit Jan makes in the app stands until the file changes again."""
+    path = entry.get("instructions")
+    if not isinstance(path, str):
+        return
+    try:
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read().strip()
+    except OSError as error:
+        raise WatchdogError(f"the instructions {path} cannot be read: {error}") from None
+    wanted = digest(text)
+    if record.get("instructions") == wanted:
+        return
+    agent = view.get("agent") if isinstance(view.get("agent"), dict) else {}
+    if str(agent.get("instructions") or "").strip() != text:
+        pocket.post(f"/api/c/{entry['id']}/instructions", {"text": text})
+        counts["instructed"] += 1
+        log(f"set {entry['name']}'s instructions from {path}")
+    record["instructions"] = wanted
+
+
+def read_pauses(config, now):
+    """The sessions pocket-usage-report's breaker paused: {id: reason}, the ones still due."""
+    path = config.get("breakerFile")
+    if not isinstance(path, str):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            paused = json.load(handle).get("paused") or {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return {
+        int(sid): str(item.get("reason", "the breaker"))
+        for sid, item in paused.items()
+        if isinstance(item, dict) and isinstance(item.get("until"), (int, float)) and item["until"] > now and str(sid).isdigit()
+    }
+
+
+def cancel_schedules(pocket, entry, view, plan):
+    """Pi Pocket's own schedule for the pass the watchdog now sends: cancelled, by its exact text.
+    Other schedules (the reminders ask_jan sets) stay."""
+    text = plan.get("replaces")
+    if not isinstance(text, str):
+        return 0
+    cancelled = 0
+    for schedule in view.get("schedules") or []:
+        if isinstance(schedule, dict) and str(schedule.get("text", "")).strip() == text.strip() and schedule.get("id"):
+            pocket.post(f"/api/c/{entry['id']}/schedules/{urllib.parse.quote(str(schedule['id']))}/cancel", {})
+            cancelled += 1
+            log(f"cancelled {entry['name']}'s Pi Pocket schedule \"{text}\" ({schedule.get('repeat', 'once')}): the watchdog sends it now")
+    return cancelled
+
+
+def maybe_dispatch(config, pocket, entry, meta, view, record, now, counts, outcome, pauses, cache):
+    """A scheduled pass, sent once per dispatch hour when its check finds something to do."""
+    plan = entry.get("dispatch")
+    if not isinstance(plan, dict):
+        return
+    name = entry["name"]
+    cancel_schedules(pocket, entry, view, plan)
+    slot = due_slot(now, plan["hours"])
+    gate_state = record.setdefault("dispatch", {})
+    if slot is None or gate_state.get("slot") == slot:
+        return
+    if entry["id"] in pauses:
+        gate_state["slot"] = slot
+        log(f"the {plan['gate']} pass of {name} is paused until tomorrow: {pauses[entry['id']]}")
+        return
+    if outcome["acted"] or outcome["limited"] or outcome["status"] not in ("idle", "failed"):
+        log(f"{name} is {outcome['status']}: its {plan['gate']} pass waits for the next run")
+        return
+    ctx = {"config": config, "plan": plan, "state": gate_state.get("gate") or {}, "now": now, "cache": cache}
+    try:
+        message, remember = GATES[plan["gate"]](ctx)
+    except GateError as error:
+        log(f"{name}: the {plan['gate']} check failed ({error}): sending the whole pass")
+        message = f"{plan.get('replaces') or 'Run your scheduled pass.'} pocket-watchdog could not check first ({error}), so do the whole pass."
+        remember = gate_state.get("gate") or {}
+    gate_state["slot"] = slot
+    if message is None:
+        gate_state["gate"] = {**remember, "sentAt": (gate_state.get("gate") or {}).get("sentAt")}
+        counts["quiet"] += 1
+        log(f"{name}: nothing new for its {plan['gate']} pass")
+        return
+    maybe_reset(config, pocket, entry, meta, view, record, now, counts, outcome["status"], force=True)
+    text = (
+        f"[dispatch] {message}\n\nRead {state_path(entry)} first; rewrite it, at most 50 lines, at the end of the pass. "
+        f"Then stop: the watchdog sends the next pass when there is something to do."
+    )
+    send_message(pocket, entry["id"], text)
+    gate_state["gate"] = {**remember, "sentAt": now}
+    counts["dispatched"] += 1
+    log(f"sent {name} its {plan['gate']} pass")
+
+
+def watchdog(config_path, state_path, now_ms=None):
     """One run: read everything, then change what needs changing."""
     config = load_config(config_path)
     token = read_token(config)
@@ -643,9 +1197,12 @@ def watchdog(config_path, state_path):
         views[session_id] = pocket.view(session_id)
 
     # Everything is read: from here on the run changes sessions.
-    now = int(time.time() * 1000)
+    now = now_ms if now_ms is not None else int(time.time() * 1000)
     state = load_state(state_path)
-    counts = {"switched": 0, "stopped": 0, "messaged": 0, "alerted": 0}
+    counts = {"switched": 0, "stopped": 0, "messaged": 0, "alerted": 0, "reset": 0, "dispatched": 0, "quiet": 0, "instructed": 0}
+    pauses = read_pauses(config, now)
+    shut = closed_gates(config, now)
+    cache = {}
 
     problems = []
     try:
@@ -653,8 +1210,17 @@ def watchdog(config_path, state_path):
             session_id = entry["id"]
             if session_id not in views:
                 continue
+            meta, view = sessions[session_id], views[session_id]
             try:
-                handle_session(config, pocket, entry, sessions[session_id], views[session_id], known, state, now, counts)
+                outcome = handle_session(config, pocket, entry, meta, view, known, state, now, counts, shut)
+                record = state["sessions"][str(session_id)]
+                apply_instructions(pocket, entry, view, record, counts)
+                # A session the chain just moved or messaged keeps its context: it has work to finish.
+                if not outcome["acted"] and not outcome["limited"]:
+                    if maybe_reset(config, pocket, entry, meta, view, record, now, counts, outcome["status"]):
+                        # The view is the old context's: nothing is measured in the new one yet.
+                        view = {**view, "stats": {"contextEstimated": True}}
+                maybe_dispatch(config, pocket, entry, meta, view, record, now, counts, outcome, pauses, cache)
             except WatchdogError as error:
                 problems.append(f"{entry['name']}: {error}")
                 log(f"{entry['name']}: {error}")
@@ -662,7 +1228,9 @@ def watchdog(config_path, state_path):
         save_state(state_path, state)
     log(
         f"{len(views)} sessions checked, {counts['switched']} model switches, "
-        f"{counts['stopped']} runs stopped, {counts['messaged']} messages sent, {counts['alerted']} alerts posted"
+        f"{counts['stopped']} runs stopped, {counts['messaged']} messages sent, {counts['alerted']} alerts posted, "
+        f"{counts['reset']} contexts reset, {counts['dispatched']} passes sent, {counts['quiet']} passes with nothing to do, "
+        f"{counts['instructed']} instructions set"
     )
     if problems:
         raise WatchdogError(f"{len(problems)} sessions could not be handled; see the lines above")
@@ -680,9 +1248,10 @@ def main(argv=None):
         default=os.environ.get("POCKET_WATCHDOG_STATE", DEFAULT_STATE),
         help="what the watchdog remembers (default: %(default)s)",
     )
+    parser.add_argument("--now", type=int, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     try:
-        watchdog(args.config, args.state)
+        watchdog(args.config, args.state, args.now)
     except WatchdogError as error:
         print(f"pocket-watchdog: {error}", file=sys.stderr, flush=True)
         return 1
