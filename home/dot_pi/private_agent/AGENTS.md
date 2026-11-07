@@ -51,15 +51,16 @@ while agents run in the background and relay their results when they arrive.
 
 Call `usage_status` before delegating, and again when a run fails on limits. Pass
 `model: "provider/id:thinking"` on every call. Avoid a subscription above about 85% of its
-week unless nothing else fits.
+week unless nothing else fits. The subagent model scope allows exactly the models below; any
+other id is refused.
 
 | Subscription | Size | Models |
 |---|---|---|
-| MiniMax | very large, slow | `minimax/MiniMax-M3`; `minimax/MiniMax-M2.7-highspeed` |
-| OpenCode Go | dollar-metered: a 5-minute `kimi-k3:high` investigation took 2.5% of its week | light: `opencode-go/deepseek-v4.1-flash`, `glm-5.3-flash`, `gpt-6-luna`, `mimo-v2.6-flash`, `claude-haiku-5-5`; standard: `kimi-k3`, `glm-5.3`, `muse-spark-1.3-contributor`, `qwen3.8-max`, `deepseek-v4-pro`, `kimi-k2.7-code` |
-| ChatGPT Plus | Sol uses the fewest tokens: a 1-2 minute task took about 0.15% of the week, an 18-minute worker 1% (and 2% of the 5-hour window) | `openai/gpt-6.1-sol`; `openai/gpt-6-astra` (advisor only) |
+| OpenCode Go | dollar-metered: a 5-minute `kimi-k3:high` investigation took 2.5% of its week | `opencode-go/deepseek-v4.1-flash`: the fast worker and the fallback; `opencode-go/kimi-k3.1-pro`: hard open-model tasks |
+| MiniMax | very large, slow; it also carries the Pi Pocket background sessions | `minimax/MiniMax-M3.1-Flash`: long and bulk work |
+| ChatGPT Plus | Sol uses the fewest tokens: a 1-2 minute task took about 0.15% of the week, an 18-minute worker 1% (and 2% of the 5-hour window) | `openai/gpt-6.1-sol`: hard tasks; `openai/gpt-6-astra`: advisor only |
 | Claude Max | largest, but it is your own quota | `claude-bridge/claude-sonnet-5-5` only when Jan asks; `claude-bridge/claude-fable-5-1` only when Jan names Fable; never Opus |
-| M3 Pro, local | free, always on, slow, one request at a time | `litellm/m3pro/huihui-qwen3.8-27b` (MiniMax M3 when the box is down); `litellm/m3pro-local/huihui-qwen3.8-27b` (box only, for infrastructure findings and private material). Huihui Qwen3.8-27B abliterated: uncensored, reads images, about 9 tok/s writing and 70 tok/s reading prompts. 32K context, thinking off (no `:thinking` suffix). Picked for chat and images; its tool calling is untested, so check worker results. The box also generates images on request (`m3pro/lustify-v2`, `m3pro/noobai-xl-1.1`), which unloads the LLM: the next request waits about 10 s. Run one agent on it at a time |
+| M3 Pro, local | free, always on, slow, one request at a time | `litellm/m3pro/huihui-qwen3.8-27b` (MiniMax when the box is down); `litellm/m3pro-local/huihui-qwen3.8-27b` (box only, for infrastructure findings and private material). Huihui Qwen3.8-27B abliterated: uncensored, reads images, about 9 tok/s writing and 70 tok/s reading prompts. 32K context, thinking off (no `:thinking` suffix). Picked for chat and images; its tool calling is untested, so check worker results. The box also generates images on request (`m3pro/lustify-v2`, `m3pro/noobai-xl-1.1`), which unloads the LLM: the next request waits about 10 s. Run one agent on it at a time |
 
 ### Start at the lowest level that fits
 
@@ -68,13 +69,18 @@ headroom; never start an easy or normal task on Sol, Astra or Fable.
 
 | Level | Task | Models | When OpenCode Go is above 85% |
 |---|---|---|---|
-| Easy | one clear job: a lookup, a web fact, a small specified change, a small review | `opencode-go/deepseek-v4.1-flash:low`; `minimax/MiniMax-M3:medium` for lookups and research when Jan is not waiting | `minimax/MiniMax-M3:medium` |
-| Normal | several files or steps with a clear goal | `opencode-go/deepseek-v4.1-flash:medium`, `opencode-go/muse-spark-1.3-contributor:medium`, `opencode-go/kimi-k3:medium` | `openai/gpt-6.1-sol:medium`; `minimax/MiniMax-M3:medium` when Jan is not waiting |
-| Hard | ambiguous, cross-cutting or a long investigation, or a lower level failed its check | `openai/gpt-6.1-sol:high` or `opencode-go/kimi-k3:high`, whichever subscription has more headroom; then `opencode-go/glm-5.3:high`, `opencode-go/qwen3.8-max:high` | `openai/gpt-6.1-sol:high`; `minimax/MiniMax-M3:high` when Jan is not waiting |
+| Easy | one clear job: a lookup, a web fact, a small specified change, a small review | `opencode-go/deepseek-v4.1-flash:low` | `minimax/MiniMax-M3.1-Flash:medium` |
+| Normal | several files or steps with a clear goal | `opencode-go/deepseek-v4.1-flash:medium` | `openai/gpt-6.1-sol:medium`; `minimax/MiniMax-M3.1-Flash:medium` when Jan is not waiting |
+| Long | research, bulk reading or an investigation that takes many turns, when Jan is not waiting | `minimax/MiniMax-M3.1-Flash:medium` | same |
+| Hard | ambiguous, cross-cutting or a long investigation, or a lower level failed its check | `openai/gpt-6.1-sol:high` or `opencode-go/kimi-k3.1-pro:high`, whichever subscription has more headroom | `openai/gpt-6.1-sol:high`; `minimax/MiniMax-M3.1-Flash:high` when Jan is not waiting |
 | Advice | see Advisors | `oracle` on `openai/gpt-6-astra:high` | same |
 
 Reviews follow the same levels. Go to Sol for a review when the change touches security, data,
 credentials or shared systems, or when a lighter review missed something.
+
+MiniMax is shared with the Pi Pocket sessions on aether, which run on it all day. A long laptop
+job there can take its 5-hour window and pause them: check its 5-hour figure first, and keep
+to one MiniMax agent at a time.
 
 ### Escalate on evidence
 
@@ -84,19 +90,12 @@ failure is not a reason to go stronger: retry the same level on another subscrip
 which model failed at what.
 
 Time counts as well as quota. MiniMax costs almost nothing but takes minutes on hard tasks;
-when Jan is waiting, prefer a fast Go model, and set `timeoutMs` on long jobs.
+when Jan is waiting, prefer deepseek-v4.1-flash, and set `timeoutMs` on long jobs.
 
-Model notes from the 2026-10-09 eval:
-- `glm-5.3-flash` and `MiniMax-M3`: not at `:low`. The first gave up on a debugging task; the
-  second took more turns and tokens.
-- `openai/gpt-6-luna` and `minimax/MiniMax-M2.7-highspeed`: not for research; both reported
-  stale versions from search snippets.
-- `opencode-go/grok-4.7` and `opencode-go/mimo-v2.6-pro`: last resort; slowest and most tokens.
-- Never `opencode/*` (OpenCode Zen, billed per token); the subagent model scope rejects it.
-
-On bounded tasks nearly every model passed, so the levels reflect speed and token use; the eval
-does not show the light models match the strong ones on ambiguous work. Evidence and harness:
-`~/Development/pi-model-eval`.
+Never `opencode/*` (OpenCode Zen, billed per token); the subagent model scope rejects it. The
+2026-10-09 eval behind these levels found that on bounded tasks nearly every model passed, so
+the levels reflect speed and token use, not proof that the light models match the strong ones
+on ambiguous work. Evidence and harness: `~/Development/pi-model-eval`.
 
 ## Advisors
 

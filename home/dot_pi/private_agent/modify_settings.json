@@ -4,7 +4,7 @@
 # of the same name, whatever its version; retired packages are removed.
 #
 # Subagents (pi-subagents) pick their model per call; `subagents.modelScope` keeps them on the
-# subscriptions meant for workers: no Opus, no OpenCode Zen. The agent defaults, used when a
+# minimal model set AGENTS.md describes, by exact id: no Opus, no OpenCode Zen, no retired model. The agent defaults, used when a
 # call names no model, are the cheapest that passed the eval; the advisor gets a fresh brief
 # because a long session overflows Astra's 272K window when forked. Each agent's tool list
 # decides what it can call.
@@ -43,18 +43,20 @@ managed='{
       "enforce": true,
       "strict": true,
       "allow": [
-        "minimax/*",
-        "opencode-go/*",
-        "openai/gpt-6*",
-        "openai/gpt-5.6-*",
+        "minimax/MiniMax-M3.1-Flash",
+        "opencode-go/deepseek-v4.1-flash",
+        "opencode-go/kimi-k3.1-pro",
+        "openai/gpt-6.1-sol",
+        "openai/gpt-6-astra",
         "claude-bridge/claude-sonnet-5-5",
         "claude-bridge/claude-fable-5-1",
-        "litellm/m3pro*"
+        "litellm/m3pro/huihui-qwen3.8-27b",
+        "litellm/m3pro-local/huihui-qwen3.8-27b"
       ]
     },
     "agentOverrides": {
       "scout": {
-        "model": "minimax/MiniMax-M3",
+        "model": "minimax/MiniMax-M3.1-Flash",
         "thinking": "medium",
         "machine": "local",
         "description": "Fast recon in a repo, a cluster, GitHub or the web (bash, gh, kubectl, web fetch); returns compressed context for handoff",
