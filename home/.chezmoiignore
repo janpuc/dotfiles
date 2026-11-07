@@ -4,7 +4,7 @@
   Linux is the aether server: shell basics, internal DNS sync and keepalive. It takes an
   allowlist so files added for the laptop stay off the server until listed here.
   Pi is the same everywhere (~/.pi/agent, the pi function, ai-sync's cache); other AI runtimes
-  and laptop-only configuration are not managed on aether. pi-sec stays on hermes.
+  and laptop-only configuration are not managed on aether.
 */ -}}
 {{ if eq .chezmoi.os "linux" -}}
 **
@@ -46,11 +46,4 @@
 .chezmoiscripts/*-linux-*.sh
 .config/mise
 .config/mise/**
-{{- if ne .hostname "hermes" }}
-# pi-sec needs hermes' security tools and ~/Security; every other machine gets the same Pi as aether.
-.pi/security
-.pi/security/**
-.config/fish/functions/pi-sec.fish
-.config/fish/completions/pi-sec.fish
-{{- end }}
 {{- end }}

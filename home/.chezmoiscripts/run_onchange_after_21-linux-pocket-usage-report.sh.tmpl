@@ -16,5 +16,5 @@ sudo install -o root -g root -m 644 "$src/pocket-usage-report.json" /etc/pocket-
 sudo install -o root -g root -m 644 "$src/pocket-usage-report.service" "$src/pocket-usage-report.timer" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now pocket-usage-report.timer
-[ -f /etc/pocket-usage-report/pushover.env ] || echo "pocket-usage-report: no Pushover keys yet; run ai-sync" >&2
+sudo test -f /etc/pocket-usage-report/pushover.env || echo "pocket-usage-report: no Pushover keys yet; run ai-sync" >&2
 {{- end }}

@@ -15,7 +15,7 @@ reach Linux unless deliberately added there.
 | `home/dot_config/fish/functions/ai-sync.fish.tmpl` | through the read-only service account in `~/.config/op/aether.env`: log ubuntu's gh in from `op://Kubernetes/aether/GH_TOKEN`, write the same `~/.local/state/ai/credentials.fish` as the Macs (including the bridge's `claude setup-token`), then give Pi Pocket and pr-broker their keys |
 | `home/dot_config/git/` | gh credential helper, bat pager, difftastic diff, SSH commit signing |
 | `home/dot_config/{starship.toml,atuin,bat,eza}` and `home/dot_editorconfig` | prompt, history, file display and editing basics |
-| `home/dot_pi/private_agent/` and `home/dot_config/fish/functions/pi.fish` | ubuntu's Pi, the same as on hermes and sisyphus (pi-sec stays on hermes); Pocket's own Pi is separate, under `pocket` |
+| `home/dot_pi/private_agent/` and `home/dot_config/fish/functions/pi.fish` | ubuntu's Pi, the same as on hermes and sisyphus; Pocket's own Pi is separate, under `pocket` |
 | `home/.chezmoiscripts/*-linux-*.sh.tmpl` | apt, system helpers, terminfo, Rex and mise setup |
 | `home/.system/rex-*` (installed by `07-linux-rex`) | Rex from its apt repository; the packaged login server, plus a listener on the tailnet address port 7297, lets `tailscale:janpuc@github` in as ubuntu. Clients use the bare name `aether.tail17d532.ts.net` (Rex skips Pi Pocket on 443) |
 | `home/.system/aether-hosts-sync*` (installed by `05-linux-system`) | hourly: derive internal DNS names from public home-ops into `/etc/hosts`, because the UniFi gateway does not answer DNS from the tailnet |

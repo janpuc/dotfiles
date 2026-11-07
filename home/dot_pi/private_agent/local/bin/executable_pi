@@ -4,7 +4,7 @@
 # the login shell's PATH and never see a fish function. config.fish puts this directory first on
 # PATH and names this file in PI_SUBAGENT_PI_BINARY.
 #
-# Values a caller already set win (pi-sec sets its own), so each line only fills a gap:
+# Values a caller already set win, so each line only fills a gap:
 # - pi-claude-bridge's Claude Code gets its own config dir and ai-sync's one-year token.
 # - ai-sync caches the OpenCode Go and MiniMax keys under PI_ names; Pi's providers read the
 #   plain names, which stay unset in every other tool.
