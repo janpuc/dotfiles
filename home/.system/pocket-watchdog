@@ -531,7 +531,13 @@ def handle_session(config, pocket, entry, meta, view, known, state, now, counts,
         record.pop("waitSince", None)
     else:
         record.setdefault("waitSince", now)
-    until = wait.get("resetAt", wait.get("until")) if wait is not None else None
+    # A reset the provider gave. A backoff's `until` is only Pi Pocket's next try, not a reset: the
+    # limit may last days (MiniMax's week), so it counts as unknown.
+    until = None
+    if wait is not None:
+        until = wait.get("resetAt")
+        if until is None and wait.get("kind") != "backoff":
+            until = wait.get("until")
     if not isinstance(until, (int, float)):
         until = None
     long_wait = wait is not None and (

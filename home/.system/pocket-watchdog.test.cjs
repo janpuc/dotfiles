@@ -689,3 +689,16 @@ test('instructions: set from the file once each time it changes, and an edit in 
     await run(t, { pocketUrl: changed.url, alertUrl: am.url, session: { instructions: file }, state: second.state });
     assert.deepEqual(set(changed.posts), ['Shepherd the PRs, briefly.']);
 });
+
+test('a backoff wait has no known reset: its next try is not a reset, so it moves on after 30 minutes', async (t) => {
+    const now = Date.now();
+    const view = { ...onModel('minimax', 'MiniMax-M3.1-Flash'), entries: [answer(1, now - 2 * MINUTE)],
+        live: { busy: true, limit: { provider: 'minimax', kind: 'backoff', until: now + 10 * MINUTE, reason: "minimax's usage limit" } } };
+    const am = await fakeAlertmanager(t);
+    const fresh = await fakePocket(t, { meta: { busy: true }, view });
+    const first = await run(t, { pocketUrl: fresh.url, alertUrl: am.url });
+    assert.deepEqual(fresh.posts, [], 'not yet: the wait has just begun');
+    const old = await fakePocket(t, { meta: { busy: true }, view });
+    await run(t, { pocketUrl: old.url, alertUrl: am.url, state: { ...first.state, waitSince: now - 40 * MINUTE } });
+    assert.deepEqual(configures(old.posts), [{ provider: 'opencode-go', modelId: 'deepseek-v4.1-flash' }]);
+});
