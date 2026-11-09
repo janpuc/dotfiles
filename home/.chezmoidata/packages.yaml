@@ -7,14 +7,10 @@ packages:
         - awscli
         - aws-sso-cli
         - bat
-        - bun
         - ccache
         - chezmoi
-        - cmake
-        - direnv
         - difftastic
         - dockutil
-        - editorconfig
         - eksctl
         - eza
         - ffmpeg
@@ -22,14 +18,12 @@ packages:
         - fluxcd/tap/flux
         - fzf
         - gh
-        - gitmoji
         - go
         - granted
         - gum
         - helm
         - herdr
         - istioctl
-        - just
         - jq
         - k9s
         - kubectl
@@ -39,11 +33,9 @@ packages:
         - pi-coding-agent
         - saml2aws
         - showwin/speedtest/speedtest
-        - spicetify-cli
         - starship
         - talosctl
         - uv
-        - vals
         - yt-dlp
         - yq
         - zoxide
@@ -56,27 +48,21 @@ packages:
         - claude
         - claude-code@latest
         - codex
-        - ghostty
         - keepingyouawake
         - microsoft-teams
         - obsidian
         - orbstack
         - plex
         - plexamp
-        - utm
-        - Sikarugir-App/sikarugir/sikarugir
         - slack
         - spotify
-        - t3-code@nightly
         - thebrowsercompany-dia
         - visual-studio-code
-        - zed@preview
         - zoom
       vscode:
         - catppuccin.catppuccin-vsc
         - catppuccin.catppuccin-vsc-icons
         - editorconfig.editorconfig
-        - github.copilot-chat # Installed by default
   hosts:
     hermes:
       darwin:
@@ -103,11 +89,12 @@ packages:
           - trivy
           - xwin # spore: MSVC CRT + Windows SDK for clang-cl cross builds (licence accepted by Jan)
         casks:
+          - android-commandlinetools
+          - android-platform-tools # adb
           - discord
           - prismlauncher
           - protonvpn
           - tailscale-app
-          - vlc
           - wireshark-app
           - zulu@21
         vscode:

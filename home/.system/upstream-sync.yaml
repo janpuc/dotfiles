@@ -23,8 +23,7 @@ structural_paths:
 
 structural_files:
   - .renovaterc.json5
-  - .justfile
-  - mod.just
+  - mise.toml
   - .kritika.yaml
   - .lefthook.toml
   - .minijinja.toml
