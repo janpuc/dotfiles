@@ -89,6 +89,8 @@ packages:
           - glslang # inFamous native port: Metal backend HLSL->MSL guest-shader translator (with spirv-cross)
           - spirv-cross # inFamous native port shader translator companion of glslang
           - httpx
+          - innoextract # spore: static unpacking of the GOG (Inno Setup) installer
+          - lld # spore: lld-link for clang-cl builds of the SporeDeck ModAPI mod
           - llvm   # Route B recompiler: pcode2llvm links LLVM C API, llc emits the lifted .o files
           - ninja
           - nmap
@@ -99,6 +101,7 @@ packages:
           - radare2
           - semgrep
           - trivy
+          - xwin # spore: MSVC CRT + Windows SDK for clang-cl cross builds (licence accepted by Jan)
         casks:
           - discord
           - prismlauncher
