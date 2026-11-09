@@ -25,7 +25,7 @@ managed='{
   "packages": [
     "npm:pi-claude-bridge@0.9.3",
     "npm:@eleboucher/pi-memini@0.7.38",
-    "npm:pi-subagents@0.84.0",
+    "npm:pi-subagents@0.87.0",
     "npm:pi-web-access@0.46.0",
     "git:github.com/janpuc/pi-usage@v0.2.1",
     "git:github.com/janpuc/pi-title-spinner@v0.1.0",
