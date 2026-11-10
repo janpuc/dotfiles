@@ -1,0 +1,102 @@
+{
+  "providers": {
+    "nanogpt": {
+      "name": "NanoGPT (subscription)",
+      "baseUrl": "https://nano-gpt.com/api/subscription/v1",
+      "api": "openai-completions",
+      "apiKey": "$NANOGPT_API_KEY",
+      "models": [
+        {
+          "id": "z-ai/glm-5.3",
+          "name": "GLM 5.3 (NanoGPT)",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 196608,
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "z-ai/glm-5.3-flash",
+          "name": "GLM 5.3 Flash (NanoGPT)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 196608,
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "deepseek/deepseek-v4-pro",
+          "name": "DeepSeek V4 Pro (NanoGPT)",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 196608,
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "deepseek/deepseek-v4.1-flash",
+          "name": "DeepSeek V4.1 Flash (NanoGPT)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 196608,
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "moonshotai/kimi-k2.7-code",
+          "name": "Kimi K2.7 Code (NanoGPT)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 196608,
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "z-ai/glm-5.3-flash-uncensored",
+          "name": "GLM 5.3 Flash Uncensored (NanoGPT)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 196608,
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "z-ai/glm-5.3-flash-apex-abliterated",
+          "name": "GLM 5.3 Flash Apex Abliterated (NanoGPT)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 196608,
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "pqhaz/DeepSeek-V4.1-Flash-1017-heretic",
+          "name": "DeepSeek V4.1 Flash Heretic (NanoGPT, uncensored)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 196608,
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "Gemma-4-31B-Gembrain-uncensored-heretic",
+          "name": "Gemma 4 31B Gembrain Uncensored Heretic (NanoGPT)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 196608,
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "gemma-4-26b-a4b-it-chimeraxheretic",
+          "name": "Gemma 4 26B A4B Chimera Heretic (NanoGPT, uncensored)",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 196608,
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

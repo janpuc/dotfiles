@@ -1,0 +1,62 @@
+#!/bin/sh
+# Settings for the NanoGPT + MiniMax profile (~/.pi/pii/agent), started with `pii`.
+# Pi writes the rest of settings.json itself (changelog, device id); those keys and anything
+# added with `pi install` survive. A managed package replaces an installed one of the same name.
+#
+# Deliberately NOT here, unlike the personal profile: memini, pi-claude-bridge, Pi Pocket and the
+# Rex inspector. Models are NanoGPT (models.json) and Pi's built-in MiniMax provider, and `pii`
+# starts Pi with only those two keys, so no other provider is switched on. Subagents run as
+# background children (no `machine`), which inherit those keys; the personal profile's
+# agent-guard-child.ts is reused by absolute path, so they cannot push or change the cluster.
+set -eu
+managed='{
+  "defaultProvider": "nanogpt",
+  "defaultModel": "z-ai/glm-5.3-flash-uncensored",
+  "enabledModels": [
+    "nanogpt/z-ai/glm-5.3-flash-uncensored",
+    "nanogpt/z-ai/glm-5.3",
+    "nanogpt/deepseek/deepseek-v4-pro",
+    "minimax/MiniMax-M3"
+  ],
+  "packages": [
+    "npm:pi-subagents@0.87.0",
+    "npm:pi-web-access@0.46.0",
+    "git:github.com/janpuc/pi-usage@v0.2.2",
+    "git:github.com/janpuc/pi-title-spinner@v0.1.0",
+    "git:github.com/janpuc/pi-footer@v0.1.0"
+  ],
+  "subagents": {
+    "modelScope": {
+      "enforce": true,
+      "strict": true,
+      "allow": ["nanogpt/*", "minimax/*"]
+    },
+    "agentOverrides": {
+      "scout": {
+        "model": "minimax/MiniMax-M3.1-Flash",
+        "thinking": "medium",
+        "description": "Fast recon in a repo or on the web (bash, web fetch); returns compressed context for handoff",
+        "tools": ["read", "grep", "find", "ls", "bash", "write", "contact_supervisor", "web_search", "fetch_content", "get_search_content"]
+      },
+      "researcher": { "model": "nanogpt/deepseek/deepseek-v4.1-flash", "thinking": "medium" },
+      "worker": { "model": "nanogpt/deepseek/deepseek-v4.1-flash", "thinking": "medium" },
+      "reviewer": { "model": "nanogpt/z-ai/glm-5.3", "thinking": "high" },
+      "oracle": { "model": "nanogpt/deepseek/deepseek-v4-pro", "thinking": "high", "defaultContext": "fresh" },
+      "delegate": { "disabled": true },
+      "evidence-auditor": { "disabled": true },
+      "claude-code": { "disabled": true },
+      "claude-code-writer": { "disabled": true },
+      "codex-exec": { "disabled": true },
+      "codex-exec-writer": { "disabled": true },
+      "cursor-agent": { "disabled": true },
+      "cursor-agent-writer": { "disabled": true }
+    }
+  }
+}'
+input=$(cat)
+printf '%s' "${input:-"{}"}" | jq --argjson m "$managed" --arg guard "$HOME/.pi/agent/local/agent-guard-child.ts" '
+  def id: (if type == "object" then .source else . end) | sub("^(npm|git):"; "") | sub("@[^@/]*$"; "");
+  ($m.packages + [$guard]) as $pkgs
+  | ($pkgs | map(id)) as $ids
+  | . * ($m | del(.packages))
+  | .packages = $pkgs + [(.packages // [])[] | select(id as $i | $ids | index($i) | not)]'
