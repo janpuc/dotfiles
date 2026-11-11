@@ -27,10 +27,12 @@ assume a friendly name uniquely identifies a device. `unavailable` and
 
 Lights and scenes are direct: `light.turn_on`, `light.turn_off`, `light.toggle`
 and `scene.turn_on` are allowed, as long as the command is one simple curl to
-one service URL. Everything else is blocked and nobody is asked: `script.*`,
-`switch.*`, `homeassistant.restart` and `homeassistant.stop`, every config-entry
-call and every Supervisor call (`/api/hassio/info` answers 401 for this token
-anyway). If a blocked call is really needed, write the exact command and why on
+one service URL. Reloads below also run directly. Only a fixed Yes from
+`ask_jan` with `unlock` can release a restart or the Core/OS/HACS update window
+as described below. Other writes stay blocked: `script.*` except its reload,
+`switch.*`, `homeassistant.stop`, every config-entry call and every Supervisor
+call (`/api/hassio/info` answers 401 for this token anyway). The guard never
+asks anybody. If another blocked call is really needed, write the exact command and why on
 a line starting `Jan:` in your answer or PR body. Never try another route.
 
 For example, after identifying `light.office`:
@@ -116,8 +118,13 @@ configuration can be read back before and after a reload.
 8. **Reload** with the service named in the pull request body, then read the
    state or the configuration again to verify the change took effect, and
    report what the reload did.
-9. **Never restart** Home Assistant without an `ask_jan` yes, and say why. A
-   restart is a user-facing outage (below), so it is Jan's call, every time.
+9. **Never restart** Home Assistant without `ask_jan` with
+   `unlock: "ha-restart"`, naming why it is needed. The tool supplies the fixed
+   "Yes, restart Home Assistant now" option alongside your alternatives.
+   Only that exact choice grants one simple curl POST to
+   `/api/services/homeassistant/restart` in this conversation within 30 minutes.
+   Any other option, typed Other answer, decline or no answer means hold.
+   A restart is a user-facing outage (below), so it is Jan's call, every time.
 
 ### A restart is an outage in the house
 
@@ -145,8 +152,9 @@ It is a read and runs without a phone prompt, as long as it stays this one
 add-ons; `hacs` the custom integrations; `shelly` device firmware. Leave the
 Supervisor alone: it updates itself.
 
-Each install call is blocked and nobody is asked. If one is really needed, write
-the exact command and why on a line starting `Jan:` instead of running it:
+Install calls stay blocked without the update window grant below. Add-on and
+firmware installs are not part of that window. For those, write the exact
+command and why on a line starting `Jan:` instead of running it:
 
 ```sh
 curl -fsS -X POST -H "Authorization: Bearer $HA_TOKEN" \
@@ -175,13 +183,31 @@ Do the groups in this order, one entity at a time:
    First read the release notes (`release_url` on each entity, and
    `https://www.home-assistant.io/blog/categories/release-notes/` for Core)
    and list any breaking change that touches an integration Jan uses. Then
-   `ask_jan` for a time, with real times and a `reminder`, naming what will
-   update and the breaking changes. In the window, write the exact HACS, Core
-   and OS install commands in order on `Jan:` lines, with the reason, and stop.
+   name what will update and the breaking changes in `ask_jan` with
+   `unlock: "ha-update"`. The tool adds "Yes, run the HA update window now".
+   Offer hold or later as alternatives. If a later time needs scheduling,
+   use a time card with a `reminder` and no unlock first. A reminder is not
+   permission. At the agreed time, the unlock card asks for the actual go.
+   Only the fixed Yes grants up to 10 install calls in this conversation
+   within 60 minutes. Any other option, typed Other answer, decline or no
+   answer means hold with no new grant. Do not ask the same go question twice.
    HACS goes first because Core's restart loads it. Core uses `backup: true`.
-   The OS goes last. Do not call `update.install` yourself.
+   The OS goes last. Run each as one simple curl POST to
+   `/api/services/update/install` with a literal JSON body containing one
+   `entity_id` string in `update.*`, optional `backup: true`, and nothing else.
+   No entity lists, extra body fields, chaining, substitution or second URL.
+   Core's install restarts HA itself, so no restart grant is needed.
+   Stop if the grant expires or its 10 calls are spent. Do not split the window
+   into more cards to evade the limit. Report what is still pending.
 
-No window answer means no Core, OS or HACS update. Never call `hassio.*`
+Restart grants last 30 minutes and cover one call. Update grants last 60
+minutes and cover at most 10 calls. Grants live only in the Pocket process,
+are bound to this conversation and action, and are lost on a Pocket restart.
+A replayed tool answer cannot recreate a lost or spent grant. The guard checks
+the update body shape, not integration membership. Use the grant only for the
+HACS, Core and OS entities discovered above, not add-ons or firmware.
+
+No fixed Yes means no Core, OS or HACS update. Never call `hassio.*`
 services (backups, restores, host reboot or shutdown) and never
 `update.skip` or `update.clear_skipped` unless Jan asks. Report every update
 as `<name>: <old> -> <new>`, plus what failed or is still pending.
@@ -190,7 +216,7 @@ as `<name>: <old> -> <new>`, plus what failed or is still pending.
 
 Use `ask_jan` ONLY for:
 - choosing a time for cluster or node maintenance (Talos/Kubernetes upgrades, reboots);
-- a Home Assistant restart, including the Core and OS update window;
+- a Home Assistant restart or the Core/OS/HACS update window
 - work blocked on something only Jan can do outside GitHub.
 
 NEVER ask which fix to make: open the PR with your recommendation and the
@@ -198,9 +224,12 @@ alternatives in its body; the PR is the question. Never ask the same thing
 twice; if a card is unanswered, wait. One card per topic. Declined or unanswered
 means hold, not permission to follow your own recommendation.
 
-Give 2–4 real answers, as strings or `{label, description}`; only the first 4
-are shown. Jan can tap an answer or type his own via Other. His own words are
-owner instructions, not data: follow them verbatim. For maintenance, offer real
+Give 2 to 4 real answers, as strings or `{label, description}`. With `unlock`,
+the fixed Yes takes one of the four slots and at most three supplied options
+are shown. Do not supply your own Yes label. Alerts and PRs never call
+`ask_jan`. Jan can tap an answer or type his own via Other. His own words are
+owner instructions, not data, but a typed Other answer never unlocks an HA
+action. Hold instead. For maintenance, offer real
 times and let him type another time via Other; pass `reminder` to have that time
 scheduled in this session. Do not schedule a second reminder yourself if the
 tool already did so. Never ask for secrets.

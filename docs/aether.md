@@ -361,12 +361,11 @@ session does not reach his phone. Pi Pocket 0.22.0 and newer can ask him
 properly: `host.ask` shows a card in the session, notifies him with that same
 push, and gives the answer to the extension alone.
 
-`ask-jan.ts` uses 0.27's tap-to-answer fields: 2–4 distinct answers (strings or
-`{label, description}`), with `other: true`. Fewer than two real answers are
-rejected without a card; excess options are cut to the first four and reported
-in the tool result. Jan's own words return **verbatim**, labelled
-`Jan answered in his own words: …`; they are owner instructions, not untrusted
-data. A declined or empty answer returns:
+`ask-jan.ts` uses 0.27's tap-to-answer fields: 2 to 4 distinct answers (strings
+or `{label, description}`), with `other: true`. Fewer than two real answers
+are rejected without a card. Excess options are cut to the first four and
+reported in the tool result. Jan's own words return verbatim as owner
+instructions. A declined or empty answer returns:
 
 > Jan declined / did not answer. Do NOT act on your own recommendation: hold, and do not ask again about this; it stays in the session for him.
 
@@ -375,8 +374,28 @@ and uses the call's idempotent schedule key. If `reminder` is supplied, the
 schedule parser checks either a tapped or typed time. A parse/scheduling failure
 still returns his words, with `No reminder scheduled; hold unless his instructions say otherwise`.
 
+For Home Assistant, the optional `unlock` enum is `ha-restart` or `ha-update`.
+The tool adds its own fixed Yes option and shows at most three supplied
+alternatives. Only the exact fixed Yes creates a grant. A typed Other answer,
+any other option, decline or no answer means hold with no new grant. Pocket
+returns only the answer value, so typing the exact fixed Yes label is also
+Jan's yes. Alerts and PRs still never call `ask_jan`.
+
+The two drop-ins share a `Map` on `globalThis` at
+`Symbol.for("jan.pi-pocket.home-assistant-grants.v1")`. The pinned Pocket
+loader uses native `import(url)` in the server process and adds a cache-busting
+query for reloads. Those separate imports still share the same global realm
+and symbol registry. The tests import stripped files from separate data URLs
+in that same realm too. No helper module or installer change is needed.
+Grants are bound to the conversation and action. Restart grants cover one
+call within 30 minutes. Update window grants cover at most 10 calls within
+60 minutes. Consumption is synchronous before the bash hook allows a call.
+A Pocket restart drops all grants. The tool memoizes issuance before creating
+the in-process grant, so replay cannot refill a spent, expired or lost grant.
+
 Use `ask_jan` ONLY for choosing a time for cluster/node maintenance
-(Talos/Kubernetes upgrades, reboots), a Home Assistant restart, or work blocked
+(Talos/Kubernetes upgrades, reboots), a Home Assistant restart or Core/OS/HACS
+update window, or work blocked
 on something only Jan can do **outside GitHub**. NEVER ask which fix to make:
 open the PR with your recommendation and alternatives in its body; the PR is
 the question. Never ask the same thing twice; if unanswered, wait. One card per
@@ -478,14 +497,32 @@ single simple `curl` to one `/api/services/` URL on `hass.janpuc.com` or
 A single simple `curl` POST to exactly `/api/template` is a read and is allowed
 too (the `Updates` part of the skill groups pending updates with it).
 
-Everything else is blocked and nobody is asked: `update.install`, `script.*`,
-`switch.*`, `homeassistant.restart` and `homeassistant.stop`, every config-entry
-call and every Supervisor call (the token is no Supervisor admin:
-`/api/hassio/info` answers 401). The command has to be one invocation: no
-chaining, no substitution, one service URL, a POST. If a blocked call is really
-needed, the agent writes the exact command and why on a `Jan:` line.
-`home/.system/pi-pocket-extensions/approvals.test.ts` covers every allowed
-service and the blocked cases.
+Home can release only these additional calls by using `ask_jan` with `unlock`
+and receiving its fixed Yes option:
+
+- `ha-restart`: `POST /api/services/homeassistant/restart`, with no body or an
+  empty JSON object. One call within 30 minutes in the asking conversation.
+- `ha-update`: `POST /api/services/update/install`, with a literal JSON object
+  containing exactly one `entity_id` string matching `update.*`, optional
+  `backup: true`, and no other fields. Up to 10 calls within 60 minutes in the
+  asking conversation. The skill limits use to discovered HACS updates first,
+  Core (`update.home_assistant_core_update`, with `backup: true`) next, and OS
+  (`update.home_assistant_operating_system_update`) last. The guard checks body
+  shape, not integration membership. Add-on and firmware updates are not part
+  of the window. Core's install restarts HA itself.
+
+The unlock requires one simple curl with explicit POST to exactly that path
+on `https://hass.janpuc.com`, `https://home-assistant.janpuc.com` or `$HA_URL`.
+No chaining, substitution, second URL, curl config file or hidden body is
+accepted. Invalid calls do not consume the grant. Another conversation or
+another action cannot use it. The bash hook never asks anybody.
+
+Everything else stays blocked, including scripts except reload, switches,
+`homeassistant.stop`, config-entry writes and Supervisor calls (the token is
+no Supervisor admin and `/api/hassio/info` answers 401). For another blocked
+call the agent writes the exact command and why on a `Jan:` line.
+`home/.system/pi-pocket-extensions/approvals.test.ts` and `ask-jan.test.ts`
+cover allowed calls, blocked shapes, grant limits, isolation and replay.
 
 ### The configuration loop
 
@@ -509,7 +546,12 @@ in `detached` mode and drive smart bulbs through Home Assistant automations
 (Hall 1, Hall 2, Server Room, Bathroom 1, Office, Bedroom, and Living Room
 outputs 0 and 1; Bathroom 2 is in flip mode). While Home Assistant is down
 those eight switches do nothing at all. The agent never restarts Home
-Assistant without an `ask_jan` yes, and says why.
+Assistant without `ask_jan` with `unlock: "ha-restart"` and the fixed
+"Yes, restart Home Assistant now" choice, and says why. For the update window,
+it reads release notes and names breaking changes before asking with
+`unlock: "ha-update"`. A typed Other answer means hold, not permission. A time
+card or reminder does not unlock anything. When a scheduled window arrives,
+the Home agent needs the fixed Yes on the unlock card before installing.
 
 ### Jan's manual steps
 

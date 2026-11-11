@@ -12,6 +12,7 @@ export const defineTool = x => x;
 const ai = `export const Type = {
     Object: properties => ({type:'object', properties}),
     String: options => ({type:'string', ...options}),
+    Literal: value => ({const:value}),
     Array: (items, options) => ({type:'array', items, ...options}),
     Union: items => ({anyOf:items}),
     Optional: schema => schema
@@ -66,6 +67,61 @@ function host(answer: { answered: boolean; by: string; values?: Record<string, s
     };
 }
 const run = (h: any, args: any, a = api()) => create(h).tools[0].execute(args, a, context);
+
+const grants = () => (globalThis as any)[Symbol.for("jan.pi-pocket.home-assistant-grants.v1")];
+
+test("ask_jan unlock inserts a fixed go choice and grants only that exact choice", async () => {
+    for (const [unlock, label, minutes, remaining] of [
+        ["ha-restart", "Yes, restart Home Assistant now", 30, 1],
+        ["ha-update", "Yes, run the HA update window now", 60, 10],
+    ] as const) {
+        grants().clear();
+        const h = host({ answered: true, by: "Jan", values: { answer: label } });
+        const before = Date.now();
+        const result = await run(h.host, { title: "HA?", options: ["Later", "No", "Not today", "Skip"], unlock });
+        assert.deepEqual(h.asked[0].fields[0].choices.map(x => x.label), [label, "Later", "No", "Not today"]);
+        assert.match(result.output[0].text, new RegExp(`Granted ${unlock}`));
+        const grant = grants().get(JSON.stringify([42, unlock]));
+        assert.equal(grant.remaining, remaining);
+        assert.ok(grant.expiresAt >= before + minutes * 60_000);
+        assert.ok(grant.expiresAt <= Date.now() + minutes * 60_000);
+    }
+});
+
+test("ask_jan unlock holds on typed Other, a different choice, decline or blank", async () => {
+    for (const value of ["yes", " Yes, restart Home Assistant now ", "Later", "", "\n"]) {
+        grants().clear();
+        const h = host({ answered: true, by: "Jan", values: { answer: value } });
+        const result = await run(h.host, { title: "HA?", options: ["Later", "No"], unlock: "ha-restart" });
+        assert.match(result.output[0].text, /No grant created\. Hold\./);
+        assert.equal(grants().size, 0);
+    }
+    const h = host({ answered: false, by: "Jan" });
+    assert.match((await run(h.host, { title: "HA?", options, unlock: "ha-restart" })).output[0].text, /No grant created/);
+});
+
+test("ask_jan unlock replay cannot recreate a consumed or restart-lost grant", async () => {
+    grants().clear();
+    const h = host({ answered: true, by: "Jan", values: { answer: "Yes, restart Home Assistant now" } });
+    const a = api();
+    const args = { title: "HA?", options: ["Later", "No"], unlock: "ha-restart" };
+    await run(h.host, args, a);
+    grants().clear();
+    const result = await run(h.host, args, a);
+    assert.match(result.output[0].text, /No new grant created/);
+    assert.equal(grants().size, 0);
+    assert.equal(h.asked.length, 1);
+});
+
+test("ask_jan rejects unknown unlocks and go-label collisions", async () => {
+    for (const [unlock, choices] of [["anything", options], ["ha-restart", ["Yes, restart Home Assistant now", "No"]]]) {
+        grants().clear();
+        const h = host({ answered: true, by: "Jan", values: { answer: "yes" } });
+        await run(h.host, { title: "HA?", options: choices, unlock });
+        assert.equal(h.asked.length, 0);
+        assert.equal(grants().size, 0);
+    }
+});
 
 test("ask-jan declares API 2, safe replay, and only ask_jan", () => {
     assert.equal(pocketApi, 2);

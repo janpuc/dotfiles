@@ -41,6 +41,16 @@ type Host = {
     };
 };
 
+type Unlock = "ha-restart" | "ha-update";
+type Grant = { expiresAt: number; remaining: number };
+// Pocket imports drop-ins in one server realm, even when hot reload gives each a new URL.
+const GRANTS = Symbol.for("jan.pi-pocket.home-assistant-grants.v1");
+const grants = ((globalThis as typeof globalThis & { [GRANTS]?: Map<string, Grant> })[GRANTS] ??= new Map());
+const UNLOCKS = {
+    "ha-restart": { label: "Yes, restart Home Assistant now", minutes: 30, calls: 1 },
+    "ha-update": { label: "Yes, run the HA update window now", minutes: 60, calls: 10 },
+};
+
 const MAX_TITLE = 120;
 const MAX_QUESTION = 2000;
 const MAX_OPTIONS = 4;
@@ -49,7 +59,9 @@ const HOLD =
 const NO_REMINDER = "No reminder scheduled; hold unless his instructions say otherwise";
 const POLICY =
     "Use ask_jan ONLY for (a) choosing a time for cluster or node maintenance (Talos/Kubernetes upgrades, reboots), " +
-    "(b) a Home Assistant restart, or (c) work blocked on something only Jan can do outside GitHub. " +
+    "(b) a Home Assistant restart or Core/OS/HACS update window, or (c) work blocked on something only Jan can do outside GitHub. " +
+    "For those HA actions pass unlock: ha-restart or ha-update. The tool adds its own Yes option. Only that exact answer grants access in this conversation. Other answers mean hold. " +
+    "Alerts and PRs never call ask_jan. " +
     "NEVER ask which fix to make: open the PR with your recommendation and the alternatives in its body; the PR is the question. " +
     "Never ask the same thing twice; if a card is unanswered, wait. One card per topic. " +
     "Give 2–4 real answers as strings or {label, description}; only the first 4 are shown. Jan can tap or write his own words. " +
@@ -87,6 +99,7 @@ export default function createAskJan(host: Host) {
                     question: Type.Optional(Type.String({ minLength: 1, maxLength: MAX_QUESTION })),
                     // No maxItems: excess answers must be truncated with a visible result, not rejected by validation.
                     options: Type.Array(Option, { minItems: 2 }),
+                    unlock: Type.Optional(Type.Union([Type.Literal("ha-restart"), Type.Literal("ha-update")])),
                     reminder: Type.Optional(
                         Type.String({
                             maxLength: MAX_QUESTION,
@@ -97,6 +110,11 @@ export default function createAskJan(host: Host) {
                 // host.ask persists the card; memo the answer before scheduling so restart/replay cannot ask twice.
                 replay: "safe",
                 execute: async (args, api, context) => {
+                    const unlock = args.unlock as Unlock | undefined;
+                    if (unlock !== undefined && !Object.hasOwn(UNLOCKS, unlock))
+                        return text("Unknown unlock. No card was shown and no grant created. Hold.");
+                    const action = unlock ? UNLOCKS[unlock] : undefined;
+                    const limit = action ? MAX_OPTIONS - 1 : MAX_OPTIONS;
                     const options = (args.options ?? [])
                         .map((option): Choice => ({
                             label: line(typeof option === "string" ? option : option.label, 60),
@@ -104,10 +122,13 @@ export default function createAskJan(host: Host) {
                                 ? { description: line(option.description, 160) }
                                 : {}),
                         }))
-                        .slice(0, MAX_OPTIONS);
+                        .slice(0, limit);
+                    if (action) options.unshift({ label: action.label });
                     const truncated =
-                        args.options?.length > MAX_OPTIONS
-                            ? "\nOnly the first 4 options were shown to Jan."
+                        args.options?.length > limit
+                            ? action
+                                ? "\nOnly the first 3 supplied options were shown to Jan, plus the fixed Yes option."
+                                : "\nOnly the first 4 options were shown to Jan."
                             : "";
                     const result = (value: string) => text(value + truncated);
                     if (
@@ -155,7 +176,24 @@ export default function createAskJan(host: Host) {
                         answer = await api.memo<AskAnswer>("ask_jan.answer", answer, context);
                     }
                     const value = answer.values?.answer ?? "";
-                    if (!answer.answered || !value.trim()) return result(HOLD);
+                    if (!answer.answered || !value.trim())
+                        return result(HOLD + (action ? "\nNo grant created. Hold." : ""));
+                    if (action) {
+                        // host.ask reports only the value, so typing the exact fixed Yes is also Jan's yes.
+                        if (value !== action.label)
+                            return result(`Jan answered: ${value}\nNo grant created. Hold. A typed Other answer or any option except the fixed Yes is not permission.`);
+                        // Persist the issuance marker first, so replay cannot refill a spent or lost grant.
+                        if (await api.memo<boolean>("ask_jan.granted", context))
+                            return result("This answer was already handled. No new grant created. Hold if the original grant is gone.");
+                        await api.memo<boolean>("ask_jan.granted", true, context);
+                        const now = Date.now();
+                        for (const [key, grant] of grants) if (grant.expiresAt <= now) grants.delete(key);
+                        grants.set(JSON.stringify([api.conversationId, unlock]), {
+                            expiresAt: now + action.minutes * 60_000,
+                            remaining: action.calls,
+                        });
+                        return result(`Jan answered: ${value}.\nGranted ${unlock} in this conversation for ${action.calls} call(s) within ${action.minutes} minutes. Only single simple curl POSTs qualify.`);
+                    }
                     const chosen = options.some((option) => option.label === value);
                     const reply = chosen
                         ? `Jan answered: ${value}.`

@@ -5,6 +5,12 @@ import { defineExtension, hook, section, ToolTask } from "@earendil-works/pi-dur
 // Pi Pocket 0.19 renamed a tool result's `content` to `output`; the drop-ins share one API level.
 export const pocketApi = 2;
 
+type Unlock = "ha-restart" | "ha-update";
+type Grant = { expiresAt: number; remaining: number };
+// Shared with ask-jan.ts across Pocket's separate imports and hot reloads, not restarts.
+const GRANTS = Symbol.for("jan.pi-pocket.home-assistant-grants.v1");
+const grants = ((globalThis as typeof globalThis & { [GRANTS]?: Map<string, Grant> })[GRANTS] ??= new Map());
+
 // Ported from agent-guard.ts's sharedChange. A mistake detector, not a shell sandbox.
 // pr-merge-request deliberately has no write rule: it only submits hostile input to the
 // separate broker, which decides. Do not exempt a whole command containing it: chained
@@ -336,6 +342,59 @@ export function haTemplateRead(command: string): boolean {
     return urls.length === 1 && HA_TEMPLATE_URL.test(urls[0]!) && isPostRequest(tokens);
 }
 
+/** An unlock covers only one explicit curl POST with a visible, literal JSON body. */
+export function haUnlockAction(command: string): Unlock | undefined {
+    if (/\$\(|`/.test(command)) return undefined;
+    const tokens = shellTokens(command);
+    if (!tokens || !/^(?:[A-Za-z0-9_./-]+\/)?curl$/.test(tokens[0] ?? "")) return undefined;
+    let url = "", method = "", body: string | undefined;
+    for (let i = 1; i < tokens.length; i++) {
+        const token = tokens[i]!;
+        if (/^-[fsS]+$/.test(token) || ["--fail", "--silent", "--show-error"].includes(token)) continue;
+        const option = token.match(/^(--request|--header|--data|--data-raw|--data-binary|--json)(?:=(.*))?$|^(-[XHd])(.*)$/);
+        if (option) {
+            const name = option[1] ?? option[3]!;
+            const value = option[2] ?? (option[4] || tokens[++i]);
+            if (value === undefined) return undefined;
+            if (name === "-X" || name === "--request") {
+                if (method) return undefined;
+                method = value;
+            } else if (name === "-H" || name === "--header") {
+                if (!/^(?:Authorization: Bearer [^\r\n]+|Content-Type: application\/json)$/i.test(value)) return undefined;
+            } else {
+                if (body !== undefined) return undefined;
+                body = value;
+            }
+            continue;
+        }
+        if (url || !/^(?:https:\/\/(?:hass|home-assistant)\.janpuc\.com|\$HA_URL|\$\{HA_URL\})\/api\/services\/(?:homeassistant\/restart|update\/install)$/.test(token)) return undefined;
+        url = token;
+    }
+    if (!url || method !== "POST") return undefined;
+    let data: unknown;
+    try { data = body === undefined ? {} : JSON.parse(body); } catch { return undefined; }
+    if (!data || typeof data !== "object" || Array.isArray(data)) return undefined;
+    const payload = data as Record<string, unknown>;
+    if (url.endsWith("/homeassistant/restart"))
+        return Object.keys(payload).length === 0 ? "ha-restart" : undefined;
+    if (typeof payload.entity_id !== "string" || !/^update\.[a-z0-9_]+$/.test(payload.entity_id) ||
+        Object.keys(payload).some((key) => !["entity_id", "backup"].includes(key)) ||
+        (Object.hasOwn(payload, "backup") && payload.backup !== true)) return undefined;
+    return "ha-update";
+}
+
+function consumeGrant(conversationId: unknown, action: Unlock): boolean {
+    const key = JSON.stringify([conversationId, action]);
+    const grant = grants.get(key);
+    if (!grant) return false;
+    if (grant.expiresAt <= Date.now() || grant.remaining <= 0) {
+        grants.delete(key);
+        return false;
+    }
+    if (--grant.remaining === 0) grants.delete(key);
+    return true;
+}
+
 /** True when a curl command sends a POST: an explicit method, or a body without a GET. */
 function isPostRequest(tokens: string[]): boolean {
     let method = "";
@@ -427,16 +486,20 @@ export default function createApprovals(host: object) {
             section(
                 "shared_system_approvals",
                 () =>
-                    "Agents never ask for approval to run bash commands. Listed non-destructive writes run directly. Destructive or unlisted writes are blocked and nobody is asked. If a blocked action is really needed, write the exact command and why on a line starting `Jan:` in your answer or PR body. Never try another way around it.",
+                    "Agents never ask for approval to run bash commands. Listed non-destructive writes run directly. Destructive or unlisted writes are blocked and nobody is asked by this hook. Home may use ask_jan with unlock for a Home Assistant restart or update window. Only the fixed Yes grants bounded access in that conversation. Alerts and PRs never call ask_jan. If a blocked action is really needed, write the exact command and why on a line starting `Jan:` in your answer or PR body. Never try another way around it.",
             ),
         ],
         hooks: [
             hook(ToolTask, {
-                beforeTool: async (call, _api, _context) => {
+                beforeTool: async (call, api, _context) => {
                     if (call.name !== "bash") return undefined;
                     const command = String((call.arguments as { command?: unknown }).command ?? "");
                     const change = sharedChange(command);
                     if (!change) return undefined;
+                    if (change === "call a Home Assistant service") {
+                        const action = haUnlockAction(command);
+                        if (action && consumeGrant(api.conversationId, action)) return undefined;
+                    }
                     const subject = command.trim().replace(/[\r\n]+/g, " ");
                     if (change === "push git commits" && RAW_GIT_PUSH.test(command))
                         return { block: `Raw \`git push\` is blocked. Publish the branch with \`agent-push\`. ${NO_APPROVAL} Call: ${subject}` };

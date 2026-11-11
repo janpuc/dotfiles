@@ -7,6 +7,7 @@ import { test } from "node:test";
 
 const durable = `
 export const defineExtension = x => x;
+export const defineTool = x => x;
 export const section = (key, render) => ({key, render});
 export const hook = (task, handlers) => ({task: task.definition.name, handlers});
 export const ToolTask = {definition: {name: 'pi.tool'}};
@@ -17,6 +18,7 @@ const imports = registerHooks({
     resolve(specifier, context, next) {
         if (specifier === "@earendil-works/pi-durable")
             return { url: dataUrl(durable), shortCircuit: true };
+        if (specifier === "@earendil-works/pi-ai") return { url: dataUrl(`export const Type = new Proxy({}, {get: () => (...args) => args});`), shortCircuit: true };
         return next(specifier, context);
     },
 });
@@ -24,7 +26,110 @@ const source = await readFile(new URL("./approvals.ts", import.meta.url), "utf8"
 const { default: create, sharedChange, haServiceAllowed, haTemplateRead, pocketApi, explain } = await import(
     dataUrl(stripTypeScriptTypes(source))
 );
+const askSource = await readFile(new URL("./ask-jan.ts", import.meta.url), "utf8");
+const { default: createAsk } = await import(dataUrl(stripTypeScriptTypes(askSource)));
 imports.deregister();
+
+const grants = () => (globalThis as any)[Symbol.for("jan.pi-pocket.home-assistant-grants.v1")];
+const restart = 'curl -fsS -X POST "$HA_URL/api/services/homeassistant/restart"';
+const install = (body = '{"entity_id":"update.home_assistant_core_update","backup":true}') =>
+    `curl -fsS -X POST -H "Authorization: Bearer $HA_TOKEN" -H 'Content-Type: application/json' --data '${body}' "$HA_URL/api/services/update/install"`;
+const guarded = (command: string, conversationId = 42) => create({}).hooks[0].handlers.beforeTool(
+    { name: "bash", arguments: { command } }, { conversationId }, {},
+);
+async function grant(unlock = "ha-restart", conversationId = 42, value?: string) {
+    const memos = new Map();
+    await createAsk({ ask: async () => ({ answered: true, by: "Jan", values: { answer:
+        value ?? (unlock === "ha-restart" ? "Yes, restart Home Assistant now" : "Yes, run the HA update window now"),
+    } }) }).tools[0].execute({ title: "HA?", options: ["Later", "No"], unlock }, {
+        conversationId, taskId: 7, callId: "go",
+        memo: async (key, value, context) => {
+            if (context !== undefined) memos.set(key, value);
+            return memos.get(key);
+        },
+    }, {});
+}
+
+test("approvals ha-restart: ask_jan yes passes once, only in its conversation and action", async () => {
+    grants().clear();
+    assert.ok((await guarded(restart))?.block);
+    await grant();
+    assert.ok((await guarded(restart, 43))?.block);
+    assert.ok((await guarded(install()))?.block);
+    assert.equal(await guarded(restart), undefined);
+    assert.ok((await guarded(restart))?.block);
+});
+
+test("approvals ha-restart: expired grants and typed Other answers hold", async t => {
+    grants().clear();
+    t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+    await grant();
+    t.mock.timers.tick(30 * 60_000);
+    assert.ok((await guarded(restart))?.block);
+    grants().clear();
+    await grant("ha-restart", 42, "yes please");
+    assert.ok((await guarded(restart))?.block);
+});
+
+test("approvals ha-restart: a grant cannot exempt chains, substitutions or another request", async () => {
+    grants().clear();
+    await grant();
+    for (const command of [
+        `${restart} && echo done`, `${restart}; ${restart}`, `${restart} | cat`,
+        `${restart} $(id)`, `${restart} \`id\``, `${restart} > /tmp/result`,
+        restart.replace("$HA_URL", "$(echo $HA_URL)"),
+        `${restart} https://example.com/other`, `${restart} example.com`,
+        `${restart} --next`, `${restart} --config=/tmp/curlrc`, `${restart} -K/tmp/curlrc`,
+        `${restart} -G`, `${restart} --url https://example.com`, `${restart} --dry-run`,
+        restart.replace("$HA_URL", "https://example.com"),
+        `${restart}?x=1`, `${restart}/extra`,
+        restart.replace("POST", "PUT"),
+        restart.replace("homeassistant/restart", "homeassistant/stop"),
+    ]) assert.ok((await guarded(command))?.block, command);
+    assert.equal(await guarded(restart), undefined);
+});
+
+test("approvals ha-update: one yes covers ten installs, not a restart or an eleventh call", async () => {
+    grants().clear();
+    await grant("ha-update");
+    assert.ok((await guarded(restart))?.block);
+    assert.ok((await guarded(install(), 43))?.block);
+    const bodies = [
+        '{"entity_id":"update.hacs_example"}',
+        '{"entity_id":"update.home_assistant_core_update","backup":true}',
+        '{"entity_id":"update.home_assistant_operating_system_update"}',
+    ];
+    for (let i = 0; i < 10; i++) assert.equal(await guarded(install(bodies[i % 3])), undefined);
+    assert.ok((await guarded(install()))?.block);
+});
+
+test("approvals ha-update: the window expires after sixty minutes", async t => {
+    grants().clear();
+    t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+    await grant("ha-update");
+    t.mock.timers.tick(60 * 60_000);
+    assert.ok((await guarded(install()))?.block);
+});
+
+test("approvals ha-update: lists, extra fields and hidden bodies cannot use a grant", async () => {
+    grants().clear();
+    await grant("ha-update");
+    for (const body of [
+        '{"entity_id":["update.a","update.b"]}', '{"entity_id":"all"}',
+        '{"entity_id":"light.a"}', '{"entity_id":"update.a","backup":false}',
+        '{"entity_id":"update.a","version":"1"}', '{"entity_id":"update.a","area_id":"house"}',
+        '{"entity_id":"update.a","force":true}', 'null', '[]', '@body.json',
+        '{"entity_id":"$ENTITY_ID"}', '{"entity_id":"update.a update.b"}',
+    ]) assert.ok((await guarded(install(body)))?.block, body);
+    for (const command of [
+        `${install()} && echo done`, `${install()} $(id)`,
+        install().replace("--data", "--data-urlencode"),
+        `${install()} --data '{"entity_id":"update.b"}'`,
+        install().replace("--data", "--form"),
+    ]) assert.ok((await guarded(command))?.block, command);
+    assert.equal(await guarded(install()), undefined);
+    assert.equal(grants().get(JSON.stringify([42, "ha-update"])).remaining, 9);
+});
 
 // Every blocked verb, plus option prefixes, shell separators and API writes.
 const blocked = [
