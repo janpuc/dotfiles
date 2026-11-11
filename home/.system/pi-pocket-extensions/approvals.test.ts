@@ -507,6 +507,7 @@ test('approvals hook: changing a PR that is not provably the agent\'s is blocked
             'gh pr close 5', 'gh pr close 5 -R janpuc/home-ops; gh pr close 6 -R janpuc/home-ops']) {
             const result = await handlers.beforeTool({ name: 'bash', id: 'c' + command.length, arguments: { command } }, {}, context);
             assert.match(result.block, /not allowed for agents/, command);
+            assert.match(result.block, /one command on its own, with the repository named/, command);
         }
     } finally { process.env.PATH = path; }
     assert.equal(asked, 0);

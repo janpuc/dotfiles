@@ -336,6 +336,10 @@ const NO_APPROVAL =
     "This action is not allowed for agents and nobody was asked. If it is really needed, write the exact command and why " +
     "on a line starting `Jan:` in your answer or PR body. Never try another way around it.";
 
+const OWN_PR_FORM =
+    "Closing, reopening or editing your own PR works only as one command on its own, with the repository named: " +
+    "`gh pr close <N> -R janpuc/<repo> --comment \"why\"` (no cd, &&, ; or pipes).";
+
 export default function createApprovals(host: object) {
     void host;
     return defineExtension({
@@ -362,7 +366,8 @@ export default function createApprovals(host: object) {
                     // GitHub decides whether this is the agent's own PR. Any failed lookup fails closed.
                     const own = change === "write to GitHub" ? ownPrCandidate(command) : undefined;
                     if (own && (await prAuthorIsAgent(own.pr, own.repo))) return undefined;
-                    return { block: `${explain(command, change)} ${NO_APPROVAL} Call: ${subject}` };
+                    const ownForm = /\bgh\s+pr\s+(?:close|reopen|edit)\b/.test(command) ? ` ${OWN_PR_FORM}` : "";
+                    return { block: `${explain(command, change)}${ownForm} ${NO_APPROVAL} Call: ${subject}` };
                 },
             }),
         ],

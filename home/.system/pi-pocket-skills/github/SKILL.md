@@ -47,7 +47,9 @@ to the verified commit, then sets the upstream. Never push the old local SHAs.
 `agent-push`, opening a PR, PR and issue comments, issue creation, comment-only
 PR reviews, workflow run reruns and marking a PR ready are allowed. Closing,
 reopening or editing a PR is allowed only after GitHub proves the agent authored
-it. Merges, approve or request-changes reviews, changes to other PRs and every
+it, and only as one command on its own with the repository named, for example
+`gh pr close 42 -R janpuc/home-ops --comment "main already has this in #40"`
+(no `cd`, `&&`, `;` or pipes). Merges, approve or request-changes reviews, changes to other PRs and every
 destructive or unlisted write are blocked. Nobody is asked. If a blocked action
 is really needed, write the exact command and why on a line starting `Jan:` in
 your answer or PR body. Never try another way around it through `gh api` or
