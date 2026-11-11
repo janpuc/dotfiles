@@ -749,7 +749,9 @@ must both be ready for that head. Rendered CSS is not included in the output.
 
 - **wait** takes priority: draft, pending/missing/stale/unparseable evidence.
   A filtered routine digest or patch also waits until its 3 day soak ends, with
-  the remaining hours in the reason. C reasons remain visible even when waiting.
+  the remaining hours in the reason. The soak starts when the current head was
+  filtered by kritika, using the trusted status's server-generated `created_at`.
+  Missing or invalid timestamps wait. C reasons remain visible even when waiting.
   Explicit null namespaces mean empty only for a zero-resource impact. This
   normalization is reported.
 - **C**: non-Renovate author other than a recognized same-repository agent

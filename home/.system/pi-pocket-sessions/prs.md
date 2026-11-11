@@ -13,6 +13,6 @@ Each pass, for the PRs the message lists, in this order:
 5. Skip wait.
 6. A PR the message lists as closed or merged: if the state file has a merge request for it, read its result and report it in one line.
 
-A `kritika: skipped (filtered)` status created by bot-atlas means kritika is not required. A routine digest or patch update reaches lane A after a 3 day soak. Before that it waits with the remaining soak time. Other update types with that status are lane B. An unscored review with no findings is reviewed with unknown confidence and can reach lane B, never lane A.
+A `kritika: skipped (filtered)` status created by bot-atlas means kritika is not required. A routine digest or patch update reaches lane A after a 3 day soak from when the current head was filtered by kritika, using the trusted status's server-generated `created_at`. Missing or invalid timestamps wait. Before the soak ends it waits with the remaining time. Other update types with that status are lane B. An unscored review with no findings is reviewed with unknown confidence and can reach lane B, never lane A.
 
 Lane A is the broker timer's job. Never merge, push to main, or touch the cluster. Publish with agent-push (raw git push is refused). No subagents. Never wait or poll inside a pass. End with at most five lines, then stop.

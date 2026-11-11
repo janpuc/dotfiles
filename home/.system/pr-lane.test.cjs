@@ -37,7 +37,8 @@ function agentFixture() {
 function filteredFixture() {
     const f = fixture();
     f.statuses = [{ context: 'Kritika / Review', state: 'success',
-        description: 'kritika: skipped (filtered)', creator: { login: 'bot-atlas[bot]' } }];
+        description: 'kritika: skipped (filtered)', creator: { login: 'bot-atlas[bot]' },
+        created_at: new Date(Date.now() - 4 * 86400000).toISOString() }];
     f.comments = [];
     return f;
 }
@@ -84,6 +85,24 @@ test('pr-lane: agent fixes reach B but never A, with size and sensitive path cau
     assert.equal(classify(filtered).lane, 'C');
 });
 
+test('pr-lane: agent role and serviceaccount paths stay C without matching controller', () => {
+    for (const name of ['role', 'roles', 'clusterrole', 'clusterroles', 'cluster-role', 'cluster-roles',
+        'cluster_role', 'cluster_roles', 'serviceaccount', 'serviceaccounts', 'service-account',
+        'service-accounts', 'service_account', 'service_accounts']) {
+        for (const file of [`${name}.yaml`, `${name}/app.yaml`, `app-${name}.yaml`, `${name}_app.yaml`]) {
+            const f = agentFixture();
+            f.files = [`kubernetes/apps/downloads/app/${file}`];
+            const result = classify(f);
+            assert.equal(result.lane, 'C', file);
+            assert.ok(result.reasons.includes('agent fix touches secret or RBAC path'), file);
+        }
+    }
+    for (const file of ['controller.yaml', 'controllers/app.yaml', 'enrolment.yaml']) {
+        const f = agentFixture(); f.files = [`kubernetes/apps/downloads/app/${file}`];
+        assert.equal(classify(f).lane, 'B', file);
+    }
+});
+
 test('pr-lane: upstream ports by the agent stay C for Jan', () => {
     const f = agentFixture(); f.pr.head.ref = 'upstream/onedr0p-change';
     const result = classify(f);
@@ -94,7 +113,7 @@ test('pr-lane: upstream ports by the agent stay C for Jan', () => {
 
 test('pr-lane: filtered routine updates soak for 3 days, other filtered updates are B', () => {
     const young = filteredFixture();
-    young.pr.created_at = new Date(Date.now() - 2 * 86400000).toISOString();
+    young.statuses[0].created_at = new Date(Date.now() - 2 * 86400000).toISOString();
     const waiting = classify(young);
     assert.equal(waiting.lane, 'wait', JSON.stringify(waiting));
     assert.ok(waiting.reasons.some(r => /soak: \d+h remaining/.test(r)), JSON.stringify(waiting.reasons));
@@ -107,6 +126,27 @@ test('pr-lane: filtered routine updates soak for 3 days, other filtered updates 
     const refused = classify(wrongCreator);
     assert.equal(refused.lane, 'wait', JSON.stringify(refused));
     assert.ok(refused.reasons.some(r => r.includes('comment missing or stale')));
+});
+
+test('pr-lane: filtered soak starts at the trusted current head status time', () => {
+    const freshHead = filteredFixture();
+    freshHead.pr.created_at = new Date(Date.now() - 4 * 86400000).toISOString();
+    freshHead.statuses[0].created_at = new Date().toISOString();
+    const waiting = classify(freshHead);
+    assert.equal(waiting.lane, 'wait', JSON.stringify(waiting));
+    assert.ok(waiting.reasons.some(r => r.includes('current head filtered by kritika soak')));
+    for (const timestamp of [undefined, null, '', 'invalid', 0]) {
+        const f = filteredFixture(); f.statuses[0].created_at = timestamp;
+        const result = classify(f);
+        assert.equal(result.lane, 'wait', JSON.stringify(result));
+        assert.ok(result.reasons.includes('current head filtered by kritika has a missing or invalid status creation time'));
+    }
+    const soakedHead = filteredFixture();
+    soakedHead.pr.created_at = new Date().toISOString();
+    soakedHead.statuses[0].created_at = new Date(Date.now() - 3 * 86400000).toISOString();
+    const soaked = classify(soakedHead);
+    assert.equal(soaked.lane, 'A', JSON.stringify(soaked));
+    assert.ok(soaked.reasons.includes('current head filtered by kritika soaked for 3 days'));
 });
 
 test('pr-lane: kritika confidence not scored is reviewed with no P1 and reaches B', () => {
@@ -450,7 +490,8 @@ console.log(JSON.stringify(args.includes('--slurp')?[value]:value));
     const calls=fs.readFileSync(env.CALLS,'utf8').trim().split('\n').map(JSON.parse);
     for(const call of calls.filter(c=>c[1].includes('?'))) { assert.ok(call.includes('--paginate')); assert.ok(call.includes('--slurp')); }
     const scoredStatuses=f.statuses, scoredComments=f.comments;
-    f.statuses=[{context:'Kritika / Review',state:'success',description:'kritika: skipped (filtered)',creator:{login:'bot-atlas[bot]'}},
+    f.statuses=[{context:'Kritika / Review',state:'success',description:'kritika: skipped (filtered)',creator:{login:'bot-atlas[bot]'},
+        created_at:new Date(Date.now()-4*86400000).toISOString()},
         {context:'Kritika / Review',state:'pending',description:'kritika: review running',creator:{login:'bot-atlas[bot]'}}];
     f.comments=[]; fs.writeFileSync(env.FIXTURE,JSON.stringify(f));
     const filtered=run(); assert.equal(filtered.lane,'A',JSON.stringify(filtered));

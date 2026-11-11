@@ -75,6 +75,8 @@ const blocked = [
     "gh api repos/janpuc/home-ops/issues/42/comments -X DELETE",
     "gh api repos/janpuc/home-ops/issues/42/comments -X POST -f body=x -X GET -X PATCH",
     "gh api repos/janpuc/home-ops/pulls -X POST -f title=x --method=PATCH",
+    `g"h" api repos/janpuc/home-ops/pulls/42/merge -X PUT`,
+    `gh api repos/janpuc/home-ops/issues/1/comments -f body='a b'; g"h" api repos/janpuc/home-ops/pulls/42/merge -X PUT`,
     "echo checking && git push",
     "true; gh pr merge 42 --squash",
     "/usr/bin/git push",
@@ -105,6 +107,8 @@ const allowed = [
     "gh api repos/janpuc/home-ops/issues/42/comments --method POST -f body=evidence",
     "gh api --method=POST repos/janpuc/home-ops/pulls/42/comments --raw-field body=evidence",
     "gh api repos/janpuc/home-ops/issues/42/comments --input /tmp/comment.json",
+    "gh api repos/janpuc/home-ops/issues/1780/comments -f body='@bot-atlas review'",
+    `gh api repos/janpuc/home-ops/pulls -f title="fix(media): raise radarr memory" -f head=agent/radarr -f base=main`,
     "gh release view",
     "gh run view",
     "gh repo view",
@@ -213,6 +217,66 @@ test("approvals sharedChange: laptop shared-system writes and reads", () => {
     for (const command of allowed) assert.equal(sharedChange(command), undefined, command);
     assert.equal(sharedChange("gh pr merge 42 --squash"), "merge a GitHub PR");
 });
+test('approvals sharedChange: comment mutation modes are blocked but payload text is allowed', () => {
+    for (const kind of ['issue', 'pr']) {
+        for (const mode of ['--delete-last', '--edit-last']) {
+            for (const suffix of ['', '=true', '=false']) {
+                const command = `gh ${kind} comment 42 -R janpuc/home-ops ${mode}${suffix} --yes`;
+                assert.equal(sharedChange(command), 'write to GitHub', command);
+            }
+            for (const option of ['--body', '-b', '--body-file', '-F']) {
+                for (const payload of [mode, `text ${mode}=true`]) {
+                    const command = `gh ${kind} comment 42 ${option} '${payload}'`;
+                    assert.equal(sharedChange(command), undefined, command);
+                }
+                const command = `gh ${kind} comment 42 ${option} '${mode}' ${mode}=true`;
+                assert.equal(sharedChange(command), 'write to GitHub', command);
+            }
+            for (const command of [`gh -R janpuc/home-ops ${kind} comment 42 ${mode}=true`,
+                `gh ${kind} comment 42 --body '' ${mode}=true`])
+                assert.equal(sharedChange(command), 'write to GitHub', command);
+        }
+        for (const command of [`gh ${kind} comment 42 --body='text --delete-last --edit-last'`,
+            `gh ${kind} comment 42 -b'--delete-last'`, `gh ${kind} comment 42 --body-file=--edit-last`])
+            assert.equal(sharedChange(command), undefined, command);
+    }
+});
+
+test('approvals sharedChange: compound comments pass without destructive comment modes', () => {
+    const command = `cd repo && gh pr comment 5 --body "$(cat <<'EOF'
+multi
+line
+EOF
+)"`;
+    assert.equal(sharedChange(command), undefined, command);
+    for (const blocked of ['cd repo && gh issue comment 5 --delete-last --yes',
+        'gh pr comment 5 --edit-last=true -b x',
+        'cd repo && gh pr comment 5 --body ok --delete-last=false',
+        'cd repo && gh pr comment 5 --body ok && gh issue delete 123 --yes',
+        'cd repo && gh pr comment 5 --body "text --edit-last=true"'])
+        assert.equal(sharedChange(blocked), 'write to GitHub', blocked);
+});
+
+test('approvals sharedChange: review modes are options and body text is not a mode', () => {
+    for (const mode of ['--approve', '--request-changes', '-a', '-r', '-ca', '-cr', '-ac', '-rc']) {
+        for (const suffix of ['', '=true', '=false']) {
+            const command = `gh pr review 42 -R janpuc/home-ops ${mode}${suffix} --body '--comment'`;
+            assert.equal(sharedChange(command), 'write to GitHub', command);
+        }
+    }
+    for (const option of ['--body', '-b', '--body-file', '-F']) {
+        assert.equal(sharedChange(`gh pr review 42 ${option} '--comment'`), 'write to GitHub', option);
+        for (const payload of ['--approve', '--request-changes', '-ar', 'text --approve']) {
+            const command = `gh pr review 42 --comment ${option} '${payload}'`;
+            assert.equal(sharedChange(command), undefined, command);
+        }
+    }
+    assert.equal(sharedChange("gh pr review 42 --body '' --approve=true --comment"), 'write to GitHub');
+    for (const command of ['gh pr review 42 -c -b ok', 'gh pr review 42 --comment=true --body=ok',
+        'gh pr review 42 -cbok', 'gh pr review 42 --comment --body="text --approve"'])
+        assert.equal(sharedChange(command), undefined, command);
+});
+
 test("approvals sharedChange: Home Assistant writes and GET/HEAD reads", () => {
     for (const command of haBlocked) assert.ok(sharedChange(command), command);
     for (const command of haAllowed) assert.equal(sharedChange(command), undefined, command);
@@ -511,6 +575,65 @@ test('approvals hook: changing a PR that is not provably the agent\'s is blocked
         }
     } finally { process.env.PATH = path; }
     assert.equal(asked, 0);
+});
+
+async function ownPrHook(t) {
+    const fs = await import('node:fs/promises');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'approvals-own-pr-'));
+    t.after(() => fs.rm(dir, { recursive: true, force: true }));
+    const calls = path.join(dir, 'calls');
+    await fs.writeFile(path.join(dir, 'gh'), `#!/bin/sh
+printf '%s\\n' "$*" >> '${calls}'
+printf 'app/janpuc-agent\\n'
+`, { mode: 0o755 });
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${dir}:${oldPath}`;
+    t.after(() => { process.env.PATH = oldPath; });
+    return { before: create({}).hooks[0].handlers.beforeTool,
+        calls: async () => fs.readFile(calls, 'utf8').catch(() => '') };
+}
+
+test('approvals hook: own PR lookup requires one real repository selector', async t => {
+    const { before, calls } = await ownPrHook(t);
+    for (const command of [
+        'gh pr edit 42 -R janpuc/home-ops --title x -R janpuc/dotfiles',
+        'gh pr edit 42 -R janpuc/home-ops --repo=janpuc/dotfiles --title x',
+        'gh pr edit 42 --title "fix -R janpuc/home-ops"',
+        'gh pr edit 42 --body "fix --repo=janpuc/home-ops"',
+        'gh pr edit 42 --title -R janpuc/home-ops',
+        'gh pr edit 42 -R janpuc/home-ops --title "" --repo janpuc/dotfiles',
+        'gh pr edit 42 -R janpuc/home-ops -Rjanpuc/dotfiles',
+    ]) {
+        const result = await before({ name: 'bash', arguments: { command } }, {}, {});
+        assert.ok(result?.block, command);
+    }
+    assert.equal(await calls(), '');
+    for (const selector of ['-R janpuc/dotfiles', '-R=janpuc/dotfiles', '--repo janpuc/dotfiles', '--repo=janpuc/dotfiles']) {
+        for (const option of ['--title', '-t', '--body', '-b', '--body-file', '-F', '--comment', '-c',
+            '--add-label', '--remove-label', '--add-reviewer', '--remove-reviewer', '--add-assignee',
+            '--remove-assignee', '--milestone', '--base', '-B', '--add-project', '--remove-project']) {
+            const command = `gh pr edit 42 ${option} '-R janpuc/home-ops' ${selector}`;
+            assert.equal(await before({ name: 'bash', arguments: { command } }, {}, {}), undefined, command);
+        }
+    }
+    const lookups = (await calls()).trim().split('\n');
+    assert.equal(lookups.length, 76);
+    assert.ok(lookups.every(call => call === 'pr view 42 -R janpuc/dotfiles --json author --jq .author.login'));
+});
+
+test('approvals hook: own PR exemption rejects process substitution and redirection', async t => {
+    const { before, calls } = await ownPrHook(t);
+    for (const command of [
+        'gh pr edit 42 -R janpuc/home-ops --body-file <(gh issue delete 123 -R janpuc/home-ops --yes)',
+        'gh pr edit 42 -R janpuc/home-ops --body-file >(gh issue delete 123 -R janpuc/home-ops --yes)',
+        'gh pr edit 42 -R janpuc/home-ops --title updated > /tmp/result',
+    ]) {
+        const result = await before({ name: 'bash', arguments: { command } }, {}, {});
+        assert.ok(result?.block, command);
+    }
+    assert.equal(await calls(), '');
 });
 
 test('approvals hook: close, reopen and edit are allowed on the agent\'s own PR', async t => {

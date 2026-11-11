@@ -134,8 +134,10 @@ agent and never gets an A or B lane. It is gated on what upstream did:
 A successful `kritika: skipped (filtered)` status created by `bot-atlas[bot]`
 means kritika's trigger excluded the PR on purpose. No kritika comment is
 required. For a Renovate digest or patch with routine konflate evidence and
-caution 0, lane A starts only after the PR is 3 days old. Before that it waits
-with the remaining soak time. Other update types with the filtered status are
+caution 0, lane A starts only after a 3 day soak from when the current head was
+filtered by kritika. The trusted status's server-generated `created_at` starts
+that soak. Missing or invalid timestamps wait. Before it ends the PR waits with
+the remaining soak time. Other update types with the filtered status are
 lane B. The same status from any other creator is not evidence and still waits.
 
 `kritika: confidence not scored, no findings` with the matching marked review

@@ -81,10 +81,33 @@ const HAND_BUILT_COMMIT =
 /** `gh pr close|reopen|edit N -R owner/repo` as one simple invocation, or undefined. */
 function ownPrCandidate(command: string): { pr: string; repo: string } | undefined {
     if (/[;&|`\n]|\$\(/.test(command)) return undefined;
-    const m = command.match(/^\s*(?:[\w/.-]*\/)?gh\s+pr\s+(?:close|reopen|edit)\s+#?(\d+)\b(.*)$/);
-    if (!m) return undefined;
-    const repo = m[2]!.match(/(?:^|\s)(?:-R|--repo)[= ]+["']?(janpuc\/[\w.-]+)["']?(?=\s|$)/)?.[1];
-    return repo ? { pr: m[1]!, repo } : undefined;
+    const tokens = shellTokens(command);
+    if (!tokens || !/^(?:[\w/.-]*\/)?gh$/.test(tokens[0] ?? "") || tokens[1] !== "pr" ||
+        !["close", "reopen", "edit"].includes(tokens[2] ?? "")) return undefined;
+    const pr = tokens[3]?.match(/^#?(\d+)$/)?.[1];
+    if (!pr) return undefined;
+    const takesValue = new Set([
+        "--title", "-t", "--body", "-b", "--body-file", "-F", "--comment", "-c",
+        "--add-label", "--remove-label", "--add-reviewer", "--remove-reviewer",
+        "--add-assignee", "--remove-assignee", "--milestone", "--base", "-B",
+        "--add-project", "--remove-project",
+    ]);
+    const repos: string[] = [];
+    for (let i = 4; i < tokens.length; i++) {
+        const token = tokens[i]!;
+        if (token === "--") return undefined;
+        if (takesValue.has(token)) {
+            if (tokens[++i] === undefined) return undefined;
+            continue;
+        }
+        if (token === "-R" || token === "--repo") {
+            const value = tokens[++i];
+            if (value === undefined) return undefined;
+            repos.push(value);
+        } else if (/^(?:-R|--repo)=/.test(token)) repos.push(token.slice(token.indexOf("=") + 1));
+        else if (token.startsWith("-R")) return undefined;
+    }
+    return repos.length === 1 && /^janpuc\/[\w.-]+$/.test(repos[0]!) ? { pr, repo: repos[0]! } : undefined;
 }
 
 /** True only when GitHub says the PR was opened by the agent's own App. Fails closed. */
@@ -124,15 +147,60 @@ export function explain(command: string, change: string): string {
 }
 
 const GH_PR_REVIEW = cmd("gh", String.raw`pr\s+review`);
+const GH_COMMENT = cmd("gh", String.raw`(?:pr|issue)\s+comment`);
+
+/** Option names for review and comment commands, excluding their argument values. */
+function ghCommentOptions(tokens: string[]): string[] | undefined {
+    const takesValue = new Set(["--body", "-b", "--body-file", "-F", "--repo", "-R", "--hostname"]);
+    const options: string[] = [];
+    for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i]!;
+        if (token === "--") break;
+        if (token.startsWith("--")) {
+            const name = token.split("=", 1)[0]!;
+            options.push(name);
+            if (takesValue.has(name) && !token.includes("=") && tokens[++i] === undefined) return undefined;
+        } else if (/^-[A-Za-z]/.test(token)) {
+            for (let j = 1; j < token.length && token[j] !== "="; j++) {
+                const name = `-${token[j]}`;
+                options.push(name);
+                if (takesValue.has(name)) {
+                    if (j === token.length - 1 && tokens[++i] === undefined) return undefined;
+                    break;
+                }
+            }
+        }
+    }
+    return options;
+}
 
 /** A comment-only review is a PR comment. Approvals and change requests stay blocked. */
 function ghPrReviewCommentAllowed(command: string): boolean {
     const tokens = shellTokens(command);
     if (!tokens || !/^(?:[A-Za-z0-9_./-]+\/)?gh$/.test(tokens[0] ?? "")) return false;
     const review = tokens.findIndex((token, index) => token === "review" && tokens[index - 1] === "pr");
-    if (review === -1 || tokens.some((token) => /^(?:--approve|--request-changes|-[A-Za-z]*[ar][A-Za-z]*)$/.test(token)))
+    if (review === -1) return false;
+    const options = ghCommentOptions(tokens.slice(review + 1));
+    if (!options || options.some((option) => ["--approve", "--request-changes", "-a", "-r"].includes(option)))
         return false;
-    return tokens.slice(review + 1).includes("--comment");
+    return options.includes("--comment") || options.includes("-c");
+}
+
+/** Adding a comment is allowed. Changing or deleting the last comment is not. */
+function ghCommentAllowed(command: string): boolean {
+    const tokens = shellTokens(command);
+    if (!tokens) {
+        // Compound comments stay allowed, with a conservative check when payloads cannot be parsed.
+        const normalized = command.replace(/['"\\]/g, "");
+        const invocation = GH_COMMENT.exec(normalized);
+        return Boolean(invocation && !/--(?:delete-last|edit-last)(?=$|[\s=;&|)])/.test(
+            normalized.slice(invocation.index + invocation[0].length)));
+    }
+    if (!/^(?:[A-Za-z0-9_./-]+\/)?gh$/.test(tokens[0] ?? "")) return false;
+    const comment = tokens.findIndex((token, index) => token === "comment" && ["pr", "issue"].includes(tokens[index - 1] ?? ""));
+    if (comment === -1) return false;
+    const options = ghCommentOptions(tokens.slice(comment + 1));
+    return Boolean(options && !options.some((option) => ["--delete-last", "--edit-last"].includes(option)));
 }
 
 /** True only for the two API write forms an agent may use: open a PR or comment on one. */
@@ -174,7 +242,7 @@ export function sharedChange(command: string): string | undefined {
         !/(?:^|[ \t])--dry-run(?:=|[ \t]+)(?:none|false)(?=$|[ \t])/.test(command) &&
         /(?:^|[ \t])--dry-run(?:=(?:client|server|true))?(?=$|[ \t])/.test(command);
     const normalized = command.replace(/['"\\]/g, "");
-    const change = sharedChangeForm(command, dryRun) ?? sharedChangeForm(normalized, dryRun);
+    const change = sharedChangeForm(command, dryRun) ?? sharedChangeForm(normalized, dryRun, command);
     // A light, a scene or a reload changes the home in place without restarting Home Assistant.
     if (change === "call a Home Assistant service" && haServiceAllowed(command)) return undefined;
     // Rendering a template only reads states, the same as GET /api/states.
@@ -191,6 +259,7 @@ function shellTokens(command: string): string[] | undefined {
     const tokens: string[] = [];
     let token = "";
     let quote = "";
+    let started = false;
     for (let i = 0; i < command.length; i++) {
         const ch = command[i]!;
         if (quote) {
@@ -199,6 +268,7 @@ function shellTokens(command: string): string[] | undefined {
             continue;
         }
         if (ch === "'" || ch === '"') {
+            started = true;
             quote = ch;
             continue;
         }
@@ -209,19 +279,22 @@ function shellTokens(command: string): string[] | undefined {
                 continue;
             }
             i++;
+            started = true;
             token += command[i] ?? "";
             continue;
         }
         if (";&|()<>`\n\r".includes(ch)) return undefined;
         if (ch === " " || ch === "\t") {
-            if (token) tokens.push(token);
+            if (started) tokens.push(token);
             token = "";
+            started = false;
             continue;
         }
+        started = true;
         token += ch;
     }
     if (quote) return undefined;
-    if (token) tokens.push(token);
+    if (started) tokens.push(token);
     return tokens;
 }
 
@@ -287,7 +360,7 @@ function isPostRequest(tokens: string[]): boolean {
     return body;
 }
 
-function sharedChangeForm(command: string, dryRun: boolean): string | undefined {
+function sharedChangeForm(command: string, dryRun: boolean, original: string = command): string | undefined {
     for (const [, tool, args] of command.replace(/\\\r?\n/g, " ").matchAll(HTTP)) {
         if (!HA_TARGET.test(args!)) continue;
         // A curl config file (-K/--config, short flags such as -sK included) or --next/-: can
@@ -316,10 +389,16 @@ function sharedChangeForm(command: string, dryRun: boolean): string | undefined 
     // command exempt a merge (especially a malformed/chained lane command).
     if (MERGE_GH_PR.test(command)) return "merge a GitHub PR";
     if (dryRun) return undefined;
-    if (GH_PR_REVIEW.test(command) && !ghPrReviewCommentAllowed(command)) return "write to GitHub";
+    if (GH_PR_REVIEW.test(command) && !ghPrReviewCommentAllowed(original)) return "write to GitHub";
+    if (GH_COMMENT.test(command) && !ghCommentAllowed(original)) return "write to GitHub";
     for (const [what, re] of RULES) if (re.test(command)) return what;
-    for (const [, args] of command.matchAll(GH_API)) {
-        if (/^\s*graphql\b/.test(args!)) {
+    const calls = [...command.matchAll(GH_API)].map((m) => m[1]!);
+    const originalCalls = [...original.matchAll(GH_API)].map((m) => m[1]!);
+    for (const [index, args] of calls.entries()) {
+        // The quote-stripped pass splits a quoted value with spaces into extra words, so the allow list
+        // judges the real text of the same call. A call only this pass can see is judged as it is.
+        const real = originalCalls.length === calls.length ? originalCalls[index]! : args;
+        if (/^\s*graphql\b/.test(args)) {
             if (/\bmutation\b/.test(args!)) return "write to GitHub";
             continue;
         }
@@ -327,7 +406,7 @@ function sharedChangeForm(command: string, dryRun: boolean): string | undefined 
         const readMethod = /(?:-X|--method)[\s=]*(?:GET|HEAD)\b/i.test(args!);
         const body = /\s(?:-[fF]\S+|-f|-F|--field|--raw-field|--input)(?=$|[\s=])/.test(args!) ||
             /\s--(?:field|raw-field|input)=\S*/.test(args!);
-        if ((writeMethod || (!readMethod && body)) && !ghApiWriteAllowed(args!)) return "write to GitHub";
+        if ((writeMethod || (!readMethod && body)) && !ghApiWriteAllowed(real)) return "write to GitHub";
     }
     return undefined;
 }

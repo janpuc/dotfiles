@@ -325,7 +325,8 @@ function classify({ pr, files, statuses, checks, comments, entry, rendered, erro
         const changedLines = (comparison.additions ?? 0) + (comparison.deletions ?? 0);
         if (changedFiles > 5) caution.push('agent fix changes more than 5 files');
         if (changedLines > 80) caution.push('agent fix changes more than 80 lines');
-        if (files.some(p => /\.sops\.|secret|rbac|role.*binding/i.test(p))) caution.push('agent fix touches secret or RBAC path');
+        if (files.some(p => /\.sops\.|secret|rbac|role.*binding|(?:^|[/_.-])(?:(?:cluster[-_]?)?roles?|service[-_]?accounts?)(?=$|[/_.-])/i.test(p)))
+            caution.push('agent fix touches secret or RBAC path');
         if (kritika.confidence === null) caution.push('kritika has no parsed confidence for agent fix');
     }
     // The title and the labels are attacker-editable, so the branch name and the
@@ -368,11 +369,11 @@ function classify({ pr, files, statuses, checks, comments, entry, rendered, erro
     if (filtered && pr.user.login === 'bot-atlas[bot]') {
         automatic.push('kritika skipped by its trigger filter');
         if (routineUpdate && routineRender) {
-            const created = Date.parse(pr.created_at);
+            const created = typeof kritikaStatus.created_at === 'string' ? Date.parse(kritikaStatus.created_at) : Number.NaN;
             const remaining = Number.isFinite(created) ? FILTERED_SOAK - (Date.now() - created) : Number.NaN;
-            if (!Number.isFinite(remaining)) waiting.push('kritika filtered routine update has an invalid creation time');
-            else if (remaining > 0) waiting.push(`kritika filtered routine update soak: ${Math.ceil(remaining / 3600000)}h remaining`);
-            else { filteredA = true; automatic.push('kritika filtered routine update soaked for 3 days'); }
+            if (!Number.isFinite(remaining)) waiting.push('current head filtered by kritika has a missing or invalid status creation time');
+            else if (remaining > 0) waiting.push(`current head filtered by kritika soak: ${Math.ceil(remaining / 3600000)}h remaining`);
+            else { filteredA = true; automatic.push('current head filtered by kritika soaked for 3 days'); }
         }
     }
     const ordinaryA = !filtered && automatic.length === 3;
