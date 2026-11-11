@@ -1,36 +1,14 @@
-/** Ask Jan on his phone before bash commands change shared systems. */
-import type { Context } from "@earendil-works/chord";
+/** Allow listed shared-system writes and block destructive ones without asking anybody. */
 import { execFile } from "node:child_process";
 import { defineExtension, hook, section, ToolTask } from "@earendil-works/pi-durable";
-import type { ConversationId, TaskId } from "@earendil-works/pi-durable";
 
 // Pi Pocket 0.19 renamed a tool result's `content` to `output`; the drop-ins share one API level.
 export const pocketApi = 2;
 
-// Structural subset of PocketHost: a drop-in does not need a machine-specific host.ts path.
-type ApprovalAnswer = { allow: boolean; by: string };
-type Host = {
-    approvals: {
-        request(
-            asked: {
-                id: string;
-                conversationId: ConversationId;
-                taskId: TaskId;
-                callId: string;
-                tool: string;
-                subject: string;
-                reason: string;
-                createdAt: number;
-            },
-            context: Context,
-        ): Promise<ApprovalAnswer>;
-    };
-};
-
 // Ported from agent-guard.ts's sharedChange. A mistake detector, not a shell sandbox.
 // pr-merge-request deliberately has no write rule: it only submits hostile input to the
 // separate broker, which decides. Do not exempt a whole command containing it: chained
-// gh pr merge/API writes must still ask (and GitHub's ruleset denies pocket merges).
+// gh pr merge/API writes are still blocked, and GitHub's ruleset denies pocket merges.
 const OPTS = String.raw`(?:\s+-{1,2}[A-Za-z][\w-]*(?:[= ][^\s;&|-]\S*)?)*`;
 const cmd = (tool: string, verbs: string) =>
     new RegExp(String.raw`(?:^|[\s;&|(\x60/])${tool}${OPTS}\s+(?:${verbs})(?=$|[\s;&|)\x60])`);
@@ -46,7 +24,7 @@ const RULES: [string, RegExp][] = [
         "write to GitHub",
         cmd(
             "gh",
-            String.raw`pr\s+(?:merge|close|reopen|review|lock|unlock)|issue\s+(?:create|close|reopen|comment|edit|delete|transfer|lock|pin)|release\s+(?:create|delete|edit|upload)|repo\s+(?:create|delete|edit|rename|archive|fork|sync)|workflow\s+(?:run|enable|disable)|run\s+(?:rerun|cancel|delete)|(?:secret|variable|label)\s+(?:set|create|edit|delete)`,
+            String.raw`pr\s+(?:merge|close|reopen|edit|lock|unlock)|issue\s+(?:close|reopen|edit|delete|transfer|lock|pin)|release\s+(?:create|delete|edit|upload)|repo\s+(?:create|delete|edit|rename|archive|fork|sync)|workflow\s+(?:run|enable|disable)|run\s+(?:cancel|delete)|(?:secret|variable|label)\s+(?:set|create|edit|delete)`,
         ),
     ],
     // kubectl, flux, talosctl and helm are not asked about (Jan, 2026-10-30): pocket's cluster
@@ -60,9 +38,9 @@ const HTTP = /(?:^|[\s;&|(\x60/])(curl|wget|http|https|httpie)\b([^;&|\n]*)/g;
 const HA_TARGET =
     /hass\.janpuc\.com|home-assistant\.janpuc\.com|\$HA_URL\b|\$\{HA_URL\}|\/api\/services\//i;
 /**
- * The Home Assistant service calls that need no phone prompt: lights and scenes, and the
- * reload services that apply a configuration change in place. Everything else - a script,
- * a switch, a restart, the Supervisor - still asks Jan.
+ * The Home Assistant service calls that are allowed: lights and scenes, and the reload
+ * services that apply a configuration change in place. Everything else is blocked, including
+ * a script, a switch, a restart and the Supervisor.
  */
 const HA_ALLOWED_SERVICES = new Set([
     "light.turn_on",
@@ -100,10 +78,10 @@ const HA_DRY_RUN = /^--dry-run(?:=|$)/;
 const HAND_BUILT_COMMIT =
     /createCommitOnBranch|createRef|updateRef|repos\/[^\s"']+\/(?:contents|git\/(?:refs|commits|trees|blobs))\b/i;
 
-/** `gh pr close|reopen N -R owner/repo` as one simple invocation, or undefined. */
+/** `gh pr close|reopen|edit N -R owner/repo` as one simple invocation, or undefined. */
 function ownPrCandidate(command: string): { pr: string; repo: string } | undefined {
     if (/[;&|`\n]|\$\(/.test(command)) return undefined;
-    const m = command.match(/^\s*(?:[\w/.-]*\/)?gh\s+pr\s+(?:close|reopen)\s+#?(\d+)\b(.*)$/);
+    const m = command.match(/^\s*(?:[\w/.-]*\/)?gh\s+pr\s+(?:close|reopen|edit)\s+#?(\d+)\b(.*)$/);
     if (!m) return undefined;
     const repo = m[2]!.match(/(?:^|\s)(?:-R|--repo)[= ]+["']?(janpuc\/[\w.-]+)["']?(?=\s|$)/)?.[1];
     return repo ? { pr: m[1]!, repo } : undefined;
@@ -117,7 +95,7 @@ function prAuthorIsAgent(pr: string, repo: string): Promise<boolean> {
     });
 }
 
-/** One plain line for Jan's card: what the call does, before the raw command he sees under it. */
+/** One plain line for a refusal: what the call does, before the raw command. */
 export function explain(command: string, change: string): string {
     const flat = command.replace(/\\\r?\n/g, " ");
     const repo = flat.match(/(?:-R|--repo)[= ]+["']?([\w.-]+\/[\w.-]+)/)?.[1] ?? "the current repository";
@@ -145,6 +123,48 @@ export function explain(command: string, change: string): string {
     return `This command will ${change}.`;
 }
 
+const GH_PR_REVIEW = cmd("gh", String.raw`pr\s+review`);
+
+/** A comment-only review is a PR comment. Approvals and change requests stay blocked. */
+function ghPrReviewCommentAllowed(command: string): boolean {
+    const tokens = shellTokens(command);
+    if (!tokens || !/^(?:[A-Za-z0-9_./-]+\/)?gh$/.test(tokens[0] ?? "")) return false;
+    const review = tokens.findIndex((token, index) => token === "review" && tokens[index - 1] === "pr");
+    if (review === -1 || tokens.some((token) => /^(?:--approve|--request-changes|-[A-Za-z]*[ar][A-Za-z]*)$/.test(token)))
+        return false;
+    return tokens.slice(review + 1).includes("--comment");
+}
+
+/** True only for the two API write forms an agent may use: open a PR or comment on one. */
+function ghApiWriteAllowed(args: string): boolean {
+    const tokens = shellTokens(args);
+    if (!tokens) return false;
+    const takesValue = new Set([
+        "-X", "--method", "-H", "--header", "-f", "-F", "--field", "--raw-field",
+        "--input", "--hostname", "--jq", "--template", "--cache",
+    ]);
+    let endpoint = "", method = "", body = false;
+    for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i]!;
+        if (takesValue.has(token)) {
+            const value = tokens[++i];
+            if (value === undefined) return false;
+            if (token === "-X" || token === "--method") method = value.toUpperCase();
+            if (["-f", "-F", "--field", "--raw-field", "--input"].includes(token)) body = true;
+            continue;
+        }
+        const attachedMethod = token.match(/^(?:-X|--method=)(.+)$/i);
+        if (attachedMethod) { method = attachedMethod[1]!.toUpperCase(); continue; }
+        if (/^(?:-[fF].+|--(?:field|raw-field|input)=)/.test(token)) { body = true; continue; }
+        if (token.startsWith("-")) continue;
+        if (endpoint) return false;
+        endpoint = token;
+    }
+    if (method !== "POST" && (method || !body)) return false;
+    return /^repos\/[\w.-]+\/[\w.-]+\/pulls$/.test(endpoint) ||
+        /^repos\/[\w.-]+\/[\w.-]+\/(?:issues|pulls)\/\d+\/comments$/.test(endpoint);
+}
+
 export function sharedChange(command: string): string | undefined {
     // Only bare, simple invocations qualify: no shell syntax, quoted payloads,
     // comments or substitutions can lend a dry-run flag to another command.
@@ -155,8 +175,7 @@ export function sharedChange(command: string): string | undefined {
         /(?:^|[ \t])--dry-run(?:=(?:client|server|true))?(?=$|[ \t])/.test(command);
     const normalized = command.replace(/['"\\]/g, "");
     const change = sharedChangeForm(command, dryRun) ?? sharedChangeForm(normalized, dryRun);
-    // A light, a scene or a reload needs no phone prompt: it changes the home in place,
-    // the way Jan expects, and never restarts Home Assistant.
+    // A light, a scene or a reload changes the home in place without restarting Home Assistant.
     if (change === "call a Home Assistant service" && haServiceAllowed(command)) return undefined;
     // Rendering a template only reads states, the same as GET /api/states.
     if (change === "change Home Assistant" && haTemplateRead(command)) return undefined;
@@ -297,86 +316,53 @@ function sharedChangeForm(command: string, dryRun: boolean): string | undefined 
     // command exempt a merge (especially a malformed/chained lane command).
     if (MERGE_GH_PR.test(command)) return "merge a GitHub PR";
     if (dryRun) return undefined;
+    if (GH_PR_REVIEW.test(command) && !ghPrReviewCommentAllowed(command)) return "write to GitHub";
     for (const [what, re] of RULES) if (re.test(command)) return what;
     for (const [, args] of command.matchAll(GH_API)) {
-        if (/(?:-X|--method)[\s=]*(?:GET|HEAD)\b/i.test(args!)) continue;
         if (/^\s*graphql\b/.test(args!)) {
             if (/\bmutation\b/.test(args!)) return "write to GitHub";
             continue;
         }
-        if (
-            /(?:-X|--method)[\s=]*(?:POST|PUT|PATCH|DELETE)\b/i.test(args!) ||
-            /\s(?:-f|-F|--field|--raw-field|--input)[\s=]/.test(args!)
-        )
-            return "write to GitHub";
+        const writeMethod = /(?:-X|--method)[\s=]*(?:POST|PUT|PATCH|DELETE)\b/i.test(args!);
+        const readMethod = /(?:-X|--method)[\s=]*(?:GET|HEAD)\b/i.test(args!);
+        const body = /\s(?:-[fF]\S+|-f|-F|--field|--raw-field|--input)(?=$|[\s=])/.test(args!) ||
+            /\s--(?:field|raw-field|input)=\S*/.test(args!);
+        if ((writeMethod || (!readMethod && body)) && !ghApiWriteAllowed(args!)) return "write to GitHub";
     }
     return undefined;
 }
 
-export default function createApprovals(host: Host) {
+const NO_APPROVAL =
+    "This action is not allowed for agents and nobody was asked. If it is really needed, write the exact command and why " +
+    "on a line starting `Jan:` in your answer or PR body. Never try another way around it.";
+
+export default function createApprovals(host: object) {
+    void host;
     return defineExtension({
         name: "approvals",
         sections: [
             section(
                 "shared_system_approvals",
                 () =>
-                    "Bash commands that change shared systems ask Jan on his phone before they run. State plainly what the command will do before running it. Never try to get around a denial.",
+                    "Agents never ask for approval to run bash commands. Listed non-destructive writes run directly. Destructive or unlisted writes are blocked and nobody is asked. If a blocked action is really needed, write the exact command and why on a line starting `Jan:` in your answer or PR body. Never try another way around it.",
             ),
         ],
         hooks: [
             hook(ToolTask, {
-                beforeTool: async (call, api, context) => {
+                beforeTool: async (call, _api, _context) => {
                     if (call.name !== "bash") return undefined;
                     const command = String((call.arguments as { command?: unknown }).command ?? "");
                     const change = sharedChange(command);
                     if (!change) return undefined;
-                    // A raw git push is never asked about (Jan, 2026-10-30): it would publish unverified
-                    // commits that the rulesets refuse, and it only ever cost him a tap. Refuse it here and
-                    // point at the tool that publishes verified commits without asking.
+                    const subject = command.trim().replace(/[\r\n]+/g, " ");
                     if (change === "push git commits" && RAW_GIT_PUSH.test(command))
-                        return {
-                            block:
-                                "Raw `git push` is not used here and nobody was asked. Publish the branch with `agent-push` " +
-                                "(run it in the repository on your branch; it creates one verified commit and does not ask Jan).",
-                        };
-                    // Hand-built GitHub commits are refused without asking (Jan, 2026-10-30): they bypass
-                    // agent-push and only cost Jan a tap.
+                        return { block: `Raw \`git push\` is blocked. Publish the branch with \`agent-push\`. ${NO_APPROVAL} Call: ${subject}` };
                     if (change === "write to GitHub" && HAND_BUILT_COMMIT.test(command))
-                        return {
-                            block:
-                                "Hand-built GitHub commits (createCommitOnBranch, contents, refs) are not used here and nobody was asked. " +
-                                "Publish with `agent-push`; if it fails, report its exact error and stop.",
-                        };
-                    // Closing or reopening the agent's own PR is its own business: no card. GitHub decides
-                    // who opened it; any other PR, or a failed lookup, still asks Jan.
+                        return { block: `Hand-built GitHub commits and refs are blocked. Publish with \`agent-push\`. ${NO_APPROVAL} Call: ${subject}` };
+                    // GitHub decides whether this is the agent's own PR. Any failed lookup fails closed.
                     const own = change === "write to GitHub" ? ownPrCandidate(command) : undefined;
                     if (own && (await prAuthorIsAgent(own.pr, own.repo))) return undefined;
-                    const subject = command.trim().replace(/[\r\n]+/g, " ");
-                    const reason = `${explain(command, change)} Allow only if you expected this.`;
-                    // Keyed by call: a codemode script can make several calls in one task.
-                    const key = `approvals.answer:${call.id}`;
-                    let answer = await api.memo<ApprovalAnswer>(key, context);
-                    if (answer === undefined) {
-                        const asked = await host.approvals.request(
-                            {
-                                id: `${api.taskId}:${call.id}`,
-                                conversationId: api.conversationId,
-                                taskId: api.taskId,
-                                callId: call.id,
-                                tool: call.name,
-                                subject,
-                                reason,
-                                createdAt: Date.now(),
-                            },
-                            context,
-                        );
-                        answer = await api.memo<ApprovalAnswer>(key, asked, context);
-                    }
-                    return answer.allow
-                        ? undefined
-                        : {
-                              block: `${answer.by} denied this bash call: ${reason} Call: ${subject}`,
-                          };
+                    return { block: `${explain(command, change)} ${NO_APPROVAL} Call: ${subject}` };
                 },
             }),
         ],

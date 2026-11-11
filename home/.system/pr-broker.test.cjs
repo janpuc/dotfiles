@@ -50,6 +50,26 @@ test('pr-broker merges lanes A/B with exact pinned gh arguments and a child-only
     }
     for (const name of fs.readdirSync(f.o.state)) assert.ok(!fs.readFileSync(join(f.o.state, name), 'utf8').includes('test-token'));
 });
+test('pr-broker accepts the new B lanes and refuses C or soak waits', async t => {
+    const f = fixture(t); f.enable();
+    const cases = [
+        ['agent fix PR', 'B', 'merged'],
+        ['agent PR over the size limit', 'C', 'refused'],
+        ['upstream agent PR', 'C', 'refused'],
+        ['filtered digest younger than 3 days', 'wait', 'refused'],
+        ['filtered digest older than 3 days', 'A', 'merged'],
+        ['filtered minor', 'B', 'merged'],
+        ['filtered status from the wrong creator', 'wait', 'refused'],
+        ['kritika confidence not scored', 'B', 'merged'],
+    ];
+    for (const [evidence, lane, status] of cases) {
+        f.data.fresh = { lane, reasons: [evidence], waiting: lane === 'wait' ? [evidence] : [] };
+        f.save(); const file = f.request(); await f.run();
+        assert.equal(f.result(file).status, status, evidence);
+        assert.equal(f.result(file).lane, lane, evidence);
+    }
+});
+
 test('pr-broker shared rolling-hour quota survives separate runs; uncertain failures count and bad state fails closed', async t => {
     const f = fixture(t); f.enable(); f.enable('lane-a');
     fs.writeFileSync(join(f.o.state, 'merge-attempts.json'), JSON.stringify(Array(9).fill(Date.now())));

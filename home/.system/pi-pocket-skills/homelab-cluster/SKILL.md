@@ -76,7 +76,7 @@ Changes are commits or PRs to `janpuc/home-ops`; read the relevant app manifests
 and repository instructions first. Local edits and commits do not deploy.
 Publish feature branches with `agent-push`, which does not ask Jan; open a PR
 with the recommendation and deployment impact. Use pr-shepherd for eligible
-home-ops A/B broker merges; leave C for Jan. Never work around a denial.
+home-ops A/B broker merges; leave C for Jan. Never work around a block.
 
 ## Asking Jan and memory
 

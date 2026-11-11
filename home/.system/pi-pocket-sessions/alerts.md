@@ -8,12 +8,12 @@ pocket-watchdog starts this session on a fresh context whenever it sits idle on 
 For each firing alert group:
 1. Check whether it is already handled: your state file, an open PR on an agent/ branch, recent merges on main (git fetch origin first). If it is, do nothing unless something changed.
 2. Find the root cause with the homelab-cluster skill: read-only kubectl, flux, Prometheus and VictoriaLogs. Check facts; don't guess.
-3. If git can fix it: `git fetch origin && git switch -c agent/<short-name> origin/main`, make the smallest change that fixes the cause, validate it (kustomize build, flate), commit, publish with `agent-push`, and open a PR with `gh pr create` (not a draft). The PR body gives the cause, the evidence, the fix, the risk, and any alternatives you rejected. The main agent reviews and merges small fixes; Jan merges the rest.
+3. If git can fix it: `git fetch origin && git switch -c agent/<short-name> origin/main`, make the smallest change that fixes the cause, validate it (kustomize build, flate), commit, publish with `agent-push`, and open a PR with `gh pr create` (not a draft), never `gh api`. The PR body gives the cause, the evidence, the fix, the risk, and any alternatives you rejected. The PR enters the PR queue. The PRs session reviews it and the broker merges it when pr-lane allows. Jan merges lane C.
 4. Once the PR is open, silence the alert for at most 48 hours through https://alertmanager.janpuc.com/api/v2/silences: match its exact labels, set createdBy "janpuc-agent", and name the PR in the comment.
 5. Resolved alerts: one line, nothing else.
 6. Record each handled problem in the state file: the alert, the cause and the PR.
 
-If the fix needs a cluster mutation git cannot express (deleting a stuck pod, patching managedFields, restarting something), do not try: write the exact command and why in one short block, and the main agent runs it.
+If the fix needs a cluster mutation git cannot express (deleting a stuck pod, patching managedFields, restarting something), do not try. Write the exact command and why on a line starting `Jan:` in your answer or PR body. Never try another way around the block.
 
 ## Alerts about the agents themselves
 PocketSessionStuck (namespace pi-pocket) comes from pocket-watchdog on aether: a Pi Pocket session (possibly this one) stopped and no model in its chain could start it again. It pages Jan directly; there is nothing to fix in git and nothing for you to run. Do not open a PR and do not silence it. Answer one line: "PocketSessionStuck for <session>: paged Jan, no action."

@@ -25,6 +25,23 @@ function check(mutate, lane, reason) {
     assert.equal(result.lane, lane, JSON.stringify(result));
     if (reason) assert.ok(result.reasons.some(r => r.includes(reason)), JSON.stringify(result.reasons));
 }
+function agentFixture() {
+    const f = fixture();
+    f.pr.user.login = 'janpuc-agent[bot]';
+    f.pr.head.ref = 'agent/fix-alert';
+    f.pr.head.repo = { full_name: 'janpuc/home-ops' };
+    f.pr.body = 'Fix the alert cause.\n';
+    f.comparison = { changedFiles: 2, additions: 20, deletions: 10 };
+    return f;
+}
+function filteredFixture() {
+    const f = fixture();
+    f.statuses = [{ context: 'Kritika / Review', state: 'success',
+        description: 'kritika: skipped (filtered)', creator: { login: 'bot-atlas[bot]' } }];
+    f.comments = [];
+    return f;
+}
+
 test('pr-lane: routine digest/patch is A, other eligible PRs B; SKIPPED/NEUTRAL fine', () => {
     check(() => {}, 'A');
     check(f => f.pr.labels = [{name:'type/digest'}], 'A');
@@ -39,6 +56,72 @@ test('pr-lane: routine digest/patch is A, other eligible PRs B; SKIPPED/NEUTRAL 
     check(f => { f.statuses[0].description = 'kritika: confidence 3/5, no findings'; f.comments[0].body = f.comments[0].body.replace('4/5', '3/5'); }, 'B');
     check(f => f.checks[0].conclusion = 'neutral', 'A');
 });
+test('pr-lane: agent fixes reach B but never A, with size and sensitive path cautions', () => {
+    const clean = classify(agentFixture());
+    assert.equal(clean.lane, 'B', JSON.stringify(clean));
+    assert.ok(!clean.reasons.some(r => r.includes('author is not bot-atlas') || r.includes('update type not derivable')));
+    const withTable = agentFixture();
+    withTable.pr.body = renovateBody([{ package: 'x', type: 'patch' }]);
+    assert.equal(classify(withTable).lane, 'B');
+    for (const [mutate, reason] of [
+        [f => f.comparison.changedFiles = 6, 'more than 5 files'],
+        [f => { f.comparison.additions = 60; f.comparison.deletions = 21; }, 'more than 80 lines'],
+        [f => f.files = ['kubernetes/apps/downloads/app/config.sops.yaml'], 'secret or RBAC'],
+        [f => f.files = ['kubernetes/apps/downloads/app/secret-store.yaml'], 'secret or RBAC'],
+        [f => f.files = ['kubernetes/apps/downloads/app/rbac.yaml'], 'secret or RBAC'],
+        [f => f.files = ['kubernetes/apps/downloads/app/role-binding.yaml'], 'secret or RBAC'],
+    ]) {
+        const f = agentFixture(); mutate(f);
+        const result = classify(f);
+        assert.equal(result.lane, 'C', JSON.stringify(result));
+        assert.ok(result.reasons.some(r => r.includes(reason)), JSON.stringify(result.reasons));
+    }
+    const boundaries = agentFixture();
+    boundaries.comparison = { changedFiles: 5, additions: 50, deletions: 30 };
+    assert.equal(classify(boundaries).lane, 'B');
+    const filtered = agentFixture();
+    filtered.statuses = filteredFixture().statuses; filtered.comments = [];
+    assert.equal(classify(filtered).lane, 'C');
+});
+
+test('pr-lane: upstream ports by the agent stay C for Jan', () => {
+    const f = agentFixture(); f.pr.head.ref = 'upstream/onedr0p-change';
+    const result = classify(f);
+    assert.equal(result.lane, 'C', JSON.stringify(result));
+    assert.ok(result.reasons.includes('upstream port: Jan merges'));
+    assert.ok(!result.reasons.some(r => r.includes('update type not derivable')));
+});
+
+test('pr-lane: filtered routine updates soak for 3 days, other filtered updates are B', () => {
+    const young = filteredFixture();
+    young.pr.created_at = new Date(Date.now() - 2 * 86400000).toISOString();
+    const waiting = classify(young);
+    assert.equal(waiting.lane, 'wait', JSON.stringify(waiting));
+    assert.ok(waiting.reasons.some(r => /soak: \d+h remaining/.test(r)), JSON.stringify(waiting.reasons));
+    assert.equal(classify(filteredFixture()).lane, 'A');
+    const minor = filteredFixture();
+    minor.pr.body = renovateBody([{ package: 'x', type: 'minor' }]);
+    assert.equal(classify(minor).lane, 'B');
+    const wrongCreator = filteredFixture();
+    wrongCreator.statuses[0].creator.login = 'janpuc-agent[bot]';
+    const refused = classify(wrongCreator);
+    assert.equal(refused.lane, 'wait', JSON.stringify(refused));
+    assert.ok(refused.reasons.some(r => r.includes('comment missing or stale')));
+});
+
+test('pr-lane: kritika confidence not scored is reviewed with no P1 and reaches B', () => {
+    const f = fixture();
+    f.statuses[0].description = 'kritika: confidence not scored, no findings';
+    f.comments[0].body = `<!-- kritika:pr-42 -->\n## Kritika Review\n\n### Summary\n\nA chart update.\n\n` +
+        `_The confidence model did not answer, so this review has no confidence score._\n\n` +
+        `<sub>Reviews (1) · Last reviewed commit: [change](https://github.com/janpuc/home-ops/commit/${head})</sub>`;
+    const result = classify(f);
+    assert.equal(result.lane, 'B', JSON.stringify(result));
+    assert.equal(result.facts.kritika.parsed, true);
+    assert.equal(result.facts.kritika.confidence, null);
+    assert.equal(result.facts.kritika.p1, 0);
+});
+
 test('pr-lane: all wait gates, stale head/comment and unknown evidence fail closed', () => {
     const cases = [
         [f => f.pr.draft = true, 'draft'],
@@ -352,8 +435,8 @@ if(p==='graphql') {
  console.log(JSON.stringify({data:{node}}));process.exit(0);
 }
 else if(p.includes('/git/ref/heads/main')) value={object:{sha:'c'.repeat(40)}};
-else if(p.includes('/compare/')) value={base_commit:{sha:'c'.repeat(40)},merge_base_commit:{sha:'d'.repeat(40)},total_commits:1,commits:[{sha:f.pr.head.sha}],files:process.env.INCOMPLETE?Array(300).fill({filename:'file'}):[{filename:f.files[0],...(process.env.RENAME ? {previous_filename:'talos/old.yaml'} : {})}]};
-else if(p.includes('/status?')) value={statuses:f.statuses};
+else if(p.includes('/compare/')) value={base_commit:{sha:'c'.repeat(40)},merge_base_commit:{sha:'d'.repeat(40)},total_commits:1,commits:[{sha:f.pr.head.sha}],files:process.env.INCOMPLETE?Array(300).fill({filename:'file',additions:1,deletions:0}):[{filename:f.files[0],additions:20,deletions:10,...(process.env.RENAME ? {previous_filename:'talos/old.yaml'} : {})}]};
+else if(p.includes('/statuses?')) value=f.statuses;
 else if(p.includes('/check-runs?')) value={check_runs:f.checks};
 else if(p.includes('/comments?')) value=f.comments;
 else if(p.includes('/pulls?')) value=[f.pr];
@@ -366,6 +449,13 @@ console.log(JSON.stringify(args.includes('--slurp')?[value]:value));
     assert.equal(run().lane,'A'); assert.ok(!JSON.stringify(run()).includes('huge css'));
     const calls=fs.readFileSync(env.CALLS,'utf8').trim().split('\n').map(JSON.parse);
     for(const call of calls.filter(c=>c[1].includes('?'))) { assert.ok(call.includes('--paginate')); assert.ok(call.includes('--slurp')); }
+    const scoredStatuses=f.statuses, scoredComments=f.comments;
+    f.statuses=[{context:'Kritika / Review',state:'success',description:'kritika: skipped (filtered)',creator:{login:'bot-atlas[bot]'}},
+        {context:'Kritika / Review',state:'pending',description:'kritika: review running',creator:{login:'bot-atlas[bot]'}}];
+    f.comments=[]; fs.writeFileSync(env.FIXTURE,JSON.stringify(f));
+    const filtered=run(); assert.equal(filtered.lane,'A',JSON.stringify(filtered));
+    assert.equal(filtered.facts.statuses[0].creator,'bot-atlas[bot]');
+    f.statuses=scoredStatuses; f.comments=scoredComments; fs.writeFileSync(env.FIXTURE,JSON.stringify(f));
     env.RENAME='1'; assert.equal(run().lane,'C'); delete env.RENAME;
     env.MOVED='1'; assert.equal(run().lane,'wait'); delete env.MOVED;
     env.INCOMPLETE='1'; assert.equal(run().lane,'wait'); delete env.INCOMPLETE;
@@ -390,6 +480,14 @@ console.log(JSON.stringify(args.includes('--slurp')?[value]:value));
     env.DRAFT_EVENT='ReadyForReviewEvent'; env.DRAFT_ACTOR='janpuc-agent';
     assert.ok(run().reasons.includes('draft state changed by janpuc-agent')); delete env.DRAFT_ACTOR; delete env.DRAFT_EVENT;
     for (const flag of ['INCOMPLETE_EDITS','BROKEN_CURSOR','RETARGET']) { env[flag]='1'; assert.equal(run().lane,'wait'); delete env[flag]; }
+    f.pr.user.login='janpuc-agent[bot]'; f.pr.head.ref='agent/fix'; f.pr.head.repo={full_name:'janpuc/home-ops'};
+    f.pr.body='Fix the alert cause.'; fs.writeFileSync(env.FIXTURE,JSON.stringify(f));
+    env.BAD_ACTOR='janpuc-agent'; const agent=run(); delete env.BAD_ACTOR;
+    assert.equal(agent.lane,'B',JSON.stringify(agent));
+    assert.ok(!agent.reasons.some(r=>r.includes('PR metadata changed by janpuc-agent')));
+    env.BAD_EDITOR='1'; const edited=run(); delete env.BAD_EDITOR;
+    assert.ok(edited.reasons.includes('kritika comment edited by janpuc-agent'));
+    assert.ok(!edited.reasons.includes('PR metadata changed by janpuc-agent'));
     assert.ok(calls.every(c => !c[1].includes('/files?')));
 });
 
@@ -402,10 +500,12 @@ test('pr-lane compare evidence binds main and merge-base and refuses incomplete/
     const { compareEvidence } = require('./pr-lane');
     const main = 'c'.repeat(40), mergeBase = 'd'.repeat(40);
     const page = { base_commit: { sha: main }, merge_base_commit: { sha: mergeBase }, total_commits: 2,
-        commits: [{ sha: head }], files: [{ filename: 'safe/file', previous_filename: 'talos/old' }] };
+        commits: [{ sha: head }], files: [{ filename: 'safe/file', previous_filename: 'talos/old', additions: 12, deletions: 3 }] };
     const second = { total_commits: 2, commits: [{ sha: 'b'.repeat(40) }] };
-    assert.deepEqual(compareEvidence(main, head, [page, second]), { main_sha: main, merge_base: mergeBase, files: ['safe/file','talos/old'] });
+    assert.deepEqual(compareEvidence(main, head, [page, second]), { main_sha: main, merge_base: mergeBase,
+        files: ['safe/file','talos/old'], changedFiles: 1, additions: 12, deletions: 3 });
     assert.throws(() => compareEvidence(main, head, [page]), /incomplete/);
-    for (const delta of [{ files: Array(300).fill({ filename: 'safe' }) }, { merge_base_commit: null }, { base_commit: { sha: head } }])
+    for (const delta of [{ files: Array(300).fill({ filename: 'safe', additions: 1, deletions: 0 }) },
+        { files: [{ filename: 'safe', additions: 1 }] }, { merge_base_commit: null }, { base_commit: { sha: head } }])
         assert.throws(() => compareEvidence(main, head, [{ ...page, ...delta }, second]), /incomplete/);
 });

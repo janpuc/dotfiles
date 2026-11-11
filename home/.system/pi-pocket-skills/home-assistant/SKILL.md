@@ -26,12 +26,12 @@ assume a friendly name uniquely identifies a device. `unavailable` and
 ## Live control
 
 Lights and scenes are direct: `light.turn_on`, `light.turn_off`, `light.toggle`
-and `scene.turn_on` run without a phone prompt, as long as the command is one
-simple curl to one service URL. Everything else asks Jan on his phone before it
-runs: `script.*`, `switch.*`, `homeassistant.restart` and `homeassistant.stop`,
-every config-entry call and every Supervisor call (`/api/hassio/info` answers
-401 for this token anyway). State plainly which device will change and how,
-keep the command specific, and never try another route after a denial.
+and `scene.turn_on` are allowed, as long as the command is one simple curl to
+one service URL. Everything else is blocked and nobody is asked: `script.*`,
+`switch.*`, `homeassistant.restart` and `homeassistant.stop`, every config-entry
+call and every Supervisor call (`/api/hassio/info` answers 401 for this token
+anyway). If a blocked call is really needed, write the exact command and why on
+a line starting `Jan:` in your answer or PR body. Never try another route.
 
 For example, after identifying `light.office`:
 
@@ -145,7 +145,8 @@ It is a read and runs without a phone prompt, as long as it stays this one
 add-ons; `hacs` the custom integrations; `shelly` device firmware. Leave the
 Supervisor alone: it updates itself.
 
-Each install is one call, and it asks Jan on his phone, every time:
+Each install call is blocked and nobody is asked. If one is really needed, write
+the exact command and why on a line starting `Jan:` instead of running it:
 
 ```sh
 curl -fsS -X POST -H "Authorization: Bearer $HA_TOKEN" \
@@ -175,14 +176,10 @@ Do the groups in this order, one entity at a time:
    `https://www.home-assistant.io/blog/categories/release-notes/` for Core)
    and list any breaking change that touches an integration Jan uses. Then
    `ask_jan` for a time, with real times and a `reminder`, naming what will
-   update and the breaking changes. In the window:
-   - install the HACS updates first: they only load after a restart, so
-     Core's restart applies them;
-   - Core, with `backup: true`; wait until `GET $HA_URL/api/` answers again and
-     the Core entity is `off`;
-   - the OS last; wait for Home Assistant to answer again;
-   - then check the house: the automations still match git (the drift check),
-     and no wall-switch entity is `unavailable`.
+   update and the breaking changes. In the window, write the exact HACS, Core
+   and OS install commands in order on `Jan:` lines, with the reason, and stop.
+   HACS goes first because Core's restart loads it. Core uses `backup: true`.
+   The OS goes last. Do not call `update.install` yourself.
 
 No window answer means no Core, OS or HACS update. Never call `hassio.*`
 services (backups, restores, host reboot or shutdown) and never

@@ -26,7 +26,7 @@ const { default: create, sharedChange, haServiceAllowed, haTemplateRead, pocketA
 );
 imports.deregister();
 
-// Every verb in the laptop guard, plus option prefixes, shell separators and API writes.
+// Every blocked verb, plus option prefixes, shell separators and API writes.
 const blocked = [
     "pr-merge-request 42 " + "a".repeat(40) + " && gh pr merge 42 --squash",
     "pr-merge-request 42 " + "a".repeat(40) + "; gh api repos/janpuc/home-ops/pulls/42/merge -X PUT",
@@ -37,11 +37,18 @@ const blocked = [
         "merge",
         "close",
         "reopen",
+        "edit",
         "review",
         "lock",
         "unlock",
     ].map((v) => `gh pr ${v} 42`),
-    ...["create", "close", "reopen", "comment", "edit", "delete", "transfer", "lock", "pin"].map(
+    "gh pr review 42 --approve",
+    "gh pr review 42 --request-changes",
+    "gh pr review 42 --comment --approve",
+    "gh pr review 42 --comment -a",
+    "gh pr review 42 -r --comment -b no",
+    "gh pr review 42 -ca",
+    ...["close", "reopen", "edit", "delete", "transfer", "lock", "pin"].map(
         (v) => `gh issue ${v} 42`,
     ),
     ...["create", "delete", "edit", "upload"].map((v) => `gh release ${v} v1`),
@@ -49,7 +56,7 @@ const blocked = [
         (v) => `gh repo ${v} janpuc/home-ops`,
     ),
     ...["run", "enable", "disable"].map((v) => `gh workflow ${v} ci`),
-    ...["rerun", "cancel", "delete"].map((v) => `gh run ${v} 1`),
+    ...["cancel", "delete"].map((v) => `gh run ${v} 1`),
     ...["secret", "variable", "label"].flatMap((kind) =>
         ["set", "create", "edit", "delete"].map((v) => `gh ${kind} ${v} test`),
     ),
@@ -62,7 +69,12 @@ const blocked = [
     ...["-f", "-F", "--field", "--raw-field", "--input"].map(
         (v) => `gh api repos/janpuc/home-ops ${v} body=value`,
     ),
-    "gh api graphql -f query='mutation { test }'",
+    `gh api graphql -f query='mutation { test }'`,
+    "gh api repos/janpuc/home-ops/pulls/42/merge -X PUT",
+    "gh api repos/janpuc/home-ops/pulls/42 -X PATCH -f title=x",
+    "gh api repos/janpuc/home-ops/issues/42/comments -X DELETE",
+    "gh api repos/janpuc/home-ops/issues/42/comments -X POST -f body=x -X GET -X PATCH",
+    "gh api repos/janpuc/home-ops/pulls -X POST -f title=x --method=PATCH",
     "echo checking && git push",
     "true; gh pr merge 42 --squash",
     "/usr/bin/git push",
@@ -79,6 +91,20 @@ const allowed = [
     "git pull",
     ...["list", "view", "checks", "diff"].map((v) => `gh pr ${v} 42`),
     "gh issue list",
+    "gh issue create -R janpuc/home-ops --title alert --body fix",
+    "gh issue comment 42 --body investigated",
+    "gh pr create -R janpuc/home-ops --base main --head agent/fix --title fix --body evidence",
+    "gh pr comment 42 --body evidence",
+    "gh pr review 42 --comment --body 'looks right'",
+    "gh -R janpuc/home-ops pr review 42 --comment -b ok",
+    "gh run rerun 123",
+    "gh api repos/janpuc/home-ops/pulls -X POST -f title=fix -f head=agent/fix -f base=main",
+    "gh api --method=POST repos/janpuc/home-ops/pulls -f title=fix -f head=agent/fix -f base=main",
+    "gh api -XPOST repos/janpuc/home-ops/pulls --field title=fix --raw-field head=agent/fix",
+    "gh api repos/janpuc/home-ops/pulls -f title=fix -f head=agent/fix -f base=main",
+    "gh api repos/janpuc/home-ops/issues/42/comments --method POST -f body=evidence",
+    "gh api --method=POST repos/janpuc/home-ops/pulls/42/comments --raw-field body=evidence",
+    "gh api repos/janpuc/home-ops/issues/42/comments --input /tmp/comment.json",
     "gh release view",
     "gh run view",
     "gh repo view",
@@ -126,7 +152,7 @@ const haBlocked = [
     "http $HA_URL/api/states/light.test state:=true",
     "true && /usr/bin/curl -X POST https://hass.janpuc.com/api/services/light/turn_on",
 ];
-// The services that need no phone prompt: lights, scenes and the reload services.
+// The allowed services: lights, scenes and the reload services.
 const haAllowedServices = [
     "light.turn_on",
     "light.turn_off",
@@ -151,7 +177,7 @@ const haAllowedServices = [
 const haServiceCall = (service: string) =>
     `curl -fsS -X POST -H "Authorization: Bearer $HA_TOKEN" -H 'Content-Type: application/json' --data '{"entity_id":"light.office"}' "$HA_URL/api/services/${service.replace(".", "/")}"`;
 const haAllowed = [
-    // A light, a scene or a reload: one simple curl, one service URL, no phone prompt.
+    // A light, a scene or a reload: one simple curl and one service URL.
     ...haAllowedServices.map((service) => haServiceCall(service)),
     ...["-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "--json", "-F"].map(
         (v) => `curl ${v} '{}' "\${HA_URL}/api/services/light/turn_on"`,
@@ -197,7 +223,7 @@ test("approvals sharedChange: Home Assistant writes and GET/HEAD reads", () => {
 });
 
 // The template API only renders: one simple curl POST to /api/template is a read. Anything
-// else that POSTs to Home Assistant still asks, including a template call chained or piped.
+// else that POSTs to Home Assistant is blocked, including a template call chained or piped.
 const haTemplateCall = `curl -fsS -X POST -H "Authorization: Bearer $HA_TOKEN" -H 'Content-Type: application/json' --data '{"template":"{% for i in [\\"hassio\\"] %}{{ integration_entities(i) | select(\\"match\\", \\"update\\\\\\\\.\\") | join(\\" \\") }}{% endfor %}"}' "$HA_URL/api/template"`;
 test("approvals sharedChange: the template API is a read", () => {
     for (const command of [
@@ -224,13 +250,13 @@ test("approvals sharedChange: the template API is a read", () => {
     }
 });
 
-test("approvals sharedChange: update installs ask Jan", () => {
+test("approvals sharedChange: update installs are blocked", () => {
     const install = `curl -fsS -X POST -H "Authorization: Bearer $HA_TOKEN" -H 'Content-Type: application/json' --data '{"entity_id":"update.home_assistant_core_update","backup":true}' "$HA_URL/api/services/update/install"`;
     assert.equal(sharedChange(install), "call a Home Assistant service");
     assert.equal(haServiceAllowed(install), false);
 });
 
-test("approvals sharedChange: lights, scenes and reloads need no phone prompt", () => {
+test("approvals sharedChange: lights, scenes and reloads are allowed", () => {
     for (const service of haAllowedServices) {
         const command = haServiceCall(service);
         assert.equal(sharedChange(command), undefined, command);
@@ -249,7 +275,7 @@ test("approvals sharedChange: lights, scenes and reloads need no phone prompt", 
     }
 });
 
-test("approvals sharedChange: every other Home Assistant call still asks Jan", () => {
+test("approvals sharedChange: every other Home Assistant call is blocked", () => {
     for (const service of [
         "script.turn_on",
         "script.turn_off",
@@ -274,7 +300,7 @@ test("approvals sharedChange: every other Home Assistant call still asks Jan", (
 });
 
 test("approvals sharedChange: the Home Assistant exemption needs one simple curl call", () => {
-    const ask = [
+    const blockedCalls = [
         // Chained commands.
         'curl -X POST "$HA_URL/api/services/light/turn_on" && curl -X POST "$HA_URL/api/services/script/turn_on"',
         'curl -X POST "$HA_URL/api/services/light/turn_on"; curl -X POST "$HA_URL/api/services/script/turn_on"',
@@ -306,7 +332,7 @@ test("approvals sharedChange: the Home Assistant exemption needs one simple curl
         // A dry-run flag is not a curl option: not a plain service call.
         'curl -X POST "$HA_URL/api/services/light/turn_on" --dry-run',
     ];
-    for (const command of ask) {
+    for (const command of blockedCalls) {
         assert.ok(sharedChange(command), command);
         assert.equal(haServiceAllowed(command), false, command);
     }
@@ -326,96 +352,35 @@ function memoApi(callId: string, context: object, memos = new Map()) {
     };
 }
 
-test("approvals beforeTool: ask once per call, persist allow/deny on replay, pass reads untouched", async () => {
+test("approvals beforeTool: allowed writes run and blocked writes never request approval", async () => {
     const context = {};
-    const requests: any[] = [];
-    let allow = true;
+    let requests = 0;
     const extension = create({
-        approvals: {
-            request: async (asked, ctx) => {
-                assert.equal(ctx, context);
-                requests.push(asked);
-                return { allow, by: "Jan" };
-            },
-        },
+        approvals: { request: async () => { requests++; throw new Error("must not be called"); } },
     });
     assert.equal(extension.name, "approvals");
     assert.equal(extension.hooks[0].task, "pi.tool");
     const prompt = extension.sections[0].render();
-    assert.match(prompt, /Jan on his phone/);
-    assert.match(prompt, /State plainly/);
-    assert.match(prompt, /Never try to get around a denial/);
+    assert.match(prompt, /never ask for approval/);
+    assert.match(prompt, /blocked/);
+    assert.match(prompt, /Jan:/);
+    assert.match(prompt, /Never try another way around it/);
     const before = extension.hooks[0].handlers.beforeTool;
-    const call = {
-        id: "call-1",
-        name: "bash",
-        arguments: { command: " \n gh pr merge 42\n--squash \n" },
-    };
-    const memos = new Map();
-    const api = memoApi(call.id, context, memos);
-    assert.equal(await before(call, api, context), undefined);
-    assert.equal(requests.length, 1);
-    assert.deepEqual(
-        { ...requests[0], createdAt: 0 },
-        {
-            id: "7:call-1",
-            conversationId: 1,
-            taskId: 7,
-            callId: "call-1",
-            tool: "bash",
-            subject: "gh pr merge 42 --squash",
-            reason: "Merge pull request #42 in the current repository. Allow only if you expected this.",
-            createdAt: 0,
-        },
-    );
-    assert.ok(Number.isFinite(requests[0].createdAt));
-    allow = false;
-    // A rebuilt API with the same durable memos simulates recovery after a restart.
-    assert.equal(await before(call, memoApi(call.id, context, memos), context), undefined);
-    assert.equal(requests.length, 1, "replay uses the original allow answer");
-    const deniedCall = {
-        ...call,
-        id: "call-2",
-        arguments: { command: "gh pr merge 42 -R janpuc/home-ops --squash" },
-    };
-    const denied = await before(deniedCall, memoApi(deniedCall.id, context, memos), context);
-    assert.match(denied.block, /Jan denied this bash call/);
-    assert.match(denied.block, /Merge pull request #42 in janpuc\/home-ops/);
-    assert.match(denied.block, /gh pr merge 42/);
-    allow = true;
-    assert.deepEqual(
-        await before(deniedCall, memoApi(deniedCall.id, context, memos), context),
-        denied,
-    );
-    assert.equal(requests.length, 2, "same task, distinct calls each ask once");
-    for (const command of [...allowed, ...haAllowed]) {
-        assert.equal(await before({ ...call, arguments: { command } }, api, context), undefined);
+    const call = { id: "call-1", name: "bash", arguments: { command: "" } };
+    for (const command of [...allowed, ...haAllowed])
+        assert.equal(await before({ ...call, arguments: { command } }, {}, context), undefined, command);
+    for (const command of [...blocked, ...haBlocked]) {
+        const result = await before({ ...call, arguments: { command } }, {}, context);
+        assert.match(result.block, /not allowed for agents and nobody was asked/, command);
+        assert.match(result.block, /Jan:/, command);
+        assert.match(result.block, /Never try another way around it/, command);
     }
-    assert.equal(await before({ ...call, name: "read" }, api, context), undefined);
-    assert.equal(await before({ ...call, arguments: {} }, api, context), undefined);
-    assert.equal(requests.length, 2, "reads and other tools never request approval");
+    assert.equal(await before({ ...call, name: "read" }, {}, context), undefined);
+    assert.equal(await before({ ...call, arguments: {} }, {}, context), undefined);
+    assert.equal(requests, 0);
 });
 
-test("approvals beforeTool: approval errors propagate instead of letting a write run", async () => {
-    const context = {};
-    const extension = create({
-        approvals: {
-            request: async () => {
-                throw new Error("cancelled");
-            },
-        },
-    });
-    await assert.rejects(
-        extension.hooks[0].handlers.beforeTool(
-            { id: "failed", name: "bash", arguments: { command: "gh pr merge 42 --squash" } },
-            memoApi("failed", context),
-            context,
-        ),
-        /cancelled/,
-    );
-});
-
-test('approvals hook: each lane A/B merge call asks Jan', async () => {
+test('approvals hook: every lane A/B merge call is blocked without asking', async () => {
     let asked = 0;
     const extension = create({ approvals: { request: async () => { asked++; return {allow: false, by: 'Jan'}; } } });
     const before = extension.hooks[0].handlers.beforeTool, context = {};
@@ -423,9 +388,9 @@ test('approvals hook: each lane A/B merge call asks Jan', async () => {
         const call = { id, name: 'bash', arguments: {
             command: `gh pr merge 42 -R janpuc/home-ops --squash --match-head-commit ${'a'.repeat(40)}`,
         } };
-        assert.match((await before(call, memoApi(id, context), context)).block, /Jan denied/);
+        assert.match((await before(call, memoApi(id, context), context)).block, /not allowed for agents/);
     }
-    assert.equal(asked, 2, 'no lane exception: distinct merge calls each ask');
+    assert.equal(asked, 0);
 });
 
 test('approvals: malformed merge dry-run/chaining cannot use the generic dry-run exemption', async () => {
@@ -439,9 +404,9 @@ test('approvals: malformed merge dry-run/chaining cannot use the generic dry-run
         assert.equal(sharedChange(command), 'merge a GitHub PR');
         const context = {};
         assert.match((await extension.hooks[0].handlers.beforeTool({id:String(i),name:'bash',arguments:{command}},
-            memoApi(String(i),context),context)).block, /Jan denied/);
+            memoApi(String(i),context),context)).block, /not allowed for agents/);
     }
-    assert.equal(asked,2);
+    assert.equal(asked,0);
 });
 
 test('approvals sharedChange: dry-run cannot exempt chains or shell expansions', () => {
@@ -476,10 +441,10 @@ test('approvals sharedChange: quotes and escapes do not hide writes', () => {
         assert.ok(sharedChange(command), command);
 });
 
-test('approvals sharedChange: branch pushes and PR authoring do not ask (Jan, 2026-10-29)', () => {
+test('approvals sharedChange: branch pushes and PR authoring are allowed', () => {
     for (const command of ['agent-push', '/usr/local/sbin/agent-push', 'cd repo && agent-push',
         'gh pr create -R janpuc/home-ops --base main --head agent/x --title t --body-file b.md',
-        'gh pr edit 42 --title t', 'gh pr comment 42 --body ok', 'gh pr ready 42'])
+        'gh pr comment 42 --body ok', 'gh pr ready 42'])
         assert.equal(sharedChange(command), undefined, command);
     for (const command of ['git push origin agent/x', 'gh pr merge 42 --squash', 'gh pr close 42',
         'gh pr review 42 --approve', 'agent-push && git push', 'agent-push; gh pr close 42'])
@@ -498,8 +463,8 @@ test('approvals hook: a raw git push is refused without asking Jan (2026-10-30)'
     }
     assert.equal(asked, 0);
     const merge = await handlers.beforeTool({ name: 'bash', id: 'm1', arguments: { command: 'gh pr merge 42 --squash' } }, memoApi('m1', context), context);
-    assert.equal(merge, undefined);
-    assert.equal(asked, 1);
+    assert.match(merge.block, /not allowed for agents/);
+    assert.equal(asked, 0);
 });
 
 test('approvals sharedChange: cluster CLIs no longer ask; RBAC is the boundary (2026-10-30)', () => {
@@ -509,7 +474,7 @@ test('approvals sharedChange: cluster CLIs no longer ask; RBAC is the boundary (
         assert.equal(sharedChange(command), undefined, command);
 });
 
-test('approvals explain: plain lines for the card', async () => {
+test('approvals explain: plain lines for refusals', async () => {
     assert.equal(explain('gh pr merge 1593 -R janpuc/home-ops --squash', 'merge a GitHub PR'), 'Merge pull request #1593 in janpuc/home-ops.');
     assert.equal(explain('gh pr close 42 -R janpuc/dotfiles', 'write to GitHub'), 'GitHub: close pr 42 in janpuc/dotfiles.');
     assert.equal(explain('curl -X POST "$HA_URL/api/services/lock/unlock" -d \'{"entity_id":"lock.front_door"}\'', 'call a Home Assistant service'), 'Home Assistant: run lock.unlock on lock.front_door.');
@@ -529,17 +494,39 @@ test('approvals hook: hand-built GitHub commits are refused without asking (2026
     assert.equal(asked, 0);
 });
 
-test('approvals hook: closing a PR that is not provably the agent\'s still asks', async () => {
+test('approvals hook: changing a PR that is not provably the agent\'s is blocked', async () => {
     let asked = 0;
     const ext = create({ approvals: { request: async () => { asked++; return { allow: true, by: 'Jan' }; } } });
     const handlers = ext.hooks[0].handlers;
     const context = {};
-    // No gh on PATH: the author lookup fails, so it must ask (fail closed).
     const path = process.env.PATH;
     process.env.PATH = '/nonexistent';
-    for (const command of ['gh pr close 1682 -R janpuc/home-ops --comment done', 'gh pr close 5', 'gh pr close 5 -R janpuc/home-ops; gh pr close 6 -R janpuc/home-ops']) {
-        await handlers.beforeTool({ name: 'bash', id: 'c' + command.length, arguments: { command } }, memoApi('c' + command.length, context), context);
-    }
-    process.env.PATH = path;
-    assert.equal(asked, 3);
+    try {
+        for (const command of ['gh pr close 1682 -R janpuc/home-ops --comment done',
+            'gh pr reopen 1682 -R janpuc/home-ops', 'gh pr edit 1682 -R janpuc/home-ops --title new',
+            'gh pr close 5', 'gh pr close 5 -R janpuc/home-ops; gh pr close 6 -R janpuc/home-ops']) {
+            const result = await handlers.beforeTool({ name: 'bash', id: 'c' + command.length, arguments: { command } }, {}, context);
+            assert.match(result.block, /not allowed for agents/, command);
+        }
+    } finally { process.env.PATH = path; }
+    assert.equal(asked, 0);
+});
+
+test('approvals hook: close, reopen and edit are allowed on the agent\'s own PR', async t => {
+    const fs = await import('node:fs/promises');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'approvals-own-pr-'));
+    t.after(() => fs.rm(dir, { recursive: true, force: true }));
+    await fs.writeFile(path.join(dir, 'gh'), '#!/bin/sh\nprintf \'app/janpuc-agent\\n\'\n', { mode: 0o755 });
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${dir}:${oldPath}`;
+    t.after(() => { process.env.PATH = oldPath; });
+    let asked = 0;
+    const ext = create({ approvals: { request: async () => { asked++; return { allow: false, by: 'Jan' }; } } });
+    const before = ext.hooks[0].handlers.beforeTool;
+    for (const command of ['gh pr close 42 -R janpuc/home-ops', 'gh pr reopen 42 -R janpuc/home-ops',
+        'gh pr edit 42 -R janpuc/home-ops --title updated'])
+        assert.equal(await before({ name: 'bash', id: command, arguments: { command } }, {}, {}), undefined, command);
+    assert.equal(asked, 0);
 });

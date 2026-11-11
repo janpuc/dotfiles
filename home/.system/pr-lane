@@ -7,6 +7,13 @@ const REPO = 'janpuc/home-ops';
 const ROOT = `repos/${REPO}`;
 const PROTECTED = ['kube-system', 'flux-system', 'network', 'security', 'cnpg-system',
     'miroir-system', 'kopiur-system', 'external-secrets', 'cert-manager'];
+const FILTERED_SOAK = 3 * 24 * 60 * 60 * 1000;
+function agentPrKind(pr) {
+    if (pr.user?.login !== 'janpuc-agent[bot]' || pr.head?.repo?.full_name !== REPO) return null;
+    if (pr.head?.ref?.startsWith('agent/')) return 'fix';
+    if (pr.head?.ref?.startsWith('upstream/')) return 'upstream';
+    return null;
+}
 // Renovate update types and their severity. major > minor > patch > digest is the
 // policy order; every other known type ranks above patch so it can never qualify
 // a PR for lane A. An unknown type is unparseable and waits.
@@ -54,7 +61,8 @@ async function connection(id, type, field, selection) {
 }
 async function actorEvidence(pr, comments) {
     const reasons = [];
-    async function edits(id, type, body, prefix) {
+    const metadataActors = new Set(agentPrKind(pr) === 'fix' ? ['bot-atlas', 'janpuc-agent'] : ['bot-atlas']);
+    async function edits(id, type, body, prefix, trusted = new Set(['bot-atlas'])) {
         if (typeof id !== 'string') throw Error('missing GitHub node ID');
         const node = await graphql(`{node(id:${JSON.stringify(id)}){... on ${type}{body editor{login}}}}`);
         if (node.body !== (body ?? '') || !Object.hasOwn(node, 'editor')) throw Error('body changed or editor unavailable');
@@ -65,10 +73,10 @@ async function actorEvidence(pr, comments) {
         for (let i = 0; i < editors.length; i++) {
             const actor = editors[i];
             if (i === 0 && actor === null) continue;
-            if (actor?.login !== 'bot-atlas') reasons.push(`${prefix} ${actor?.login || 'unknown'}`);
+            if (!trusted.has(actor?.login)) reasons.push(`${prefix} ${actor?.login || 'unknown'}`);
         }
     }
-    await edits(pr.node_id, 'PullRequest', pr.body, 'PR metadata changed by');
+    await edits(pr.node_id, 'PullRequest', pr.body, 'PR metadata changed by', metadataActors);
     const timeline = await connection(pr.node_id, 'PullRequest', 'timelineItems',
         '__typename ... on RenamedTitleEvent{actor{login}} ... on LabeledEvent{actor{login}} ... on UnlabeledEvent{actor{login}}' +
         ' ... on ReadyForReviewEvent{actor{login}} ... on ConvertToDraftEvent{actor{login}}' +
@@ -76,7 +84,7 @@ async function actorEvidence(pr, comments) {
     if (timeline.some(event => typeof event.__typename !== 'string')) throw Error('incomplete timeline');
     for (const event of timeline) {
         const type = event?.__typename, login = event?.actor?.login;
-        if (['RenamedTitleEvent', 'LabeledEvent', 'UnlabeledEvent'].includes(type) && login !== 'bot-atlas')
+        if (['RenamedTitleEvent', 'LabeledEvent', 'UnlabeledEvent'].includes(type) && !metadataActors.has(login))
             reasons.push(`PR metadata changed by ${login || 'unknown'}`);
         // Only the bot may flip a PR between draft and ready; unknown actors count as untrusted.
         if (['ReadyForReviewEvent', 'ConvertToDraftEvent'].includes(type) && login !== 'bot-atlas')
@@ -99,8 +107,12 @@ function compareEvidence(main, head, pages) {
         pages.reduce((n, p) => n + p.commits.length, 0) !== first.total_commits)
         throw Error('GitHub compare incomplete');
     const files = first.files.flatMap(f => f.previous_filename ? [f.filename, f.previous_filename] : [f.filename]);
-    if (files.some(f => typeof f !== 'string')) throw Error('GitHub compare filenames incomplete');
-    return { files, main_sha: main, merge_base: first.merge_base_commit.sha };
+    if (files.some(f => typeof f !== 'string') || first.files.some(f =>
+        !Number.isSafeInteger(f.additions) || f.additions < 0 || !Number.isSafeInteger(f.deletions) || f.deletions < 0))
+        throw Error('GitHub compare filenames or line counts incomplete');
+    const additions = first.files.reduce((sum, f) => sum + f.additions, 0);
+    const deletions = first.files.reduce((sum, f) => sum + f.deletions, 0);
+    return { files, changedFiles: first.files.length, additions, deletions, main_sha: main, merge_base: first.merge_base_commit.sha };
 }
 function reviewComment(pr, comments) {
     return comments.filter(c => c.user?.login === 'bot-atlas[bot]' &&
@@ -146,6 +158,12 @@ function parseReview(pr, status, comments) {
     const reviewed = body.match(/Last reviewed commit:[^\n]*\/commit\/([a-f0-9]{40})\)/i)?.[1];
     const line = body.match(/\*\*Confidence ([1-5])\/5\*\*\s*·\s*(low|medium|high) risk\b/i);
     const confidence = Number(status?.description?.match(/confidence ([1-5])\/5/i)?.[1]);
+    if (/^kritika: confidence not scored, no findings$/i.test(status?.description ?? '')) {
+        return { state: status?.state ?? null, description: status?.description ?? null,
+            reviewedHead: reviewed ?? null, confidence: null, risk: null, p1: 0, findingsError: null,
+            parsed: Boolean(reviewed && /The confidence model did not answer, so this review has no confidence score\./.test(body)),
+            commentUrl: comment?.html_url ?? null };
+    }
     // Both versions have a Findings section; only the confidence/risk syntax
     // distinguishes badge reviews from legacy summaries.
     if (/^## .*Confidence Score:|^\*\*\[[^\n]* risk\]\*\*/im.test(body)) {
@@ -260,10 +278,15 @@ function parseUpdateType(body) {
 function classify({ pr, files, statuses, checks, comments, entry, rendered, errors = [], actors = [], comparison = {} }) {
     const waiting = [...errors], caution = [...actors], automatic = [], notes = [];
     const labels = pr.labels.map(l => typeof l === 'string' ? l : l.name);
+    const agentKind = agentPrKind(pr);
     const update = parseUpdateType(pr.body);
-    if (update.error) waiting.push(`Renovate update type not derivable from PR body: ${update.error}`);
+    if (update.error && !agentKind) waiting.push(`Renovate update type not derivable from PR body: ${update.error}`);
     const kritikaStatus = statuses.find(s => s.context === 'Kritika / Review');
-    const kritika = parseReview(pr, kritikaStatus, comments);
+    const filtered = kritikaStatus?.state === 'success' && kritikaStatus?.description === 'kritika: skipped (filtered)' &&
+        kritikaStatus?.creator?.login === 'bot-atlas[bot]';
+    const kritika = filtered ? { state: 'success', description: kritikaStatus.description,
+        reviewedHead: pr.head.sha, confidence: null, risk: null, p1: null, findingsError: null,
+        parsed: true, filtered: true, commentUrl: null } : parseReview(pr, kritikaStatus, comments);
     const signals = entry?.signals, rawImpact = rendered?.diff?.impact;
     const namespacesNormalizedFromNull = rawImpact?.namespaces === null && rawImpact.resources === 0;
     const impact = namespacesNormalizedFromNull ? { ...rawImpact, namespaces: [] } : rawImpact;
@@ -295,7 +318,16 @@ function classify({ pr, files, statuses, checks, comments, entry, rendered, erro
         !Array.isArray(impact.namespaces) || !impact.namespaces.every(n => typeof n === 'string') ||
         !(rendered?.diff?.warnings === null || Array.isArray(rendered?.diff?.warnings)))
         waiting.push('konflate schema incomplete');
-    if (pr.user.login !== 'bot-atlas[bot]') caution.push('author is not bot-atlas');
+    if (pr.user.login !== 'bot-atlas[bot]' && !agentKind) caution.push('author is not bot-atlas');
+    if (agentKind === 'upstream') caution.push('upstream port: Jan merges');
+    if (agentKind === 'fix') {
+        const changedFiles = comparison.changedFiles ?? files.length;
+        const changedLines = (comparison.additions ?? 0) + (comparison.deletions ?? 0);
+        if (changedFiles > 5) caution.push('agent fix changes more than 5 files');
+        if (changedLines > 80) caution.push('agent fix changes more than 80 lines');
+        if (files.some(p => /\.sops\.|secret|rbac|role.*binding/i.test(p))) caution.push('agent fix touches secret or RBAC path');
+        if (kritika.confidence === null) caution.push('kritika has no parsed confidence for agent fix');
+    }
     // The title and the labels are attacker-editable, so the branch name and the
     // bot-authored package column of the body table are checked as well. The body
     // is only read there: release notes mention "kubernetes" for unrelated PRs.
@@ -326,19 +358,35 @@ function classify({ pr, files, statuses, checks, comments, entry, rendered, erro
         caution.push(`failed status: ${status.context} (${status.state})`);
     for (const check of checks.filter(c => c.status === 'completed' && !['success', 'skipped', 'neutral'].includes(c.conclusion)))
         caution.push(`failed check: ${check.name} (${check.conclusion})`);
-    if (['digest', 'patch'].includes(update.type)) automatic.push('digest/patch update type in PR body');
-    if (signals?.routine === true && signals.caution === 0) automatic.push('konflate routine with caution=0');
+    const routineUpdate = ['digest', 'patch'].includes(update.type);
+    const routineRender = signals?.routine === true && signals.caution === 0;
+    if (routineUpdate) automatic.push('digest/patch update type in PR body');
+    if (routineRender) automatic.push('konflate routine with caution=0');
     if (kritika.confidence >= 4 && kritika.risk === 'low' && kritika.p1 === 0)
         automatic.push('kritika confidence >= 4, low risk, no P1');
-    const lane = waiting.length ? 'wait' : caution.length ? 'C' : automatic.length === 3 ? 'A' : 'B';
+    let filteredA = false;
+    if (filtered && pr.user.login === 'bot-atlas[bot]') {
+        automatic.push('kritika skipped by its trigger filter');
+        if (routineUpdate && routineRender) {
+            const created = Date.parse(pr.created_at);
+            const remaining = Number.isFinite(created) ? FILTERED_SOAK - (Date.now() - created) : Number.NaN;
+            if (!Number.isFinite(remaining)) waiting.push('kritika filtered routine update has an invalid creation time');
+            else if (remaining > 0) waiting.push(`kritika filtered routine update soak: ${Math.ceil(remaining / 3600000)}h remaining`);
+            else { filteredA = true; automatic.push('kritika filtered routine update soaked for 3 days'); }
+        }
+    }
+    const ordinaryA = !filtered && automatic.length === 3;
+    const lane = waiting.length ? 'wait' : caution.length ? 'C' : !agentKind && (ordinaryA || filteredA) ? 'A' : 'B';
     return { pr: pr.number, head: pr.head.sha, lane,
         reasons: [...waiting, ...caution, ...automatic, ...notes, ...(lane === 'B' ? ['otherwise lane B: not all A conditions met'] : [])],
         // The wait reasons on their own: the broker lets Jan's approval past the advisory ones.
         waiting: [...waiting],
-        facts: { main_sha: comparison.main_sha ?? null, merge_base: comparison.merge_base ?? null, title: pr.title, author: pr.user.login, createdAt: pr.created_at, labels, files,
+        facts: { main_sha: comparison.main_sha ?? null, merge_base: comparison.merge_base ?? null,
+            changedFiles: comparison.changedFiles ?? files.length, additions: comparison.additions ?? 0,
+            deletions: comparison.deletions ?? 0, title: pr.title, author: pr.user.login, createdAt: pr.created_at, labels, files,
             update: { type: update.type, error: update.error, rows: update.rows.map(row => ({ package: row.package, type: row.type })) },
             kritika, checks: checks.map(c => ({ name: c.name, status: c.status, conclusion: c.conclusion })),
-            statuses: statuses.map(s => ({ context: s.context, state: s.state })),
+            statuses: statuses.map(s => ({ context: s.context, state: s.state, creator: s.creator?.login ?? null })),
             konflate: { head: entry?.headSha ?? null, status: entry?.status ?? null,
                 signals: signals ?? null, impact: impact ?? null, namespacesNormalizedFromNull,
                 warnings: rendered?.diff?.warnings ?? null } } };
@@ -351,8 +399,10 @@ async function inspect(pr, entries) {
         if (!/^[a-f0-9]{40}$/.test(main)) throw Error('invalid main SHA');
         comparison = compareEvidence(main, pr.head.sha, await api(`${ROOT}/compare/${main}...${pr.head.sha}?per_page=100`, true));
         files = comparison.files;
-        const statusPages = await api(`${ROOT}/commits/${pr.head.sha}/status?per_page=100`, true);
-        statuses = statusPages.flatMap(p => p.statuses);
+        // The combined status endpoint nulls creators. This endpoint retains them, newest first.
+        const allStatuses = await api(`${ROOT}/commits/${pr.head.sha}/statuses?per_page=100`, true);
+        const contexts = new Set();
+        statuses = allStatuses.filter(s => !contexts.has(s.context) && Boolean(contexts.add(s.context)));
         const checkPages = await api(`${ROOT}/commits/${pr.head.sha}/check-runs?filter=latest&per_page=100`, true);
         checks = checkPages.flatMap(p => p.check_runs);
         comments = await api(`${ROOT}/issues/${pr.number}/comments?per_page=100`, true);
@@ -367,7 +417,8 @@ async function inspect(pr, entries) {
     try {
         const current = await api(`${ROOT}/pulls/${pr.number}`);
         if (current.base?.ref !== 'main' || current.base?.repo?.full_name !== REPO ||
-            current.head.sha !== pr.head.sha || current.state !== 'open' || current.draft !== pr.draft ||
+            current.head.sha !== pr.head.sha || current.head.ref !== pr.head.ref ||
+            current.head.repo?.full_name !== pr.head.repo?.full_name || current.state !== 'open' || current.draft !== pr.draft ||
             current.title !== pr.title || current.body !== pr.body || current.user.login !== pr.user.login ||
             JSON.stringify(current.labels.map(l => l.name).sort()) !== JSON.stringify(pr.labels.map(l => l.name).sort()))
             errors.push('PR head/state/metadata changed during classification');

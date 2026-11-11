@@ -22,7 +22,7 @@ reach Linux unless deliberately added there.
 | `home/.system/xterm-ghostty.terminfo` (`06-linux-terminfo`) | Ghostty terminfo in `~/.terminfo`, absent from Ubuntu's ncurses |
 | `home/.system/aether-keepalive*` (installed by `05-linux-system`) | hold 25% of RAM without CPU load to avoid Oracle's idle-instance reclamation criteria |
 | `home/.system/aether-backup*`, `mnt-bigmouth\\x2dworkspace.{mount,automount}` (installed by `25-linux-aether-backup`) | online state backup to BigMouth daily at 03:30, 14 calendar days retained |
-| `home/.system/pi-pocket*` (installed by `20-linux-pi-pocket`) | [Pi Pocket](https://github.com/TannerMidd/pi-pocket) at pinned **v0.27.0-beta.7** (`78f547579cc5433a28cdb765524597f5bb07c329`), run by the `pocket` user (no sudo, sees only its own home) as the `pi-pocket` system service on 127.0.0.1:8787; `tailscale serve` publishes it at `https://aether.<tailnet>.ts.net` on the tailnet only. At home the same URL works without Tailscale: a UniFi DNS record (`aether.tail17d532.ts.net` → aether's tailnet address, 100.108.252.49) and bob, the router on the tailnet, carry it. Node comes from pocket's own mise config. `pi-pocket-extensions/memini.ts` gives it memory in memini namespace `homelab/assistant` (home `personal/jan`): a briefing per conversation, recall on each message, and `memory_recall`/`memory_remember` tools; test it with `node --test` on its `memini.test.ts`. `approvals.ts` asks Jan in the app (push notification, with a one-line plain explanation such as "Merge pull request #N in janpuc/home-ops") before a bash command makes a GitHub write it cannot undo (merge, close, reopen, review, issue/repo/release/workflow/secret changes, API writes), runs chezmoi apply, or calls a Home Assistant service other than the lights, scenes and reload services below. A raw git push is refused without asking (agent-push publishes). kubectl, flux, talosctl and helm are not asked about since 2026-10-30: pocket's cluster account is the read-only `view` role and it has no talosconfig, so the cluster refuses changes itself. `web.ts` gives it `web_search` (the home SearXNG at search.janpuc.com) and `web_fetch` (pages as text, with a FlareSolverr fallback). `pi-pocket-skills/` holds Pi skills for the cluster (read-only `view` access, Alertmanager and Prometheus over HTTPS), Home Assistant (`$HA_URL`, `$HA_TOKEN`, and Jan's Home Assistant configuration in `janpuc/home-assistant`) and GitHub (`gh`, signed in with the App's installation token). `ask-jan.ts` asks Jan a question on a card in the session, with the same push as an approval, with tappable answers and an Other field, and passes back his choice or his own words verbatim as owner instructions. pocket's mise config adds gh, kubectl, flux and jq. `pi-pocket-gh-token` (a systemd timer, as `pocket`, every half hour) mints an installation token of the agent's own GitHub App, janpuc-agent (only home-ops, dotfiles, BC250 and home-assistant, with a fallback to the older three until Jan adds the new repository to the installation; no admin or workflow rights; key from op://Kubernetes/janpuc-agent), and writes it into gh's own config for `pocket`, because a running service cannot see new environment values; git over HTTPS reads it through the `mise exec -- gh auth git-credential` helper. For dev work pocket commits as `janpuc-agent[bot]` (never as `bot-atlas[bot]`, the Renovate and kritika App, or Renovate takes the branch for its own), signed locally with its own key (`~pocket/.ssh/signing`, on GitHub as "pi-pocket (aether)"), but publishes only through `agent-push` for GitHub-verified App commits (see the PR shepherd below); home-ops, dotfiles, BC250 and home-assistant are cloned into `~pocket/work/` (the last one skipped, without failing, while the repository or the App installation does not have it yet) and trusted by mise, and new sessions start in `~pocket/scratch` |
+| `home/.system/pi-pocket*` (installed by `20-linux-pi-pocket`) | [Pi Pocket](https://github.com/TannerMidd/pi-pocket) at pinned **v0.27.0-beta.7** (`78f547579cc5433a28cdb765524597f5bb07c329`), run by the `pocket` user (no sudo, sees only its own home) as the `pi-pocket` system service on 127.0.0.1:8787; `tailscale serve` publishes it at `https://aether.<tailnet>.ts.net` on the tailnet only. At home the same URL works without Tailscale: a UniFi DNS record (`aether.tail17d532.ts.net` → aether's tailnet address, 100.108.252.49) and bob, the router on the tailnet, carry it. Node comes from pocket's own mise config. `pi-pocket-extensions/memini.ts` gives it memory in memini namespace `homelab/assistant` (home `personal/jan`): a briefing per conversation, recall on each message, and `memory_recall`/`memory_remember` tools; test it with `node --test` on its `memini.test.ts`. `approvals.ts` never asks for command approval. It allows PR opening, comments, issue creation, comment-only reviews, run reruns, the matching PR and comment API writes, and close, reopen or edit only when GitHub proves the agent authored the PR. It blocks merges, approve or request-changes reviews, destructive or unlisted GitHub writes, chezmoi apply/update/destroy/purge, other Home Assistant writes and raw git push. A refusal says nobody was asked and gives the `Jan:` escalation format. agent-push remains the only publishing path. kubectl, flux, talosctl and helm are not asked about since 2026-10-30: pocket's cluster account is the read-only `view` role and it has no talosconfig, so the cluster refuses changes itself. `web.ts` gives it `web_search` (the home SearXNG at search.janpuc.com) and `web_fetch` (pages as text, with a FlareSolverr fallback). `pi-pocket-skills/` holds Pi skills for the cluster (read-only `view` access, Alertmanager and Prometheus over HTTPS), Home Assistant (`$HA_URL`, `$HA_TOKEN`, and Jan's Home Assistant configuration in `janpuc/home-assistant`) and GitHub (`gh`, signed in with the App's installation token). `ask-jan.ts` asks Jan a question on a card in the session, with the same push as an approval, with tappable answers and an Other field, and passes back his choice or his own words verbatim as owner instructions. pocket's mise config adds gh, kubectl, flux and jq. `pi-pocket-gh-token` (a systemd timer, as `pocket`, every half hour) mints an installation token of the agent's own GitHub App, janpuc-agent (only home-ops, dotfiles, BC250 and home-assistant, with a fallback to the older three until Jan adds the new repository to the installation; no admin or workflow rights; key from op://Kubernetes/janpuc-agent), and writes it into gh's own config for `pocket`, because a running service cannot see new environment values; git over HTTPS reads it through the `mise exec -- gh auth git-credential` helper. For dev work pocket commits as `janpuc-agent[bot]` (never as `bot-atlas[bot]`, the Renovate and kritika App, or Renovate takes the branch for its own), signed locally with its own key (`~pocket/.ssh/signing`, on GitHub as "pi-pocket (aether)"), but publishes only through `agent-push` for GitHub-verified App commits (see the PR shepherd below); home-ops, dotfiles, BC250 and home-assistant are cloned into `~pocket/work/` (the last one skipped, without failing, while the repository or the App installation does not have it yet) and trusted by mise, and new sessions start in `~pocket/scratch` |
 
 No user-level systemd services, AI dot-directories or `~/.local/bin` launchers are allowlisted.
 The infrastructure units above are system services, installed separately by the Linux script.
@@ -461,12 +461,11 @@ have the new one yet, so `gh` keeps working until Jan adds
 repository into `~pocket/work/home-assistant` and skips it, without failing,
 while the repository or the installation does not exist; the next run retries.
 
-### What runs without asking Jan
+### Allowed Home Assistant calls
 
-`approvals.ts` asks Jan on his phone before a bash command changes a shared
-system. Home Assistant service calls are asked as well, with one exception: a
+`approvals.ts` never asks before a bash command changes a shared system. A
 single simple `curl` to one `/api/services/` URL on `hass.janpuc.com` or
-`$HA_URL` runs without a prompt when the service is one of
+`$HA_URL` is allowed when the service is one of
 
 - `light.turn_on`, `light.turn_off`, `light.toggle`, `scene.turn_on`;
 - the reload services: `automation.reload`, `script.reload`, `scene.reload`,
@@ -476,17 +475,17 @@ single simple `curl` to one `/api/services/` URL on `hass.janpuc.com` or
   `input_datetime.reload`, `input_button.reload`, `timer.reload`,
   `zone.reload`.
 
-A single simple `curl` POST to exactly `/api/template` is a read and runs
-without a prompt too (the `Updates` part of the skill groups pending updates
-with it).
+A single simple `curl` POST to exactly `/api/template` is a read and is allowed
+too (the `Updates` part of the skill groups pending updates with it).
 
-Everything else still asks: `update.install`, `script.*`, `switch.*`,
-`homeassistant.restart` and `homeassistant.stop`, every config-entry call and
-every Supervisor call (the token is no Supervisor admin: `/api/hassio/info`
-answers 401). The command has to be one invocation: no chaining, no
-substitution, one service URL, a POST.
+Everything else is blocked and nobody is asked: `update.install`, `script.*`,
+`switch.*`, `homeassistant.restart` and `homeassistant.stop`, every config-entry
+call and every Supervisor call (the token is no Supervisor admin:
+`/api/hassio/info` answers 401). The command has to be one invocation: no
+chaining, no substitution, one service URL, a POST. If a blocked call is really
+needed, the agent writes the exact command and why on a `Jan:` line.
 `home/.system/pi-pocket-extensions/approvals.test.ts` covers every allowed
-service and the asking cases.
+service and the blocked cases.
 
 ### The configuration loop
 
@@ -706,6 +705,22 @@ includes other event types even with an `itemTypes` filter. Kritika state and
 confidence still come from its head-specific commit status; pocket only has
 statuses:read. PR text, labels and comment author/marker alone are not trusted.
 
+For a same-repository `agent/*` fix by `janpuc-agent[bot]`, PR body, title and
+label edits by `janpuc-agent` are trusted too. Kritika comment edits remain
+trusted only from `bot-atlas`. Agent fix PRs need no Renovate update table and
+have no non-Renovate author caution. Their best lane is B. More than 5 files,
+more than 80 added or deleted lines in total, a secret or RBAC path, or no
+parsed kritika confidence makes one C. Every ordinary caution still applies.
+Same-repository `upstream/*` PRs by the agent are always C with `upstream port:
+Jan merges`. The final PR recheck binds the head branch and repository too.
+
+A successful `Kritika / Review` status described as `kritika: skipped (filtered)`
+and created by `bot-atlas[bot]` means kritika is intentionally not required.
+The statuses API supplies the creator and pr-lane retains it. Any other creator
+does not activate this rule. `kritika: confidence not scored, no findings` with
+the matching marked comment is a completed review with confidence null and no
+P1. It cannot qualify for A.
+
 The update type comes from the PR body's Renovate update table, which is
 bot-authored and edit-checked. Only the **first** table of the body is read,
 and only when it appears before the release notes (`---`, `<details>`,
@@ -733,9 +748,13 @@ zero P1. Explicit “No findings” means zero. Konflate's list and rendered dif
 must both be ready for that head. Rendered CSS is not included in the output.
 
 - **wait** takes priority: draft, pending/missing/stale/unparseable evidence.
-  C reasons remain visible even when waiting. Explicit null namespaces mean
-  empty only for a zero-resource impact; this normalization is reported.
-- **C**: non-Renovate author (including Jan and the agent), Talos/Kubernetes
+  A filtered routine digest or patch also waits until its 3 day soak ends, with
+  the remaining hours in the reason. C reasons remain visible even when waiting.
+  Explicit null namespaces mean empty only for a zero-resource impact. This
+  normalization is reported.
+- **C**: non-Renovate author other than a recognized same-repository agent
+  branch, agent size or sensitive-path limits, upstream agent ports, missing
+  confidence on an agent fix, Talos/Kubernetes
   groups (named in the title, the labels, the branch or the body's package
   column), protected paths/namespaces, CRDs, blocking/render failures, high risk,
   any P1, confidence below 3, unsuccessful kritika, or failed/cancelled/timed-out/
@@ -746,13 +765,16 @@ must both be ready for that head. Rendered CSS is not included in the output.
   or ask for merge approval: send a one-screen brief plus a **`Jan:`** line.
   A later phase owns Talos/Kubernetes groups.
 - **A**: a body-derived digest/patch update type, routine render without caution,
-  confidence at least 4,
-  low risk and no P1, with no wait/C rule. Review the evidence, then request
-  a broker merge. The optional broker timer also handles A without an agent.
-- **B**: everything else that is not wait/C. Review the diff, kritika, konflate
-  and upstream release notes; repair real findings, wait for the new head's
-  evidence, and classify again before requesting a broker merge. Two PRs at a
-  time, oldest first.
+  confidence at least 4, low risk and no P1, with no wait/C rule. A filtered
+  Renovate digest or patch instead needs routine konflate evidence with caution
+  0, green checks, no caution and the completed 3 day soak. Agent PRs never reach
+  A. Review the evidence, then request a broker merge. The optional broker timer
+  also handles A without an agent.
+- **B**: everything else that is not wait/C, including clean agent fixes,
+  filtered non-routine or non-digest/patch Renovate updates and unscored clean
+  reviews. Review the diff, kritika when required, konflate and Renovate release
+  notes. Repair real findings, wait for the new head's evidence, and classify
+  again before requesting a broker merge. Two PRs at a time, oldest first.
 
 For both A and B, the agent submits the exact fresh `pr-lane` head:
 
@@ -768,12 +790,13 @@ On refused/error/dry-run report and stop. A missing result is not permission to
 resubmit or assume success. Never retry with `gh pr merge` or merge APIs.
 
 `pr-merge-request` deliberately does **not** ask Jan: the separate broker
-makes the decision. `agent-push` and opening, editing, commenting on or
-marking a PR ready do not ask either (since 2026-10-29: the main branches are
-ruleset-protected). Every other write still asks, including direct
-`gh pr merge`, closing, reviews, and API merges. Chaining a write onto a request does not
-exempt the write. The approvals extension remains a mistake detector, not a
-sandbox. The **GitHub restrict-updates ruleset**, not that extension, prevents
+makes the decision. `agent-push`, opening a PR, comments, issue creation,
+comment-only reviews, run reruns and marking a PR ready are allowed. Close,
+reopen and edit require GitHub proof that the agent authored the PR. Direct
+`gh pr merge`, API merges, approve or request-changes reviews, changes to other
+PRs and every destructive or unlisted write are blocked. Nobody is asked.
+Chaining a blocked write onto an allowed command does not exempt it. The
+approvals extension remains a mistake detector, not a sandbox. The **GitHub restrict-updates ruleset**, not that extension, prevents
 pocket's App from updating main. Do not use admin bypass or auto merge.
 
 ### Verified publishing
@@ -880,8 +903,8 @@ agent's App or a look-alike login. A PR whose newest decision is an approval
 **of its current head** (`commit_id`), from this repository (not a fork), not a
 draft, is classified afresh and merged pinned to that head, at most five a run.
 Jan's approval is his decision on any lane, C included, and on the advisory
-waits (pr-lane's `waiting` list): no Renovate update table, which every agent
-PR lacks, and a missing, stale or unparseable kritika write-up. Three things
+waits (pr-lane's `waiting` list): no Renovate update table and a missing, stale
+or unparseable kritika write-up. Three things
 still hold it back: evidence still coming (pending CI or kritika, konflate not
 ready or stale, a head or main that moved, or any reason the broker does not
 know), CI that failed on the head (kritika's own status excepted), and the
@@ -1084,7 +1107,7 @@ repos, fake gh/pr-lane paths and synthetic credentials/switch ownership, not
 shared-system writes. They cover validation, head/lane mismatch, dry-run,
 shared quota, malformed inputs, symlinks/FIFOs/hardlinks/races, flood bounds,
 result permissions, token scope, five/run and stop-first-failure semantics,
-approvals (including the Home Assistant services that run without a prompt) and
+approvals (including the allowed Home Assistant services and blocked writes) and
 installer/runtime invariants. Verify units with
 `systemd-analyze verify` on Linux (passed on aether's systemd 255 with only
 unrelated existing executable-bit warnings on Oracle monitoring units). This

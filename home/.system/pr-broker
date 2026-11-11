@@ -28,9 +28,8 @@ function latestDecision(reviews) {
     mine.sort((a, b) => a.submitted_at.localeCompare(b.submitted_at) || a.id - b.id);
     return mine.at(-1) ?? null;
 }
-// Waits Jan's approval goes past: they say a Renovate table or kritika's write-up is missing
-// (every agent PR has no update table), not that evidence is still coming. Anything else holds,
-// an unknown reason included.
+// Waits Jan's approval goes past: they say a Renovate table or kritika's write-up is missing,
+// not that evidence is still coming. Anything else holds, an unknown reason included.
 const ADVISORY_WAITS = [
     /^Renovate update type not derivable from PR body: /,
     /^kritika comment missing or stale for head$/,

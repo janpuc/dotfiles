@@ -1,6 +1,6 @@
 ---
 name: github
-description: Read GitHub repositories and PRs, review bot updates, and propose approved writes or squash merges for janpuc's repos.
+description: Read GitHub repositories and PRs, review updates, use allowed writes, and request broker merges for janpuc's repos.
 ---
 
 # GitHub
@@ -44,17 +44,20 @@ plan; it refuses main/master, dirty trees, workflows, symlinks and mode changes
 work first; after publication it fetches and resets the equivalent local tree
 to the verified commit, then sets the upstream. Never push the old local SHAs.
 
-`agent-push` and opening, editing, commenting on or marking a PR ready do not ask
-(rulesets keep main out of reach). Merging, closing, reopening, reviews and other
-GitHub/shared-system writes ask Jan on his phone. State the effect and repo/PR first. Never bypass a denial
-through `gh api` or another tool. Direct merge paths still ask, but pocket's
-App cannot update home-ops main under its ruleset; do not use them.
+`agent-push`, opening a PR, PR and issue comments, issue creation, comment-only
+PR reviews, workflow run reruns and marking a PR ready are allowed. Closing,
+reopening or editing a PR is allowed only after GitHub proves the agent authored
+it. Merges, approve or request-changes reviews, changes to other PRs and every
+destructive or unlisted write are blocked. Nobody is asked. If a blocked action
+is really needed, write the exact command and why on a line starting `Jan:` in
+your answer or PR body. Never try another way around it through `gh api` or
+another tool. Pocket's App cannot update home-ops main under its ruleset.
 
 For home-ops A/B merges, use the pr-shepherd skill and a fresh `pr-lane` result:
 review lane A's evidence and fully review lane B's diff, kritika, konflate and
 upstream release notes. Lane C is never yours to merge: provide a brief plus
 a **`Jan:`** line, and never ask for merge approval for C. Request A/B merges
-without a phone prompt, pinning the exact `head` SHA reported by `pr-lane`:
+with the allowed broker helper, pinning the exact `head` SHA reported by `pr-lane`:
 
 ```sh
 /usr/local/sbin/pr-merge-request <N> <sha-pr-lane-reported>
