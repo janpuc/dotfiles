@@ -6,8 +6,8 @@
 #
 # Values a caller already set win (`pii` sets its own keys), so each line only fills a gap:
 # - pi-claude-bridge's Claude Code gets its own config dir and ai-sync's one-year token.
-# - ai-sync caches the OpenCode Go and MiniMax keys under PI_ names; Pi's providers read the
-#   plain names, which stay unset in every other tool.
+# - ai-sync caches the OpenCode Go, MiniMax and Alibaba keys under PI_ names; Pi's providers read
+#   the plain names, which stay unset in every other tool.
 # - git diff inside Pi prints a plain unified diff instead of the global difftastic one.
 # - Copies also go to the terminal (OSC 52), so a Rex client on another Mac gets them.
 set -euf
@@ -18,6 +18,7 @@ export CLAUDE_CONFIG_DIR GIT_EXTERNAL_DIFF PI_CLIPBOARD_OSC52
 [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || [ -z "${PI_CLAUDE_CODE_OAUTH_TOKEN:-}" ] || export CLAUDE_CODE_OAUTH_TOKEN="$PI_CLAUDE_CODE_OAUTH_TOKEN"
 [ -n "${OPENCODE_API_KEY:-}" ] || [ -z "${PI_OPENCODE_API_KEY:-}" ] || export OPENCODE_API_KEY="$PI_OPENCODE_API_KEY"
 [ -n "${MINIMAX_API_KEY:-}" ] || [ -z "${PI_MINIMAX_API_KEY:-}" ] || export MINIMAX_API_KEY="$PI_MINIMAX_API_KEY"
+[ -n "${ALIBABA_API_KEY:-}" ] || [ -z "${PI_ALIBABA_API_KEY:-}" ] || export ALIBABA_API_KEY="$PI_ALIBABA_API_KEY"
 
 # The real Pi is the next `pi` on PATH after this directory.
 here=$(cd "$(dirname "$0")" && pwd -P)
