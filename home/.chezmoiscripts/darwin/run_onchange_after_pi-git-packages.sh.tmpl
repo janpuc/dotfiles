@@ -1,0 +1,10 @@
+#!/bin/sh
+# Pi checks a git package out once and never moves it when its pin in settings.json changes, so a
+# new pin needs `pi update <source>`. Re-runs whenever the managed settings change.
+# settings {{ include "dot_pi/private_agent/modify_settings.json" | sha256sum }}
+set -eu
+settings="$HOME/.pi/agent/settings.json"
+[ -f "$settings" ] && command -v pi >/dev/null || exit 0
+for src in $(grep -o '"git:[^"]*"' "$settings" | tr -d '"'); do
+	pi update "$src" >/dev/null
+done

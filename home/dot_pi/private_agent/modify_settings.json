@@ -27,7 +27,7 @@ managed='{
     "npm:@eleboucher/pi-memini@0.7.38",
     "npm:pi-subagents@0.87.0",
     "npm:pi-web-access@0.46.0",
-    "git:github.com/janpuc/pi-usage@v0.2.3",
+    "git:github.com/janpuc/pi-usage@v0.2.4",
     "git:github.com/janpuc/pi-title-spinner@v0.1.0",
     "git:github.com/janpuc/pi-footer@v0.1.0",
     "./local/pocket.ts",
