@@ -49,6 +49,7 @@ packages:
         - claude-code@latest
         - codex
         - keepingyouawake
+        - mantrakp04/tap/ardia
         - microsoft-teams
         - obsidian
         - orbstack
