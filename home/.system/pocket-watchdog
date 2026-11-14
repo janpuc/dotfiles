@@ -899,14 +899,30 @@ def changed_prs(previous, current, skip_lane=None):
     return lines
 
 
+# A lane B PR waits for the PRs session to review it and ask the broker to merge it. A pass can end
+# without doing that (it ran out of context or was stopped), and an unchanged PR is never listed
+# again, so #1772 sat in lane B for days. An unchanged lane B PR is listed once more each day.
+B_REMINDER_MS = 24 * HOUR
+
+
 def gate_prs(ctx):
-    """PRs: the open home-ops PRs whose head, kritika, CI or konflate moved. Lane A is the broker's,
-    and the Talos and Kubernetes groups are the Upgrades session's."""
+    """PRs: the open home-ops PRs whose head, kritika, CI or konflate moved, and lane B PRs left
+    unchanged for a day. Lane A is the broker's, and the Talos and Kubernetes groups are the
+    Upgrades session's."""
     current = {}
     for result in pr_lane(ctx):
         if isinstance(result, dict) and isinstance(result.get("pr"), int) and upgrade_group(result) is None:
             current[str(result["pr"])] = pr_parts(result)
-    lines = changed_prs(ctx["state"].get("prs") or {}, current, skip_lane="A")
+    previous = ctx["state"].get("prs") or {}
+    lines = changed_prs(previous, current, skip_lane="A")
+    listed = {n: t for n, t in (ctx["state"].get("prsListed") or {}).items() if n in current}
+    for number, parts in current.items():
+        if previous.get(number) != parts:
+            listed[number] = ctx["now"]
+    for number, parts in sorted(current.items(), key=lambda item: int(item[0])):
+        if parts["lane"] == "B" and previous.get(number) == parts and ctx["now"] - listed.get(number, 0) >= B_REMINDER_MS:
+            lines.append(f"- #{number} (lane B): unchanged, still waiting for your review and merge request")
+            listed[number] = ctx["now"]
     message = None
     if lines:
         message = "\n".join(
@@ -914,7 +930,7 @@ def gate_prs(ctx):
              *([f"- and {len(lines) - 20} more: run pr-lane --all --json yourself."] if len(lines) > 20 else []),
              "Every other open PR is as it was: leave it."]
         )
-    return message, {"prs": current}
+    return message, {"prs": current, "prsListed": listed}
 
 
 def upgrade_version(ctx, number):

@@ -50,14 +50,14 @@ test('pr-broker merges lanes A/B with exact pinned gh arguments and a child-only
     }
     for (const name of fs.readdirSync(f.o.state)) assert.ok(!fs.readFileSync(join(f.o.state, name), 'utf8').includes('test-token'));
 });
-test('pr-broker accepts the new B lanes and refuses C or soak waits', async t => {
+test('pr-broker accepts the new B lanes and refuses C or waits', async t => {
     const f = fixture(t); f.enable();
     const cases = [
         ['agent fix PR', 'B', 'merged'],
         ['agent PR over the size limit', 'C', 'refused'],
         ['upstream agent PR', 'C', 'refused'],
-        ['filtered digest younger than 3 days', 'wait', 'refused'],
-        ['filtered digest older than 3 days', 'A', 'merged'],
+        ['filtered digest while Renovate\'s release age is pending', 'wait', 'refused'],
+        ['filtered digest', 'A', 'merged'],
         ['filtered minor', 'B', 'merged'],
         ['filtered status from the wrong creator', 'wait', 'refused'],
         ['kritika confidence not scored', 'B', 'merged'],

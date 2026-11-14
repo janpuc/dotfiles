@@ -19,8 +19,10 @@ used about 840M tokens, most of it re-reading a context that never reset. So:
 
 - **Passes come from pocket-watchdog.** It runs `pr-lane --all --json` in
   plain code and sends a pass (`[dispatch] ...`) only when a PR's head, kritika
-  review, CI or konflate status changed, listing those PRs. A PR it does not
-  list has not changed: leave it. The Upgrades session gets the Talos and
+  review, CI or konflate status changed, listing those PRs. It also lists a
+  lane B PR again once a day while it sits unchanged: a lane B PR is yours to
+  review and send to the broker, so act on it. A PR it does not list has not
+  changed: leave it. The Upgrades session gets the Talos and
   Kubernetes group PRs the same way.
 - **Never wait inside a pass.** No `sleep`, no polling loops, no watching
   kritika, CI, konflate or the broker until it finishes. Evidence that is still
@@ -134,10 +136,9 @@ agent and never gets an A or B lane. It is gated on what upstream did:
 A successful `kritika: skipped (filtered)` status created by `bot-atlas[bot]`
 means kritika's trigger excluded the PR on purpose. No kritika comment is
 required. For a Renovate digest or patch with routine konflate evidence and
-caution 0, lane A starts only after a 3 day soak from when the current head was
-filtered by kritika. The trusted status's server-generated `created_at` starts
-that soak. Missing or invalid timestamps wait. Before it ends the PR waits with
-the remaining soak time. Other update types with the filtered status are
+caution 0, it is lane A. pr-lane keeps no soak of its own: Renovate's
+`renovate/stability-days` status stays pending until the release is old enough
+(`minimumReleaseAge`), and a pending status waits. Other update types with the filtered status are
 lane B. The same status from any other creator is not evidence and still waits.
 
 `kritika: confidence not scored, no findings` with the matching marked review

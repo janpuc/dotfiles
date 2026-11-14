@@ -636,7 +636,7 @@ PRs 1356, Upstream 1838, Home 3120, Upgrades 7766; `"reset": true`) work like th
   | Session | Hours | Sent when |
   |---|---|---|
   | Alerts | 07 | a Prometheus check of the daily scan (Flux not Ready or suspended, pods waiting, Pending, Failed or restarting, failed Jobs, kopiur failing or older than 36 h, PVC > 85%, certificate < 14 days, node pressure, node memory requests > 90%) finds something it was not told about in the last 7 days |
-  | PRs | 08, 11, 14, 18, 21 | `pr-lane --all --json` shows a PR whose head, lane, kritika review, CI or konflate status changed, or that closed; lane A (the broker's) and the Talos and Kubernetes groups are left out |
+  | PRs | 08, 11, 14, 18, 21 | `pr-lane --all --json` shows a PR whose head, lane, kritika review, CI or konflate status changed, or that closed, and once a day a lane B PR that sits unchanged (a pass can end without acting on it); lane A (the broker's) and the Talos and Kubernetes groups are left out |
   | Upstream | 09 | `upstream-diff --json` shows non-bot commits it has not sent yet; on Mondays, the digest |
   | Home | 12 | the automation and script configs Home Assistant serves changed since the last check, or 7 days passed |
   | Upgrades | 09, 15, 21 | a Talos or Kubernetes group PR is new, moved, closed, or `upstream-diff --upgrade` changed |
@@ -790,10 +790,10 @@ zero P1. Explicit “No findings” means zero. Konflate's list and rendered dif
 must both be ready for that head. Rendered CSS is not included in the output.
 
 - **wait** takes priority: draft, pending/missing/stale/unparseable evidence.
-  A filtered routine digest or patch also waits until its 3 day soak ends, with
-  the remaining hours in the reason. The soak starts when the current head was
-  filtered by kritika, using the trusted status's server-generated `created_at`.
-  Missing or invalid timestamps wait. C reasons remain visible even when waiting.
+  pr-lane keeps no release-age soak of its own: Renovate's `renovate/stability-days`
+  status is pending until `minimumReleaseAge` passes, and that pending status
+  waits. (A soak in pr-lane restarted on every Renovate rebase.) C reasons
+  remain visible even when waiting.
   Explicit null namespaces mean empty only for a zero-resource impact. This
   normalization is reported.
 - **C**: non-Renovate author other than a recognized same-repository agent
@@ -811,7 +811,7 @@ must both be ready for that head. Rendered CSS is not included in the output.
 - **A**: a body-derived digest/patch update type, routine render without caution,
   confidence at least 4, low risk and no P1, with no wait/C rule. A filtered
   Renovate digest or patch instead needs routine konflate evidence with caution
-  0, green checks, no caution and the completed 3 day soak. Agent PRs never reach
+  0, green checks and no caution. Agent PRs never reach
   A. Review the evidence, then request a broker merge. The optional broker timer
   also handles A without an agent.
 - **B**: everything else that is not wait/C, including clean agent fixes,

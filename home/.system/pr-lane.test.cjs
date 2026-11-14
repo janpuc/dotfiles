@@ -111,13 +111,14 @@ test('pr-lane: upstream ports by the agent stay C for Jan', () => {
     assert.ok(!result.reasons.some(r => r.includes('update type not derivable')));
 });
 
-test('pr-lane: filtered routine updates soak for 3 days, other filtered updates are B', () => {
-    const young = filteredFixture();
-    young.statuses[0].created_at = new Date(Date.now() - 2 * 86400000).toISOString();
-    const waiting = classify(young);
-    assert.equal(waiting.lane, 'wait', JSON.stringify(waiting));
-    assert.ok(waiting.reasons.some(r => /soak: \d+h remaining/.test(r)), JSON.stringify(waiting.reasons));
-    assert.equal(classify(filteredFixture()).lane, 'A');
+test('pr-lane: filtered routine updates are A, other filtered updates are B', () => {
+    for (const age of [0, 2, 4]) {
+        const f = filteredFixture();
+        f.statuses[0].created_at = new Date(Date.now() - age * 86400000).toISOString();
+        const result = classify(f);
+        assert.equal(result.lane, 'A', JSON.stringify(result));
+        assert.ok(result.reasons.includes('kritika filtered routine update'));
+    }
     const minor = filteredFixture();
     minor.pr.body = renovateBody([{ package: 'x', type: 'minor' }]);
     assert.equal(classify(minor).lane, 'B');
@@ -128,25 +129,13 @@ test('pr-lane: filtered routine updates soak for 3 days, other filtered updates 
     assert.ok(refused.reasons.some(r => r.includes('comment missing or stale')));
 });
 
-test('pr-lane: filtered soak starts at the trusted current head status time', () => {
-    const freshHead = filteredFixture();
-    freshHead.pr.created_at = new Date(Date.now() - 4 * 86400000).toISOString();
-    freshHead.statuses[0].created_at = new Date().toISOString();
-    const waiting = classify(freshHead);
-    assert.equal(waiting.lane, 'wait', JSON.stringify(waiting));
-    assert.ok(waiting.reasons.some(r => r.includes('current head filtered by kritika soak')));
-    for (const timestamp of [undefined, null, '', 'invalid', 0]) {
-        const f = filteredFixture(); f.statuses[0].created_at = timestamp;
-        const result = classify(f);
-        assert.equal(result.lane, 'wait', JSON.stringify(result));
-        assert.ok(result.reasons.includes('current head filtered by kritika has a missing or invalid status creation time'));
-    }
-    const soakedHead = filteredFixture();
-    soakedHead.pr.created_at = new Date().toISOString();
-    soakedHead.statuses[0].created_at = new Date(Date.now() - 3 * 86400000).toISOString();
-    const soaked = classify(soakedHead);
-    assert.equal(soaked.lane, 'A', JSON.stringify(soaked));
-    assert.ok(soaked.reasons.includes('current head filtered by kritika soaked for 3 days'));
+test('pr-lane: a filtered routine update waits while Renovate\'s release age check is pending', () => {
+    const f = filteredFixture();
+    f.statuses.push({ context: 'renovate/stability-days', state: 'pending', creator: { login: 'bot-atlas[bot]' },
+        description: 'Updates have not met minimum release age requirement', created_at: new Date().toISOString() });
+    const result = classify(f);
+    assert.equal(result.lane, 'wait', JSON.stringify(result));
+    assert.ok(result.reasons.includes('check or status pending'));
 });
 
 test('pr-lane: kritika confidence not scored is reviewed with no P1 and reaches B', () => {

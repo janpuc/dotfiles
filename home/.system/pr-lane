@@ -7,7 +7,6 @@ const REPO = 'janpuc/home-ops';
 const ROOT = `repos/${REPO}`;
 const PROTECTED = ['kube-system', 'flux-system', 'network', 'security', 'cnpg-system',
     'miroir-system', 'kopiur-system', 'external-secrets', 'cert-manager'];
-const FILTERED_SOAK = 3 * 24 * 60 * 60 * 1000;
 function agentPrKind(pr) {
     if (pr.user?.login !== 'janpuc-agent[bot]' || pr.head?.repo?.full_name !== REPO) return null;
     if (pr.head?.ref?.startsWith('agent/')) return 'fix';
@@ -368,13 +367,10 @@ function classify({ pr, files, statuses, checks, comments, entry, rendered, erro
     let filteredA = false;
     if (filtered && pr.user.login === 'bot-atlas[bot]') {
         automatic.push('kritika skipped by its trigger filter');
-        if (routineUpdate && routineRender) {
-            const created = typeof kritikaStatus.created_at === 'string' ? Date.parse(kritikaStatus.created_at) : Number.NaN;
-            const remaining = Number.isFinite(created) ? FILTERED_SOAK - (Date.now() - created) : Number.NaN;
-            if (!Number.isFinite(remaining)) waiting.push('current head filtered by kritika has a missing or invalid status creation time');
-            else if (remaining > 0) waiting.push(`current head filtered by kritika soak: ${Math.ceil(remaining / 3600000)}h remaining`);
-            else { filteredA = true; automatic.push('current head filtered by kritika soaked for 3 days'); }
-        }
+        // No soak of its own: Renovate's renovate/stability-days status is pending until the
+        // release is old enough (minimumReleaseAge), and a pending status already waits. A soak
+        // here restarted on every Renovate rebase, which gives the same update a new head.
+        if (routineUpdate && routineRender) { filteredA = true; automatic.push('kritika filtered routine update'); }
     }
     const ordinaryA = !filtered && automatic.length === 3;
     const lane = waiting.length ? 'wait' : caution.length ? 'C' : !agentKind && (ordinaryA || filteredA) ? 'A' : 'B';

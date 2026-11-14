@@ -523,6 +523,33 @@ test('PRs: a pass goes out only for PRs that changed, past lane A and the upgrad
     assert.doesNotMatch(next.body.text, /#13/, 'a lane A head moving is the broker\'s');
 });
 
+test('PRs: an unchanged lane B PR is listed again once a day, an unchanged C or wait PR is not', async (t) => {
+    const tools = fakeTools(t, { 'pr-lane': [lanePr(12, 'B', 'a'.repeat(40)), lanePr(14, 'C', 'c'.repeat(40)),
+        lanePr(15, 'wait', 'd'.repeat(40), { kritika: { state: 'pending' } })] });
+    const view = (at) => ({ ...onModel('minimax', 'MiniMax-M3.1-Flash'), ...big(160000), live: { busy: false }, entries: [answer(50, at)] });
+    const am = await fakeAlertmanager(t);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pocket-watchdog-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const go = async (now, state) => {
+        const pocket = await fakePocket(t, { view: view(now - 10 * MINUTE) });
+        const result = await run(t, { pocketUrl: pocket.url, alertUrl: am.url, dir, now, state,
+            session: prsSession(tools), config: { commands: tools.commands } });
+        assert.equal(result.code, 0, result.stderr);
+        return { ...result, posts: pocket.posts };
+    };
+
+    const first = await go(TUESDAY);
+    assert.match(submits(first.posts)[0].body.text, /- #12 \(lane B\): new/);
+    const early = await go(TUESDAY + 10 * HOUR, first.state);
+    assert.equal(submits(early.posts).length, 0, 'less than a day: nothing sent');
+    const day = await go(TUESDAY + 24 * HOUR, early.state);
+    const [again] = submits(day.posts);
+    assert.match(again.body.text, /- #12 \(lane B\): unchanged, still waiting for your review and merge request/);
+    assert.doesNotMatch(again.body.text, /#14|#15/, 'C is Jan\'s and wait waits for evidence');
+    const after = await go(TUESDAY + 34 * HOUR, day.state);
+    assert.equal(submits(after.posts).length, 0, 'once a day, not every slot');
+});
+
 test('a pass waits while the session works, is paused by the breaker, and is sent whole when its check fails', async (t) => {
     const am = await fakeAlertmanager(t);
     const tools = fakeTools(t, { 'pr-lane': [lanePr(12, 'B', 'a'.repeat(40))] });
