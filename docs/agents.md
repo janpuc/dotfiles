@@ -59,6 +59,9 @@ system is changed by asking its owner.
 | `network` | UniFi gateway, Wi-Fi, firewall, Tailscale, DNS |
 | `kubernetes` | home-ops, the cluster, Flux, Talos |
 | `agh` | Jan's studies at AGH: numerical methods, algorithms, networks lab, exam prep | local-only `wypozyczalnia-samochodow` (its GitHub copy is gone) |
+| `ai` | Jan's AI tooling: Pi packages, model evals, the local models on sisyphus | `pi-usage`, `pi-footer`, `pi-title-spinner`, `pi-claude-bridge`, `pi-optchat`, `pi-model-eval`, `mac-models` |
+| `polished` | Self-hosted nail polish inventory (Python server, iOS app built on the Mac) | `polished` |
+| `austerity` | austerity.watch, the public map of the 2026 protest wave in Europe | `austerity-watch` |
 | `home` | Home Assistant and the DietPi speakers |
 | `bigmouth` | the NAS |
 | `renplay` | renplay-org repositories and deploys |
