@@ -84,6 +84,7 @@ and it is aether's only backup:
 | Repository | `sftp:aether-backup@192.168.69.15:/aether/restic`, the chrooted path inside the dataset `Vault/Backups/aether` |
 | Included | `~/Development` with every workspace, `.git`, submodule stores, `.worktrees`, uncommitted and untracked files, `~/.pi/agent/sessions`, `~/.local/share/agent-history`, `~/.local/state/agents` and `~/.local/share/chezmoi` |
 | Excluded | only `node_modules`, `.venv`, `__pycache__` and `.cache` directories, plus the runtime locks `.agent/run.lock` and `.agent/launch.lock`. No generic `*.lock` or `*.env` pattern |
+| Per project | a tracked `.backup-exclude` at a workspace root lists project-relative paths to leave out, for bulky material that is archived elsewhere or reproducible (game images, build output), never source |
 | Not read | `~/.config/op`, `~/.config/gh` and `~/.local/state/ai` sit outside the included paths, so credential caches are never opened |
 | Retention | `forget --keep-hourly 48 --keep-daily 30 --keep-weekly 12 --keep-monthly 12` every hour, `--prune` on the first run at or after 03:00, and `check --read-data-subset=1%` weekly |
 | Status | `aether-backup status` prints the last successful run from `~/.local/state/aether-backup/last-success` |

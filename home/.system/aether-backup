@@ -71,12 +71,29 @@ open_repository() {
     esac
 }
 
+# A project can keep bulky material out of the hourly backup with a tracked .backup-exclude at
+# its workspace root: one path per line, relative to the workspace, # comments allowed. Meant for
+# reproducible or archived-elsewhere data (game images, build output), never for source.
+project_excludes() {
+    for file in "$HOME"/Development/*/.backup-exclude; do
+        [ -r "$file" ] || continue
+        root=${file%/.backup-exclude}
+        sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e 's#/*$##' -e '/^$/d' "$file" | while IFS= read -r path; do
+            case $path in /*|*..*) continue ;; esac
+            printf '%s/%s\n' "$root" "$path"
+        done
+    done
+}
+
 backup() {
     open_repository
+    exclude_file=$state_dir/project-excludes
+    project_excludes >"$exclude_file"
     # shellcheck disable=SC2086  # backup_paths is a deliberate list of roots.
     restic backup \
         --exclude '**/node_modules' --exclude '**/.venv' --exclude '**/__pycache__' --exclude '**/.cache' \
         --exclude '**/.agent/run.lock' --exclude '**/.agent/launch.lock' \
+        --exclude-file "$exclude_file" \
         $backup_paths
     printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$success_file.tmp"
     mv "$success_file.tmp" "$success_file"
