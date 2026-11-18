@@ -102,6 +102,7 @@ Pushover push. The restore runbook is the Restore section of [aether](aether.md)
 | `home` | Jan's Home Assistant config | `home-assistant` (janpuc/home-assistant) |
 | `bigmouth` | BigMouth NAS storage and its off-site backup plan | none yet |
 | `thesis` | Jan's engineering thesis (AGH): multi-tier compute for games on handhelds, a Bevy voxel case study | none, the PoC code lives in the workspace |
+| `gaming` | BC250 gaming box, inFamous on the Steam Deck (native port, recomp), game reverse engineering (TDU, XBOX, spore). Not renplay | `bc250` (janpuc/BC250), local-only `bc250-control-center`, `infamous-reborn`, `infamous-work` |
 
 ## Limits to know
 
