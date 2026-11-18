@@ -22,3 +22,6 @@ difftastic = "latest"
 # Pi, set up as on the laptop (~/.pi/agent, the pi function, ai-sync's cache).
 node = "lts"
 "npm:@earendil-works/pi-coding-agent" = "latest"
+# Model Studio's CLI: pi-usage reads the Alibaba Token Plan's monthly pool through its console
+# login (`bl auth login --console --config token-plan --console-site international`, once).
+"npm:bailian-cli" = "2.9.0"
