@@ -41,3 +41,8 @@ projects:
       UNIFI_API_KEY: op://Kubernetes/unifi/UNIFI_API_KEY
       UNIFI_SSH_PASS: op://Kubernetes/unifi-ssh/password
       HA_TOKEN: op://Kubernetes/hass-mcp/HASS_MCP_TOKEN
+  kubernetes:
+    # Jan's Talos and Flux homelab cluster: janpuc/home-ops (registered from the Mac checkout
+    # with its local branches, stashes and worktrees). kubeconfig, talosconfig and .secrets.env
+    # live untracked in home-ops/. Cluster changes ask Jan through the guard.
+    lifecycle: active
