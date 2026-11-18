@@ -38,8 +38,10 @@ The first project is `home`, workspace `janpuc/home-workspace`, containing
     └── run.lock                  held while the generation loop is alive
 ```
 
-The workspace repo versions AGENTS.md, notes and plans. Its `.gitignore` must exclude the
-nested repos, `.worktrees/`, `.agent/` and any local secrets. Git always names its target
+The workspace repo versions AGENTS.md, notes, plans, `.agent/generation` and the handoffs, so a
+fresh clone reopens the current session. Its `.gitignore` must exclude the nested repos,
+`.worktrees/`, the runner's `.agent/run.lock` and `.agent/rotate-requested`, and any local
+secrets. Git always names its target
 with `git -C <repo>`. Never `git add -A` at the workspace root.
 GitHub sync is through Jan-approved pushes. BigMouth backup comes in a later change.
 
@@ -204,7 +206,8 @@ Rotation does not delete old sessions. Linux and macOS chezmoi cleanup removes o
    workspace mise.toml or repo mise.toml. Grant the read-only service account access to
    the referenced 1Password items.
 4. Create the private workspace repo with project AGENTS.md, notes/STATE.md, a mise.toml
-   and `.gitignore` excluding nested repos, .agent, .worktrees and secrets. Add the project
+   and `.gitignore` excluding nested repos, .worktrees, .agent/run.lock,
+   .agent/rotate-requested and secrets. Add the project
    to projects.yaml with clone URLs and credential references. Jan reviews the map.
 5. Collect relevant Mac Pi history, Pocket's archived history
    (`~/Archive/aether/pi-pocket-retired-2026-11-18.tar.gz`, pocket.sqlite) and memini.
