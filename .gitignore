@@ -1,2 +1,3 @@
 # The global git ignore has `bin/`; the pi launcher lives in ~/.local/bin.
 !/home/dot_local/bin/
+__pycache__/

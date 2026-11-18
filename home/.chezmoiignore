@@ -52,3 +52,4 @@
 .local/bin/agent-run
 .pi/agent/trust.json
 {{- end }}
+**/__pycache__
