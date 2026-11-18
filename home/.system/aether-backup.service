@@ -1,0 +1,15 @@
+[Unit]
+Description=Encrypted restic backup of aether's workspaces and agent state to BigMouth
+Wants=network-online.target
+After=network-online.target tailscaled.service
+OnFailure=aether-backup-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+ExecStart=/usr/local/bin/aether-backup run
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=2h
+UMask=0077

@@ -97,5 +97,35 @@ function ai-sync --description "Fetch AI credentials from 1Password into a local
         return 1
     end
 {{ end }}
+
+    # The hourly restic backup and its alerts read their secrets from files by path, so no unit file
+    # or environment holds one. Replace a file atomically only when every value was read: a failed
+    # refresh keeps the previous good file and reports it. Neither file is managed or committed.
+    set -l restic_dir "$HOME/.config/restic"
+    set -l alert_dir "$HOME/.config/aether-backup"
+    mkdir -p "$restic_dir" "$alert_dir"; or return 1
+    chmod 700 "$restic_dir" "$alert_dir"; or return 1
+    set -l restic_password (op read --no-newline op://Kubernetes/aether-backup/RESTIC_PASSWORD 2>/dev/null | string collect --no-trim-newlines)
+    if test -z "$restic_password"; or string match -qr '[\r\n]' -- "$restic_password"
+        echo "Could not read op://Kubernetes/aether-backup/RESTIC_PASSWORD, keeping the previous restic password" >&2
+        return 1
+    end
+    set -l restic_tmp (mktemp "$restic_dir/.aether.password.XXXXXX"); or return 1
+    chmod 600 "$restic_tmp"; or return 1
+    printf '%s\n' "$restic_password" >"$restic_tmp"; or return 1
+    mv "$restic_tmp" "$restic_dir/aether.password"; or return 1
+    echo "Wrote $restic_dir/aether.password (0600)."
+
+    set -l pushover_token (op read --no-newline op://Kubernetes/alertmanager/ALERTMANAGER_PUSHOVER_TOKEN 2>/dev/null | string collect --no-trim-newlines)
+    set -l pushover_user (op read --no-newline op://Kubernetes/pushover/PUSHOVER_USER_KEY 2>/dev/null | string collect --no-trim-newlines)
+    if test -z "$pushover_token"; or test -z "$pushover_user"; or string match -qr '[\r\n]' -- "$pushover_token$pushover_user"
+        echo "Could not read the Pushover credentials, keeping the previous alert environment" >&2
+        return 1
+    end
+    set -l pushover_tmp (mktemp "$alert_dir/.pushover.XXXXXX"); or return 1
+    chmod 600 "$pushover_tmp"; or return 1
+    printf 'PUSHOVER_TOKEN=%s\nPUSHOVER_USER_KEY=%s\n' "$pushover_token" "$pushover_user" >"$pushover_tmp"; or return 1
+    mv "$pushover_tmp" "$alert_dir/pushover.env"; or return 1
+    echo "Wrote $alert_dir/pushover.env (0600)."
 {{ end }}
 end

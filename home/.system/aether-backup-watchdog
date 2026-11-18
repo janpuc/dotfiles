@@ -1,0 +1,18 @@
+#!/bin/sh
+# Alert when no backup has succeeded for two hours. This runs on its own timer because a stopped or
+# crashing backup timer cannot report its own silence.
+set -eu
+umask 077
+export PATH=/usr/local/bin:/usr/bin:/bin
+export HOME="${HOME:-/home/ubuntu}"
+state_dir=$HOME/.local/state/aether-backup
+success_file=$state_dir/last-success
+alerted_file=$state_dir/last-stale-alert
+now=$(date +%s)
+last=$(cat "$success_file" 2>/dev/null || echo 1970-01-01T00:00:00Z)
+last_epoch=$(date -d "$last" +%s 2>/dev/null || echo 0)
+[ $(( now - last_epoch )) -gt 7200 ] || exit 0
+# One message per six hours, so a long outage does not bury Jan in notifications.
+[ $(( now - $(cat "$alerted_file" 2>/dev/null || echo 0) )) -ge 21600 ] || exit 0
+/usr/local/bin/aether-backup-alert "no successful aether backup for over two hours"
+printf '%s\n' "$now" >"$alerted_file"

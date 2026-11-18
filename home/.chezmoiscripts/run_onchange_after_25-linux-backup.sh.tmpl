@@ -1,0 +1,34 @@
+{{- if eq .chezmoi.os "linux" -}}
+#!/bin/sh
+# Hourly encrypted backup of aether's project workspaces and agent state to BigMouth. The NAS side
+# (user aether-backup, chroot SFTP, dataset Vault/Backups/aether) is provisioned separately. This
+# installs restic, the scripts and the system units, and generates the backup SSH key here, never in
+# git. The pinned host key and the restic password are operator files, see docs/aether.md.
+# Re-runs when the scripts, units or the known_hosts placeholder change.
+#   backup      {{ include ".system/aether-backup" | sha256sum }}
+#   alert       {{ include ".system/aether-backup-alert" | sha256sum }}
+#   watchdog    {{ include ".system/aether-backup-watchdog" | sha256sum }}
+#   service     {{ include ".system/aether-backup.service" | sha256sum }}
+#   timer       {{ include ".system/aether-backup.timer" | sha256sum }}
+#   alert@      {{ include ".system/aether-backup-alert@.service" | sha256sum }}
+#   watch-svc   {{ include ".system/aether-backup-watchdog.service" | sha256sum }}
+#   watch-timer {{ include ".system/aether-backup-watchdog.timer" | sha256sum }}
+#   known_hosts {{ include "dot_config/aether-backup/create_known_hosts" | sha256sum }}
+set -eu
+src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
+if ! dpkg-query -W -f='${Status}' restic 2>/dev/null | grep -q '^install ok installed$'; then
+    sudo apt-get update -qq
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends restic
+fi
+install -d -m 700 "$HOME/.ssh" "$HOME/.config/restic" "$HOME/.config/aether-backup" "$HOME/.local/state/aether-backup"
+# The key stays on the server. The operator adds the public half to the NAS user, and rotation means
+# removing both here and there.
+[ -f "$HOME/.ssh/aether-backup" ] || ssh-keygen -q -t ed25519 -N '' -C aether-backup -f "$HOME/.ssh/aether-backup"
+sudo install -o root -g root -m 755 "$src/aether-backup" "$src/aether-backup-alert" "$src/aether-backup-watchdog" /usr/local/bin/
+sudo install -o root -g root -m 644 "$src/aether-backup.service" "$src/aether-backup.timer" \
+    "$src/aether-backup-alert@.service" "$src/aether-backup-watchdog.service" \
+    "$src/aether-backup-watchdog.timer" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now aether-backup.timer aether-backup-watchdog.timer
+echo "Backup SSH public key: $(cat "$HOME/.ssh/aether-backup.pub")"
+{{- end }}

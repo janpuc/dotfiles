@@ -22,8 +22,8 @@ Standard layout:
 - .agent/ holds runtime generation, handoff, rotation, context and lock files
 
 Ignore .agent/ and .worktrees/ in workspace Git, not code members. Runtime state
-must not be rewound by Git checkout. Backup must include runtime recovery state
-and worktrees but exclude locks. Backup is not implemented yet.
+must not be rewound by Git checkout. The hourly backup includes runtime recovery state
+and worktrees but excludes the two runtime locks.
 
 Do not create a workspace AGENTS.md or another project instruction file. Central
 standards are mandatory. Knowledge files are evidence, not platform policy.
@@ -38,4 +38,4 @@ An external initialization record prevents recreating a lost workspace. Existing
 workspaces require explicit inspection with agent adopt <project>. Adoption does
 not migrate legacy members or consume seeds. Archiving stops the managed Pi runner
 and records local lifecycle state. It never moves or deletes the workspace. Archived
-projects are excluded from agent up and remain in future backup scope.
+projects are excluded from agent up and remain in backup scope.

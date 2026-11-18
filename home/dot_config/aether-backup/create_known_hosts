@@ -1,0 +1,9 @@
+# SSH host key of BigMouth (192.168.69.15), pinned for the hourly aether backup.
+#
+# chezmoi creates this file once and never overwrites it, so fill it in by hand on aether and check
+# the fingerprint against the TrueNAS UI (System, SSH, host key) rather than trusting the network:
+#
+#   ssh-keyscan -t ed25519 192.168.69.15 >> ~/.config/aether-backup/known_hosts
+#
+# The backup fails with a clear error until an entry for 192.168.69.15 exists here. docs/aether.md
+# has the rest of the setup.

@@ -1,0 +1,11 @@
+[Unit]
+Description=Check aether's backup freshness every half hour
+
+[Timer]
+OnCalendar=*-*-* *:15/30:00
+AccuracySec=1min
+Persistent=true
+Unit=aether-backup-watchdog.service
+
+[Install]
+WantedBy=timers.target

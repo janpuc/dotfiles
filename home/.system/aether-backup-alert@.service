@@ -1,0 +1,8 @@
+[Unit]
+Description=Pushover alert that %i failed
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+ExecStart=/usr/local/bin/aether-backup-alert "aether backup failed: %i"

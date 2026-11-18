@@ -1,0 +1,19 @@
+#!/bin/sh
+# Pushover alert for a failed or stale aether backup. It sends the status line only, never file
+# contents, paths or journal output. The credentials come from ~/.config/aether-backup/pushover.env
+# (0600), which ai-sync writes from 1Password.
+set -eu
+umask 077
+export PATH=/usr/local/bin:/usr/bin:/bin
+export HOME="${HOME:-/home/ubuntu}"
+env_file=$HOME/.config/aether-backup/pushover.env
+[ -r "$env_file" ] || { echo "aether-backup-alert: missing $env_file, run: fish -c ai-sync" >&2; exit 1; }
+# shellcheck disable=SC1090  # Generated outside the repository, readable only by ubuntu.
+. "$env_file"
+: "${PUSHOVER_TOKEN:?missing in $env_file}"
+: "${PUSHOVER_USER_KEY:?missing in $env_file}"
+curl -fsS --max-time 20 https://api.pushover.net/1/messages.json \
+    --form-string "token=$PUSHOVER_TOKEN" \
+    --form-string "user=$PUSHOVER_USER_KEY" \
+    --form-string "title=aether backup" \
+    --form-string "message=${1:-aether backup failed}" >/dev/null

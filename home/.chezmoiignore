@@ -1,8 +1,9 @@
 {{- /*
   What each kind of machine manages. Paths are targets, relative to $HOME.
 
-  Linux is the aether server: shell basics, project agents, Rex and keepalive. It takes an
-  allowlist so files added for the laptop stay off the server until listed here.
+  Linux is the aether server: shell basics, project agents, Rex, keepalive and the hourly backup
+  configuration. It takes an allowlist so files added for the laptop stay off the server until
+  listed here.
   Pi is the same everywhere (~/.pi/agent, the pi function, ai-sync's cache); other AI runtimes
   and laptop-only configuration are not managed on aether.
 */ -}}
@@ -14,6 +15,7 @@
 !.chezmoiscripts/*-linux-rex.sh
 !.chezmoiscripts/*-linux-mise.sh
 !.chezmoiscripts/*-linux-docker.sh
+!.chezmoiscripts/*-linux-backup.sh
 !.local
 !.local/bin
 !.local/bin/agent-run
@@ -24,6 +26,8 @@
 !.config/agents/standards/**
 !.config/git
 !.config/git/**
+!.config/aether-backup
+!.config/aether-backup/**
 !.config/mise
 !.config/mise/**
 !.config/fish
@@ -53,6 +57,8 @@
 .config/fish/functions/agent.fish
 .config/agents/standards
 .config/agents/standards/**
+.config/aether-backup
+.config/aether-backup/**
 .local/bin/agent-run
 .pi/agent/trust.json
 {{- end }}

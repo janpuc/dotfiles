@@ -1,0 +1,114 @@
+#!/bin/sh
+# Hourly encrypted restic backup of aether's project workspaces and agent state to BigMouth, the
+# TrueNAS box reached over the tailnet (192.168.69.15, restricted chroot SFTP user aether-backup).
+# It runs as ubuntu because everything in scope belongs to ubuntu. The pinned NAS host key lives in
+# ~/.config/aether-backup/known_hosts, filled in once by the operator, and the repository password
+# in ~/.config/restic/aether.password, which ai-sync writes from 1Password: no secret is in this
+# file or in a unit.
+#
+# Scope is the five roots in backup_paths, so credentials outside them (~/.config/op,
+# ~/.config/gh, ~/.local/state/ai) are never read. Exclusions stay narrow: reproducible caches and
+# the two runtime locks. No build, dist or target either: a repo can track real files there.
+# Never a generic *.lock or *.env pattern, because a dependency lockfile or
+# an env sample can be the only copy of a decision.
+set -eu
+umask 077
+export PATH=/usr/local/bin:/usr/bin:/bin
+export HOME="${HOME:-/home/ubuntu}"
+
+repository='sftp:aether-backup@192.168.69.15:/aether/restic'
+host_key_file=$HOME/.config/aether-backup/known_hosts
+ssh_key=$HOME/.ssh/aether-backup
+password_file=$HOME/.config/restic/aether.password
+state_dir=$HOME/.local/state/aether-backup
+success_file=$state_dir/last-success
+prune_file=$state_dir/last-prune
+check_file=$state_dir/last-check
+
+backup_paths="$HOME/Development $HOME/.pi/agent/sessions $HOME/.local/share/agent-history $HOME/.local/state/agents $HOME/.local/share/chezmoi"
+
+restic() {
+    command restic --repo "$repository" --password-file "$password_file" \
+        -o "sftp.command=ssh -i $ssh_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$host_key_file -s sftp" \
+        "$@"
+}
+
+fail() {
+    echo "aether-backup: $*" >&2
+    exit 1
+}
+
+require_credentials() {
+    [ -r "$password_file" ] || fail "missing $password_file, run: fish -c ai-sync"
+    [ -r "$ssh_key" ] || fail "missing SSH key $ssh_key, re-run chezmoi apply"
+    [ -r "$host_key_file" ] || fail "missing $host_key_file, see docs/aether.md"
+    # ssh-keygen also matches a hashed entry, and an empty placeholder file matches nothing.
+    ssh-keygen -F 192.168.69.15 -f "$host_key_file" >/dev/null 2>&1 \
+        || fail "$host_key_file has no key for 192.168.69.15, pin the NAS host key as docs/aether.md describes"
+}
+
+status() {
+    if [ -r "$success_file" ]; then
+        echo "last successful backup: $(cat "$success_file")"
+        return 0
+    fi
+    echo "last successful backup: none recorded"
+    return 1
+}
+
+open_repository() {
+    # Create the repository only when restic reports it absent, in either of the two spellings the
+    # backend uses: a missing config file, or the explicit not-exist error. Every other failure
+    # (SSH, host key, password, permissions) is real and must not become an init against a path
+    # that merely looks empty.
+    error=$(restic cat config 2>&1) && return 0
+    case $error in
+        *'repository does not exist'*|*'unable to open config file: stat'*'no such file or directory'*|*'Is there a repository at the following location?'*)
+            echo "Initializing $repository"
+            restic init
+            ;;
+        *) fail "cannot open the repository: $error" ;;
+    esac
+}
+
+backup() {
+    open_repository
+    # shellcheck disable=SC2086  # backup_paths is a deliberate list of roots.
+    restic backup \
+        --exclude '**/node_modules' --exclude '**/.venv' --exclude '**/__pycache__' --exclude '**/.cache' \
+        --exclude '**/.agent/run.lock' --exclude '**/.agent/launch.lock' \
+        $backup_paths
+    printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$success_file.tmp"
+    mv "$success_file.tmp" "$success_file"
+}
+
+forget() {
+    # forget is cheap and runs every hour. Pruning rewrites packs and uploads, so it happens on the
+    # first run at or after 03:00 only.
+    if [ "$(cat "$prune_file" 2>/dev/null || true)" = "$(date +%F)" ] || [ "$(date +%H)" -lt 3 ]; then
+        restic forget --keep-hourly 48 --keep-daily 30 --keep-weekly 12 --keep-monthly 12 --quiet
+    else
+        restic forget --keep-hourly 48 --keep-daily 30 --keep-weekly 12 --keep-monthly 12 --prune --quiet
+        date +%F >"$prune_file"
+    fi
+}
+
+check_weekly() {
+    last=$(cat "$check_file" 2>/dev/null || echo 1970-01-01)
+    age_days=$(( ($(date +%s) - $(date -d "$last" +%s)) / 86400 ))
+    [ "$age_days" -ge 7 ] || return 0
+    restic check --read-data-subset=1%
+    date +%F >"$check_file"
+}
+
+case ${1:-run} in
+    run)
+        require_credentials
+        mkdir -p "$state_dir"
+        backup
+        forget
+        check_weekly
+        ;;
+    status) status ;;
+    *) fail "usage: aether-backup [run|status]" ;;
+esac

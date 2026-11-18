@@ -24,4 +24,5 @@ Preserve tighter project constraints unless Jan explicitly changes them.
 
 Archiving never deletes files. Permanent deletion requires separate approval and a
 reviewed recovery and retention decision. No backup exists merely because a GitHub
-remote exists. Do not claim the deferred backup implementation already protects data.
+remote exists. The hourly backup has not been restore-tested, so do not claim it already
+protects data.

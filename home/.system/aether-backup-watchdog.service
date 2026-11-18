@@ -1,0 +1,8 @@
+[Unit]
+Description=Alert when aether's hourly backup has not succeeded for two hours
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+ExecStart=/usr/local/bin/aether-backup-watchdog

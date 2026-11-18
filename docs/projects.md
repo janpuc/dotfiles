@@ -11,20 +11,20 @@ Do not run divergent authoritative copies on the Mac and aether.
 This change implements build-plan steps 1 to 6: data contracts, local workspace
 bootstrap, safe repository registration and recovery, launcher lifecycle, central
 standards, the Linux instruction preamble, persistent context injection and the
-rotation update. Nothing is applied to aether by this change. The live home workspace
-is not migrated.
+rotation update, plus the hourly encrypted backup. The Linux run_onchange scripts install
+the backup scripts and system units. The live home workspace is not migrated.
 
 Not built yet:
 
 - Bridge integration checks for context injection, injection after compaction on real
   Pi and the bridge
-- Hourly encrypted restic backup, SFTP provisioning, alerts and restore drill
-- Home migration and an operator restore runbook
+- An isolated restore drill, and home migration with its operator runbook
 
-There is no nightly checkpoint, quiescence or backup barrier. Backup will be hourly
-online only. An online file copy is not an atomic filesystem snapshot. Do not claim
-these local-only workspaces are protected until backup and an isolated restore drill
-actually succeed.
+The hourly encrypted restic backup to BigMouth is built and enabled on aether, see
+[aether](aether.md) for its scope, exclusions and restore steps. It is online only:
+there is no nightly checkpoint, quiescence or backup barrier, and an online file copy is
+not an atomic filesystem snapshot. Do not claim these local-only workspaces are protected
+until an isolated restore drill actually succeeds.
 
 ## Registry contract
 
@@ -94,7 +94,7 @@ writes an initializing record before staging. Ordinary pre-install failure remov
 that record and the temporary tree so a retry is possible. A crash or post-install
 record failure remains visibly incomplete and needs operator recovery. A missing
 previously initialized workspace reports restore needed and is never recreated.
-Back up these records with platform state in the later implementation.
+The hourly backup includes these records with the rest of platform state.
 
 An existing directory without a record fails with adoption required. agent adopt
 <project> verifies a Git root, reports workspace dirt and member branch, dirty and
@@ -166,8 +166,9 @@ The Linux-only fish function delegates to ~/.local/bin/agent-run:
 A local archived record wins over registry active. Direct launches of archived projects
 are refused. To reactivate, an operator must intentionally remove or change the local
 record and ensure registry lifecycle is active. There is no automatic deletion or
-unarchive command. Archived projects remain in future backup scope. Backup freshness
-cannot be reported yet because no backup state producer exists.
+unarchive command. Archived projects remain in backup scope. `aether-backup status`
+prints the last successful backup from a local record on aether, written only after a run
+succeeds.
 
 Each project has a Rex session with its exact label and pi and shell tabs at the
 workspace root. Pi uses --keep-open. Repeated launches create only missing resources.
@@ -211,7 +212,7 @@ paths and never invoke ai-sync against real user state.
 
 home/dot_pi/private_agent/AGENTS.md.tmpl is the only platform-maintained AGENTS.md.
 Its Linux preamble refers to the mandatory standards under ~/.config/agents/standards.
-The Mac render is unchanged. The manifest has schemaVersion 1, version 2.0.0, ordered
+The Mac render is unchanged. The manifest has schemaVersion 1, version 2.0.2, ordered
 mandatory file paths with per-file SHA-256 digests computed during this build, and
 compatibility metadata. Recompute digests whenever standard content changes.
 
@@ -288,17 +289,16 @@ visible. A failed checkpoint or handoff keeps the old session. Old sessions and 
 history remain available.
 
 Existing rotation thresholds, idle prompting and generation semantics are unchanged.
-Runtime .agent state must remain outside workspace Git. There is no backup
-coordination protocol.
+Runtime .agent state must remain outside workspace Git. The hourly online backup has no
+coordination protocol: it can capture a workspace in the middle of a write.
 
 ## Deferred home migration and recovery
 
 Do not treat agent adopt home as a migration. Preserve the entire live workspace,
 uncommitted STATE edits, sessions, raw history, refs and worktree inventory first.
-Establish hourly backup and an isolated restore drill before removing the existing
-GitHub safety copy. At an agreed idle boundary, stop the runner, register the existing
-home-assistant checkout in place without recloning or resetting, and keep ha-inventory
-as ordinary tracked content.
+Establish an isolated restore drill before removing the existing GitHub safety copy. At
+an agreed idle boundary, stop the runner, register the existing home-assistant checkout in
+place without recloning or resetting, and keep ha-inventory as ordinary tracked content.
 
 Reconcile dated evidence into PROJECT, STATE and topic pages. Preserve tighter project
 constraints and explicitly retire all old HA write exceptions. Remove workspace
@@ -307,13 +307,15 @@ deleting them. Start a deliberate new generation with tested context loading and
 updated rotation. Verify approvals without a live deployment. Archive the old GitHub
 wrapper only after Jan approves.
 
-Later backup must include complete workspaces, Git and submodule stores, uncommitted
+The hourly backup includes complete workspaces, Git and submodule stores, uncommitted
 and untracked work, local-only commits, .worktrees, runtime generation and handoffs,
 Pi sessions, raw history, external platform records, effective registry and standards,
-and the chezmoi source checkout. Exclude external credential caches, runtime locks and
-narrowly reviewed reproducible caches. Do not blanket-exclude dependency lockfiles or
-.env filenames. Treat sessions and untracked content as sensitive even when encrypted.
+and the chezmoi source checkout. It excludes external credential caches, runtime locks
+and narrowly reviewed reproducible caches. Do not add blanket dependency-lockfile or
+.env filename exclusions: a workspace lockfile or env sample can be the only copy of a
+decision. Treat sessions and untracked content as sensitive even when encrypted.
 
-Restricted SFTP access, the BigMouth subtree, NAS host-key pinning, snapshot policy
-and independent stale-backup monitoring need separately approved shared-system work.
-A fresh-host restore runbook and measured recovery drill remain later deliverables.
+Restricted SFTP access, the BigMouth dataset, NAS host-key pinning, snapshot policy and
+independent stale-backup monitoring are shared-system work approved with this change and
+provisioned outside this repository. A fresh-host restore drill remains a later
+deliverable.

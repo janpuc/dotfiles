@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2.0.1",
+  "version": "2.0.2",
   "compatibility": {
     "contextSchemaVersion": 1,
     "bootstrapMaxBytes": 24576
@@ -8,7 +8,7 @@
   "files": [
     {
       "path": "workspace.md",
-      "sha256": "c646e32bb26814db2d33bc2541986f6a048f25eac8dc292f7814d1f26d0a694c"
+      "sha256": "366687de2a4ff10262b7657bd7d8fc94edcbfbf78991924939e55dcfc3320932"
     },
     {
       "path": "session.md",
@@ -28,7 +28,7 @@
     },
     {
       "path": "approvals.md",
-      "sha256": "c5964c5ffaf95b73034d14be67a937a723892b4fbedb5bb6423034a692134878"
+      "sha256": "507f1e31b07eb1a12e198d87045b7797b9d95498003467f9bc7e794fe5f03ec1"
     },
     {
       "path": "handoff.md",
@@ -36,7 +36,7 @@
     },
     {
       "path": "recovery.md",
-      "sha256": "99e71d5610371d6f0d56adeee1fb3240ff689faed85931d8f0e4fcbce26e607d"
+      "sha256": "fd87ddb22a74f5337c6126278b34ac4d30943faec54d1918f302f1f6ee1bc1ba"
     }
   ]
 }

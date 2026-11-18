@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly encrypted backup of aether to BigMouth
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+AccuracySec=1min
+Persistent=true
+Unit=aether-backup.service
+
+[Install]
+WantedBy=timers.target
