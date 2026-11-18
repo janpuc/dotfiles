@@ -73,3 +73,7 @@ projects:
     # austerity.watch (janpuc/austerity-watch): the public, city-level map of the 2026 protest wave
     # in Europe, a static site on GitHub Pages plus its data watcher.
     lifecycle: active
+  maker:
+    # Jan's maker work: Xiao ESP32 boards and their 3D-printed cases (humidifier, soil and
+    # moisture sensors, mmWave), and the earlier ESP32 experiments.
+    lifecycle: active
