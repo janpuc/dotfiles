@@ -1,7 +1,0 @@
-#!/opt/pr-broker/bin/node
-// Same broker boundary, quota and head-pinned merge path, but only lane A (five/run).
-'use strict';
-require('./pr-broker').main('lane-a').catch(() => {
-    console.error('pr-lane-merge: stopped at first failure; check broker configuration');
-    process.exitCode = 1;
-});
