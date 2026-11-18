@@ -25,3 +25,10 @@ projects:
     # Jan's engineering thesis (praca inżynierska, AGH): a multi-tier compute architecture for
     # games on handhelds, a Bevy voxel case study (Steam Deck client, BC250 home server).
     lifecycle: active
+  gaming:
+    # Gaming hardware and game ports: the BC250 gaming box, inFamous on the Steam Deck (native
+    # port and recompilation), and game reverse engineering (TDU, XBOX, spore). Not renplay.
+    lifecycle: active
+    repos:
+      - name: bc250
+        url: https://github.com/janpuc/BC250.git
