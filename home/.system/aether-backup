@@ -29,7 +29,7 @@ backup_paths="$HOME/Development $HOME/.pi/agent/sessions $HOME/.local/share/agen
 
 restic() {
     command restic --repo "$repository" --password-file "$password_file" \
-        -o "sftp.command=ssh -i $ssh_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$host_key_file -s sftp" \
+        -o "sftp.args=-i $ssh_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$host_key_file" \
         "$@"
 }
 
