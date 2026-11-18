@@ -1,6 +1,12 @@
 # Global tools on the aether server (Linux only, see .chezmoiignore).
 # Installed by `mise install` from the Linux script.
+[settings]
+trusted_config_paths = ["~/Development"]
+
 [tools]
+yq = "latest"
+ripgrep = "latest"
+uv = "latest"
 "1password-cli" = "latest"                    # `op`, for ai-sync's GitHub login
 chezmoi = "latest"
 gh = "latest"                                 # git's credential helper

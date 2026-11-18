@@ -1,0 +1,16 @@
+defaults:
+  model: claude-bridge/claude-opus-5-5
+  thinking: high
+  meminiPrefix: homelab
+  rotation:
+    sizeMB: 100
+    compactions: 5
+    days: 30
+projects:
+  home:
+    workspace: janpuc/home-workspace
+    repos:
+      - name: home-assistant
+        url: https://github.com/janpuc/home-assistant.git
+    secrets:
+      HA_TOKEN: op://Kubernetes/hass-mcp/HASS_MCP_TOKEN

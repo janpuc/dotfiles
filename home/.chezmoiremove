@@ -1,0 +1,5 @@
+{{ if or (eq .chezmoi.os "linux") (eq .chezmoi.os "darwin") -}}
+.pi/agent/local/pocket.ts
+.pi/agent/local/pocket.test.ts
+.pi/agent/local/pocket-api.md
+{{- end }}

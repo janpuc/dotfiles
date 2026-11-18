@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+input=$(cat)
+printf '%s' "${input:-"{}"}" | jq '
+{{- if eq .chezmoi.os "linux" }}
+  .["/home/ubuntu/Development"] = true
+{{- else }}
+  .
+{{- end }}
+'

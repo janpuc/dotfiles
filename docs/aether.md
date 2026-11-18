@@ -1,9 +1,11 @@
 # aether (Ubuntu server): a dev machine reached through Rex
 
-Aether is Jan's Ubuntu server, and now only a development machine: the laptop reaches it through
-Rex, and the Pi there can place subagents on it (`machine: "aether"`).
-`chezmoi` gives it the same shell basics as the Macs, plus the memory hold and the Rex login
-server. Home names resolve through Tailscale split DNS (see [Home network](#home-network)).
+aether is Jan's Oracle ARM VM running Ubuntu 26.04.1 as `ubuntu`, reached from the Mac app
+through its Rex login server. It hosts one long-lived Pi per project under
+`~/Development/<project>`. Project agents do their own work and use local Rex tabs for
+bounded child jobs, with no remote subagent machines. The Mac can still place children on
+aether. See [Projects on aether](projects.md) for the registry, tools, approvals and rotation.
+`chezmoi` gives it common shell basics, project launchers, the memory hold and Rex. Home names resolve through Tailscale split DNS (see [Home network](#home-network)).
 Laptop configuration stays on the Mac. An allowlist in `home/.chezmoiignore` makes that boundary
 explicit: new laptop files do not reach Linux unless deliberately added there.
 
@@ -12,18 +14,23 @@ explicit: new laptop files do not reach Linux unless deliberately added there.
 | Source | Purpose |
 |---|---|
 | `home/.chezmoidata/packages.yaml` → `linux.apt` | ca-certificates, curl, fish, git, jq (Pi's settings script), python3-yaml and zsh |
-| `home/dot_config/mise/config.toml` | chezmoi, gh, 1Password CLI, starship, atuin, zoxide, eza, bat, difftastic, node and Pi |
+| `home/dot_config/mise/config.toml` | chezmoi, gh, 1Password CLI, shell tools, yq, ripgrep, uv, node and Pi, with trusted configs under ~/Development |
 | `home/dot_config/fish/config.fish.tmpl` and fish theme | fish with mise activation and the common shell tools, the AI endpoints, ai-sync's credential cache and the memini namespace hook, as on the Macs |
-| `home/dot_config/fish/functions/ai-sync.fish.tmpl` | through the read-only service account in `~/.config/op/aether.env`: log ubuntu's gh in from `op://Kubernetes/aether/GH_TOKEN` and write the same `~/.local/state/ai/credentials.fish` as the Macs (including the bridge's `claude setup-token`) |
+| `home/dot_config/fish/functions/ai-sync.fish.tmpl` | through the read-only service account in `~/.config/op/aether.env`: log ubuntu's gh in from `op://Kubernetes/aether/GH_TOKEN` and write the same `~/.local/state/ai/credentials.fish` as the Macs (including the bridge's `claude setup-token`), plus 0600 per-project dotenv files |
 | `home/dot_config/git/` | gh credential helper, bat pager, difftastic diff, SSH commit signing |
 | `home/dot_config/{starship.toml,atuin,bat,eza}` and `home/dot_editorconfig` | prompt, history, file display and editing basics |
-| `home/dot_pi/private_agent/` and `home/dot_config/fish/functions/pi.fish` | ubuntu's Pi, the same as on hermes and sisyphus |
-| `home/.chezmoiscripts/*-linux-*.sh.tmpl` | apt, system helpers, Rex and mise setup |
+| `home/dot_pi/private_agent/` and `home/dot_config/fish/functions/pi.fish` | common Pi packages, OS-aware instructions/settings, approval guard, project rotation, scoped Opus compaction and additive project trust |
+| `home/.chezmoidata/projects.yaml` and `home/dot_config/agents/projects.json.tmpl` | project registry and runtime JSON on Linux and Mac |
+| `home/dot_config/fish/functions/agent.fish` and `home/dot_local/bin/executable_agent-run` | Linux project cloning, Rex reconciliation and generation loop |
+| `home/.chezmoiscripts/*-linux-*.sh.tmpl` | apt, project apt packages, Docker CE from the official resolute repo, system helpers, Rex and mise setup |
 | `home/.system/rex-*` (installed by `07-linux-rex`) | Rex from its apt repository. The packaged login server plus a listener on the tailnet address port 7297, where tailscaled identifies each caller, lets `tailscale:janpuc@github` in as ubuntu. Clients use the bare name `aether.tail17d532.ts.net` |
 | `home/.system/aether-keepalive*` (installed by `05-linux-system`) | hold 25% of RAM without CPU load to avoid Oracle's idle-instance reclamation criteria |
 
-No user-level systemd services, AI dot-directories or `~/.local/bin` launchers are allowlisted.
-The infrastructure units above are system services, installed separately by the Linux script.
+The allowlist includes the project registry and `~/.local/bin/agent-run`, but no user-level
+systemd services or other AI runtimes. Project Pi sessions are explicitly started with
+`agent up` after a reboot. The infrastructure units above are system services, installed
+separately by the Linux scripts. Docker group membership requires a new login and gives
+ubuntu root-equivalent access.
 `bootstrap-linux.sh` remains the initial mise/chezmoi bootstrap, not a retirement mechanism.
 
 ## Home network
@@ -51,13 +58,17 @@ Never in this public repository:
 - `~/.ssh/id_ed25519`: the server's private SSH signing key. Git uses the corresponding
   `~/.ssh/id_ed25519.pub`, registered on GitHub as `aether-sign`.
 
-Run `fish -c ai-sync` manually after a key rotation.
+Run `fish -c ai-sync` manually after a key rotation. It also writes
+`~/.local/state/ai/projects/<project>.env` (0600) from the registry's secret references.
+Workspace mise.toml files load these with `_.file`. Plain environment such as HA_URL stays
+in the workspace repo, never in the secret registry.
 
 ## Retirement and verification
 
 Changing the allowlist does **not** delete previously deployed targets or uninstall tools.
-The reviewed server cleanup must explicitly remove retired state before updating from the
-pushed source. Do not remove the GitHub authentication, signing key, system helpers or shell
+The Linux `.chezmoiremove` explicitly removes the retired Pi local files `pocket.ts`,
+`pocket.test.ts` and `pocket-api.md`. Other retired state needs reviewed operator cleanup
+before updating from the pushed source. Do not remove the GitHub authentication, signing key, system helpers or shell
 basics above.
 
 Retiring Pi Pocket left state on aether that only the operator can remove, since nothing in
@@ -87,4 +98,6 @@ and Role from home-ops.
 
 Read-only checks include `chezmoi managed`, `mise ls`, `gh auth status`,
 `systemctl status aether-keepalive.service`, `resolvectl query k8s.janpuc.com`,
-`systemctl status rex-login-server.service` and `systemctl --user list-unit-files`.
+`systemctl status rex-login-server.service`, `systemctl --user list-unit-files`, `agent ls`,
+`rex ls --json`, `docker version` and `docker compose version`. From the Mac target aether
+with `rex -S aether`. BigMouth project backup comes in a later change.

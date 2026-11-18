@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""Project launcher and generation loop. Only Rex's pi tab runs the loop."""
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import subprocess
+import sys
+
+HOME = Path.home()
+ROOT = HOME / "Development"
+CONFIG = HOME / ".config/agents/projects.json"
+
+
+def run(*args, **kwargs):
+    return subprocess.run([str(arg) for arg in args], check=True, **kwargs)
+
+
+def rex(*args):
+    return json.loads(run("rex", *args, stdout=subprocess.PIPE, text=True).stdout)
+
+
+def unique(items, label):
+    matches = [item for item in items if item.get("label") == label]
+    if len(matches) > 1:
+        raise ValueError(f"Multiple Rex resources labelled {label}, resolve them first")
+    return matches[0] if matches else None
+
+
+def generation(folder):
+    path = folder / ".agent/generation"
+    value = int(path.read_text().strip()) if path.exists() else 1
+    if value < 1:
+        raise ValueError(f"Invalid generation in {path}")
+    return value
+
+
+def atomic_write(path, text):
+    temp = path.with_name(path.name + ".tmp")
+    try:
+        temp.write_text(text)
+        temp.replace(path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
+def consume_rotation(folder, recovering=False):
+    state = folder / ".agent"
+    requested = state / "rotate-requested"
+    if not requested.exists():
+        return False
+    next_generation = int(requested.read_text().strip())
+    current = generation(folder)
+    if not (state / f"handoff-{next_generation}.md").is_file():
+        raise ValueError("Rotation requested without a handoff")
+    if next_generation == current and recovering:
+        # The previous runner committed generation but stopped before removing the request.
+        requested.unlink()
+        return True
+    if next_generation != current + 1:
+        raise ValueError("Rotation request must name the next generation")
+    atomic_write(state / "generation", f"{next_generation}\n")
+    requested.unlink()
+    return True
+
+
+def running(folder):
+    path = folder / ".agent/run.lock"
+    if not path.exists():
+        return False
+    with path.open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+    return False
+
+
+def pi_window(session):
+    return unique(rex("session", "inspect", session, "--json")["windows"], "pi")
+
+
+def ensure(name, project):
+    folder = ROOT / name
+    ROOT.mkdir(parents=True, exist_ok=True)
+    if not folder.exists():
+        run("gh", "repo", "clone", project["workspace"], folder)
+    for repo in project.get("repos", []):
+        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", repo["name"]):
+            raise ValueError("Repo names must be a single path component")
+        target = folder / repo["name"]
+        if not target.exists():
+            run("git", "clone", "--", repo["url"], target)
+    state = folder / ".agent"
+    state.mkdir(exist_ok=True)
+    # A second `agent up` must not race session or tab creation.
+    with (state / "launch.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        session = unique(rex("ls", "--json")["sessions"], name)
+        command = ["--shell=none", "--keep-open", "--", "fish", "-lc",
+                   f"exec python3 {shlex.quote(str(HOME / '.local/bin/agent-run'))} {shlex.quote(name)}"]
+        if not session:
+            created = rex("new", name, "--window", "pi", "-c", folder, "--json", *command)
+            sid = created["session_id"]
+        else:
+            sid = session["session_id"]
+            window = pi_window(sid)
+            if not window:
+                rex("window", "new", "-s", sid, "pi", "-c", folder, "--json", *command)
+            elif not running(folder):
+                blocks = [block for layer in window["layers"] for block in layer.get("blocks", [])]
+                if len(blocks) != 1:
+                    raise ValueError(f"{name}: pi tab has multiple blocks, leaving it alone")
+                block = blocks[0]["block_id"]
+                process = rex("block", "call", "-s", sid, "-b", block, "process")
+                child = process.get("child")
+                foreground = process.get("foreground")
+                if child and not (child.get("name") in ("fish", "bash", "sh", "zsh")
+                                  and (foreground or {}).get("pid") == child.get("pid")):
+                    raise ValueError(f"{name}: pi tab has a live unmanaged process, leaving it alone")
+                # Rex has no restart method. Replace only the stopped/idle terminal in the
+                # existing window, not the window itself, so the pi tab is never duplicated.
+                rex("run", "-s", sid, "-b", block, "--split=right", "-c", folder,
+                    "--json", *command)
+                run("rex", "block", "close", "-s", sid, block)
+        windows = rex("session", "inspect", sid, "--json")["windows"]
+        if not unique(windows, "shell"):
+            rex("window", "new", "-s", sid, "shell", "-c", folder, "--focus=false", "--json")
+    clients = [c for c in rex("client", "ls", "--json")["clients"]
+               if c.get("info", {}).get("kind") == "app" and c.get("connection_state") == "connected"]
+    if len(clients) == 1:
+        run("rex", "-C", clients[0]["client_id"], "do", "session.select", f"session_id={sid}")
+    elif clients:
+        print(f"{name}: several Rex apps connected, not choosing one", file=sys.stderr)
+
+
+def loop(name, project, defaults):
+    folder = ROOT / name
+    os.chdir(folder)
+    state = folder / ".agent"
+    state.mkdir(exist_ok=True)
+    with (state / "run.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError(f"{name}: agent-run is already running")
+        env = dict(os.environ)
+        # Load workspace plain env too (HA_URL is in mise.toml), then retain shims first.
+        env.update(json.loads(run("mise", "env", "--json", stdout=subprocess.PIPE, text=True).stdout))
+        env.update(PI_PROJECT=name, PI_PROJECT_DIR=str(folder),
+                   MEMINI_NAMESPACE=f"{project.get('meminiPrefix', defaults['meminiPrefix'])}/{name}")
+        env.pop("MEMINI_NAMESPACE_PREFIX", None)
+        secrets = HOME / f".local/state/ai/projects/{name}.env"
+        if project.get("secrets"):
+            # ai-sync writes JSON-quoted dotenv values with dollars escaped against expansion.
+            loaded = set()
+            for line in secrets.read_text().splitlines():
+                key, value = line.split("=", 1)
+                if key not in project["secrets"]:
+                    raise ValueError(f"Unexpected secret key {key} in {secrets}")
+                env[key] = json.loads(value.replace(r"\$", "$"))
+                loaded.add(key)
+            if any(key not in loaded for key in project["secrets"]):
+                raise ValueError(f"Missing project secrets, run ai-sync: {secrets}")
+        # Equivalent to `mise activate bash --shims`. Unlike real tool bin paths, a shim
+        # resolves tools and [env] from each bash command's cwd, including nested repos.
+        shims = Path(env.get("MISE_DATA_DIR", HOME / ".local/share/mise")) / "shims"
+        env["PATH"] = f"{shims}:{env['PATH']}"
+        model = project.get("model", defaults["model"])
+        thinking = project.get("thinking", defaults["thinking"])
+        # Recover either side of the generation commit after a runner crash or reboot.
+        consume_rotation(folder, recovering=True)
+        while True:
+            n = generation(folder)
+            if not (state / "generation").exists():
+                atomic_write(state / "generation", f"{n}\n")
+            sid = f"{name}-{n}"
+            # Pi escapes cwd as --home-ubuntu-Development-home-- in its sessions tree.
+            session_dir = HOME / ".pi/agent/sessions" / ("--" + re.sub(r"[/\\:]", "-", str(folder).lstrip("/\\")) + "--")
+            handoff = state / f"handoff-{n}.md"
+            args = [HOME / ".pi/agent/local/bin/pi", "--session-id", sid, "--model", f"{model}:{thinking}"]
+            if handoff.exists() and not list(session_dir.glob(f"*_{sid}.jsonl")):
+                args.append(handoff.read_text())
+            result = subprocess.run([str(arg) for arg in args], env=env)
+            if not consume_rotation(folder):
+                return result.returncode
+
+
+def main():
+    config = json.loads(CONFIG.read_text())
+    projects = config["projects"]
+    if any(not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", name) or name in ("up", "ls") for name in projects):
+        raise ValueError("Project names must be a single path component other than up or ls")
+    if len(sys.argv) == 3 and sys.argv[1] == "--launch":
+        action = sys.argv[2]
+        if action == "ls":
+            sessions = rex("ls", "--json")["sessions"]
+            for name in projects:
+                folder = ROOT / name
+                session = unique(sessions, name)
+                print(f"{name} folder={'yes' if folder.is_dir() else 'no'} "
+                      f"rex={session['session_id'] if session else 'no'} "
+                      f"pi={'yes' if running(folder) else 'no'} generation={generation(folder)}")
+            return 0
+        names = list(projects) if action == "up" else [action]
+        for name in names:
+            if name not in projects:
+                raise ValueError(f"Unknown project: {name}")
+            ensure(name, projects[name])
+        return 0
+    if len(sys.argv) != 2 or sys.argv[1] not in projects:
+        raise ValueError("Usage: agent-run <registered-project>")
+    name = sys.argv[1]
+    return loop(name, projects[name], config["defaults"])
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        print(f"agent: {error}", file=sys.stderr)
+        sys.exit(1)

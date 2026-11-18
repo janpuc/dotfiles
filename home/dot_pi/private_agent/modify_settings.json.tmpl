@@ -31,13 +31,24 @@ managed='{
     "git:github.com/janpuc/pi-title-spinner@v0.1.0",
     "git:github.com/janpuc/pi-footer@v0.1.0",
     "./local/agent-guard-child.ts",
+    "./local/agent-guard-ask.ts",
+    "./local/project-rotate.ts",
     "./local/rex-inspector.ts"
   ],
+{{- if eq .chezmoi.os "linux" }}
+  "compaction": {
+    "modelOverrides": {
+      "claude-bridge/claude-opus-5-5": { "reserveTokens": 750000, "keepRecentTokens": 60000 }
+    }
+  },
+{{- end }}
   "subagents": {
+{{- if eq .chezmoi.os "darwin" }}
     "machines": {
       "sisyphus": { "rex": { "ssh": "sisyphus" }, "cwd": "/Users/jan.pucilowski" },
       "aether": { "rex": { "ssh": "aether" }, "cwd": "/tmp" }
     },
+{{- end }}
     "modelScope": {
       "enforce": true,
       "strict": true,
@@ -85,4 +96,8 @@ printf '%s' "${input:-"{}"}" | jq --argjson m "$managed" --argjson r "$retired" 
   ($m.packages | map(id)) as $ids
   | . * ($m | del(.packages))
   | del(.subagents.defaultExtensions)
+{{- if eq .chezmoi.os "linux" }}
+  | del(.subagents.machines)
+  | .compaction.modelOverrides = $m.compaction.modelOverrides
+{{- end }}
   | .packages = $m.packages + [(.packages // [])[] | select(id as $i | ($ids + $r) | index($i) | not)]'

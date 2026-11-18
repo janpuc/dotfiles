@@ -1,0 +1,29 @@
+{{- if eq .chezmoi.os "linux" -}}
+#!/bin/sh
+# Docker CE and project apt tools. Re-runs when project package lists change.
+# {{ range $name, $project := .projects }}{{ $name }} {{ get $project "apt" | default list | toJson }} {{ end }}
+set -eu
+# shellcheck disable=SC1091
+. /etc/os-release
+codename=${UBUNTU_CODENAME:-$VERSION_CODENAME}
+# Never silently use another Ubuntu release's packages.
+curl -fsSL "https://download.docker.com/linux/ubuntu/dists/$codename/Release" >/dev/null
+sudo install -m 0755 -d /etc/apt/keyrings
+key=$(mktemp)
+trap 'rm -f "$key"' EXIT HUP INT TERM
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o "$key"
+sudo install -m 0644 "$key" /etc/apt/keyrings/docker.asc
+sudo tee /etc/apt/sources.list.d/docker.sources >/dev/null <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $codename
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+sudo apt-get update -qq
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin{{ range $name, $project := .projects }}{{ range (get $project "apt" | default list) }} {{ . | quote }}{{ end }}{{ end }}
+sudo usermod -aG docker ubuntu
+# A new login is needed for the docker group membership.
+{{- end }}

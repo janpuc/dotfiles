@@ -17,8 +17,14 @@ function __memini_namespace_prefix --on-variable PWD --description "Keep memini 
         set -gx MEMINI_NAMESPACE_PREFIX work
         set -e MEMINI_NAMESPACE
     else if test "$PWD" = "$dev_root"; or string match -q -- "$dev_root/*" "$PWD"
-        set -gx MEMINI_NAMESPACE_PREFIX homelab
-        set -e MEMINI_NAMESPACE
+        if test (uname) = Linux; and test "$PWD" != "$dev_root"
+            set -l project (string split / -- (string sub -s (math (string length "$dev_root") + 2) -- "$PWD"))[1]
+            set -gx MEMINI_NAMESPACE "homelab/$project"
+            set -e MEMINI_NAMESPACE_PREFIX
+        else
+            set -gx MEMINI_NAMESPACE_PREFIX homelab
+            set -e MEMINI_NAMESPACE
+        end
     else if test -n (git rev-parse --show-toplevel 2>/dev/null; or echo "")
         # A repo outside ~/Development: let it derive its own name unprefixed.
         set -e MEMINI_NAMESPACE_PREFIX

@@ -1,13 +1,13 @@
 // Agents never change shared systems: no push, no GitHub writes, no cluster, node or dotfiles
-// changes. The parent does those after Jan says yes (AGENTS.md). Loaded only into subagent
-// sessions, through agent-guard-child.ts, this blocks bash commands that would. A pattern
-// check that catches mistakes, not a sandbox: a script can still do anything.
+// changes or Home Assistant writes. Children block them through agent-guard-child.ts, while
+// Jan's sessions ask through agent-guard-ask.ts. A pattern check that catches mistakes, not a
+// sandbox: a script can still do anything.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 // A command name, any options before the subcommand, then the subcommand.
 const OPTS = String.raw`(?:\s+-{1,2}[A-Za-z][\w-]*(?:[= ][^\s;&|-]\S*)?)*`;
 const cmd = (tool: string, verbs: string) =>
-	new RegExp(String.raw`(?:^|[\s;&|(\x60/])${tool}${OPTS}\s+(?:${verbs})(?=$|[\s;&|)])`);
+	new RegExp(String.raw`^(?:\S*/)?${tool}${OPTS}\s+(?:${verbs})(?=$|\s)`);
 
 const RULES: [string, RegExp][] = [
 	["git push", cmd("git", "push")],
@@ -19,21 +19,170 @@ const RULES: [string, RegExp][] = [
 	["a dotfiles apply", cmd("chezmoi", "apply|update|destroy|purge")],
 ];
 
-const GH_API = /(?:^|[\s;&|(\x60/])gh\s+api\b([^;&|\n]*)/g;
+// This deliberately handles ordinary shell command forms, not arbitrary shell programs.
+// Quotes keep payloads intact. Substitutions and subshells are checked as commands too.
+function simpleCommands(source: string): string[][] {
+	const commands: string[][] = [];
+	let i = 0;
+	const scan = (end = "") => {
+		let words: string[] = [], word = "", started = false, quote = "";
+		const flushWord = () => { if (started) words.push(word); word = ""; started = false; };
+		const flush = () => { flushWord(); if (words.length) commands.push(words); words = []; };
+		while (i < source.length) {
+			const c = source[i++];
+			if (!quote && end && c === end) { flush(); return; }
+			if (c === "\\" && quote !== "'") {
+				const next = source[i];
+				if (next !== undefined && (!quote || /["\\$`]/.test(next))) { word += next; i++; }
+				else word += c;
+				started = true;
+			} else if (quote === "'") {
+				if (c === "'") quote = ""; else word += c;
+			} else if ((c === "$" && source[i] === "(") || c === "`") {
+				if (c === "$") i++;
+				scan(c === "$" ? ")" : "`");
+				word += "$()";
+				started = true;
+			} else if (quote) {
+				if (c === quote) quote = ""; else word += c;
+			} else if (c === "'" || c === '"') {
+				quote = c; started = true;
+			} else if (c === "(") {
+				flush(); scan(")");
+			} else if (/[;|&\n)]/.test(c)) flush();
+			else if (/\s/.test(c)) flushWord();
+			else if (c === "#" && !started) {
+				while (i < source.length && source[i] !== "\n") i++;
+			} else { word += c; started = true; }
+		}
+		if (quote || end) throw new Error("Unclosed shell quote or substitution");
+		flush();
+	};
+	scan();
+	return commands;
+}
+
+const basename = (word: string) => word.split("/").at(-1) ?? "";
+const assignment = (word: string) => /^[A-Za-z_][\w]*=/.test(word);
+
+function unwrap(words: string[]): string[] {
+	words = [...words];
+	while (words.length) {
+		if (assignment(words[0])) { words.shift(); continue; }
+		const tool = basename(words[0]);
+		if (!["env", "sudo", "command", "exec", "nohup", "time"].includes(tool)) break;
+		words.shift();
+		while (words[0]?.startsWith("-")) {
+			const flag = words.shift()!;
+			if (flag === "--") break;
+			if ((tool === "sudo" && /^(?:-[ugphCrT]|--user|--group|--host|--prompt|--chdir|--chroot|--command-timeout)$/.test(flag))
+				|| (tool === "env" && /^(?:-u|-C|--unset|--chdir)$/.test(flag))
+				|| (tool === "exec" && flag === "-a")
+				|| (tool === "time" && /^(?:-[fo]|--format|--output)$/.test(flag))) words.shift();
+		}
+	}
+	return words;
+}
+
+// Last explicit method wins. Support separate, =value and curl's compact -sSXPOST form.
+function methodOption(args: string[], long: string, short?: string): string | undefined {
+	let method: string | undefined;
+	for (let i = 0; i < args.length; i++) {
+		const word = args[i];
+		if (word === long || word === short) method = args[++i];
+		else if (word.startsWith(`${long}=`)) method = word.slice(long.length + 1);
+		else if (short && new RegExp(`^-[sSfFLkv]*${short.slice(1)}`).test(word)) {
+			method = word.slice(word.indexOf(short.slice(1)) + 1).replace(/^=/, "") || args[++i];
+		}
+	}
+	return method?.toUpperCase();
+}
+
+function homeAssistantWrite(tool: string, args: string[]): boolean {
+	if (!["curl", "wget", "http", "https"].includes(tool)) return false;
+	const targets = args.map((word) => word.replace(/^--url=/, ""))
+		.filter((word) => /^(?:https?:\/\/hass\.janpuc\.com(?::\d+)?|\$HA_URL|\$\{HA_URL\})\/api\//i.test(word));
+	if (!targets.some((url) => !/\/api\/template\/?(?:[?#].*)?$/.test(url))) return false;
+	let method: string;
+	if (tool === "curl") {
+		const data = args.some((word) => /^-[sSfFLkv]*[dT]/.test(word)
+			|| /^(?:--data(?:-[\w-]+)?|--json|--upload-file)(?:=|$)/.test(word));
+		method = methodOption(args, "--request", "-X")
+			?? (args.some((word) => word === "--get" || /^-[sSfFLkv]*G/.test(word)) ? "GET"
+				: args.includes("-I") || args.includes("--head") ? "HEAD" : data ? "POST" : "GET");
+	} else if (tool === "wget") {
+		method = methodOption(args, "--method")
+			?? (args.some((word) => /^(?:--post-data|--post-file|--body-data|--body-file)(?:=|$)/.test(word)) ? "POST" : "GET");
+	} else {
+		method = args.find((word) => /^(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$/i.test(word))?.toUpperCase()
+			?? (args.some((word) => /^[\w.-]+(?::?=(?!=)|@)/.test(word)) ? "POST" : "GET");
+	}
+	return !["GET", "HEAD", "OPTIONS"].includes(method);
+}
+
+function dryRun(tool: string, args: string[], what: string): boolean {
+	const valueFlag = tool === "git" ? /^(?:-C|-c|-o|--push-option|--repo|--receive-pack|--exec|--git-dir|--work-tree)$/
+		: tool === "chezmoi" ? /^(?:-S|-D|-c|--source|--destination|--config)$/
+			: /^(?:-f|-n|--filename|--namespace|--values|--set|--set-string|--context|--kubeconfig)$/;
+	const options: string[] = [];
+	for (let i = 0; i < args.length && args[i] !== "--"; i++) {
+		if (valueFlag.test(args[i])) i++;
+		else options.push(args[i]);
+	}
+	args = options;
+	if (["kubectl", "helm", "flux", "talosctl"].includes(tool)) {
+		let value: string | undefined;
+		for (let i = 0; i < args.length; i++) {
+			if (args[i] === "--dry-run") value = args[i + 1] === "none" ? "none" : "true";
+			else if (args[i].startsWith("--dry-run=")) value = args[i].slice(10);
+		}
+		return value !== undefined && value !== "none";
+	}
+	return (what === "git push" || tool === "chezmoi" && cmd("chezmoi", "apply").test([tool, ...args].join(" ")))
+		&& args.some((word) => word === "--dry-run" || word === "-n");
+}
+
+function simpleChange(input: string[]): string | undefined {
+	const words = unwrap(input);
+	if (!words.length) return;
+	const tool = basename(words[0]), args = words.slice(1);
+	if (["bash", "sh", "zsh", "dash", "fish"].includes(tool)) {
+		for (let i = 0; i < args.length && args[i].startsWith("-"); i++) {
+			if (/^-[^-]*c/.test(args[i])) {
+				const body = args[i + 1];
+				return body === undefined || /^\$(?:\w+|\{\w+\}|\(\))$/.test(body.trim())
+					? "an unclassified shell command" : sharedChange(body);
+			}
+		}
+	}
+	if (tool === "eval") return sharedChange(args.join(" "));
+	if (homeAssistantWrite(tool, args)) return "a Home Assistant write";
+	const command = words.join(" ");
+	for (const [what, re] of RULES) if (re.test(command)) return dryRun(tool, args, what) ? undefined : what;
+	const api = tool === "gh" && command.match(cmd("gh", "api"));
+	if (api) {
+		const apiArgs = args.slice(args.indexOf("api") + 1);
+		const method = methodOption(apiArgs, "--method", "-X");
+		if (apiArgs.includes("graphql")) {
+			const query = apiArgs.filter((word) => /^(?:-[fF]|--(?:raw-)?field=)?query=/.test(word)).join(" ");
+			return /\bmutation\b/.test(query) ? "a GitHub write" : undefined;
+		}
+		if (method === "GET" || method === "HEAD") return;
+		if (method && /^(?:POST|PUT|PATCH|DELETE)$/.test(method)
+			|| apiArgs.some((word) => /^(?:-[fF].*|--(?:field|raw-field|input)(?:=.*)?)$/.test(word))) return "a GitHub write";
+	}
+}
 
 /** What the command would change, or undefined when it only reads. */
 export function sharedChange(command: string): string | undefined {
-	if (/--dry-run(?!=none)\b/.test(command)) return undefined;
-	for (const [what, re] of RULES) if (re.test(command)) return what;
-	for (const [, args] of command.matchAll(GH_API)) {
-		if (/(?:-X|--method)[\s=]*(?:GET|HEAD)\b/i.test(args)) continue;
-		if (/^\s*graphql\b/.test(args)) {
-			if (/\bmutation\b/.test(args)) return "a GitHub write";
-			continue;
+	try {
+		for (const words of simpleCommands(command.replace(/\\\r?\n/g, ""))) {
+			const what = simpleChange(words);
+			if (what) return what;
 		}
-		if (/(?:-X|--method)[\s=]*(?:POST|PUT|PATCH|DELETE)\b/i.test(args) || /\s(?:-f|-F|--field|--raw-field|--input)[\s=]/.test(args)) return "a GitHub write";
+	} catch {
+		return "an unclassified shell command";
 	}
-	return undefined;
 }
 
 export default function (pi: ExtensionAPI) {

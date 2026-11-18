@@ -1,7 +1,7 @@
 {{- /*
   What each kind of machine manages. Paths are targets, relative to $HOME.
 
-  Linux is the aether server: shell basics, internal DNS sync and keepalive. It takes an
+  Linux is the aether server: shell basics, project agents, Rex and keepalive. It takes an
   allowlist so files added for the laptop stay off the server until listed here.
   Pi is the same everywhere (~/.pi/agent, the pi function, ai-sync's cache); other AI runtimes
   and laptop-only configuration are not managed on aether.
@@ -13,7 +13,13 @@
 !.chezmoiscripts/*-linux-system.sh
 !.chezmoiscripts/*-linux-rex.sh
 !.chezmoiscripts/*-linux-mise.sh
+!.chezmoiscripts/*-linux-docker.sh
+!.local
+!.local/bin
+!.local/bin/agent-run
 !.config
+!.config/agents
+!.config/agents/projects.json
 !.config/git
 !.config/git/**
 !.config/mise
@@ -25,6 +31,7 @@
 !.config/fish/functions
 !.config/fish/functions/ai-sync.fish
 !.config/fish/functions/pi.fish
+!.config/fish/functions/agent.fish
 !.config/fish/functions/__memini_namespace_prefix.fish
 !.pi
 !.pi/agent
@@ -41,4 +48,7 @@
 .chezmoiscripts/*-linux-*.sh
 .config/mise
 .config/mise/**
+.config/fish/functions/agent.fish
+.local/bin/agent-run
+.pi/agent/trust.json
 {{- end }}

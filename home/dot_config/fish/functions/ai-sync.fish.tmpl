@@ -69,4 +69,33 @@ function ai-sync --description "Fetch AI credentials from 1Password into a local
     mv "$tmp" "$CRED_FILE"
     chmod 600 "$CRED_FILE"
     echo "Wrote $CRED_FILE (0600) and exported into this shell."
+{{ if eq .chezmoi.os "linux" }}
+    # Project dotenv files are separate from the shared credential cache above. Replace a
+    # project's file only when every secret was fetched, keeping a previous good file on failure.
+    set -l project_dir "$HOME/.local/state/ai/projects"
+    mkdir -p "$project_dir"; or return 1
+    chmod 700 "$project_dir"; or return 1
+{{ range $project, $config := .projects }}
+    set -l project_tmp (mktemp "$project_dir/.{{ $project }}.XXXXXX"); or return 1
+    chmod 600 "$project_tmp"; or return 1
+    set -l complete 1
+{{ range $key, $ref := $config.secrets }}
+    set -l value (op read --no-newline {{ $ref | quote }} 2>/dev/null | string collect --no-trim-newlines)
+    if test -z "$value"; or string match -qr '[\r\n]' -- "$value"
+        echo "Could not read single-line secret {{ $key }} for {{ $project }}, keeping its previous env file" >&2
+        set complete 0
+    else
+        printf '%s' "$value" | python3 -c 'import json, sys; print(sys.argv[1] + "=" + json.dumps(sys.stdin.read(), ensure_ascii=False).replace("$", r"\$"))' {{ $key | quote }} >>"$project_tmp"
+        or set complete 0
+    end
+{{ end }}
+    if test "$complete" = 1
+        mv "$project_tmp" "$project_dir/{{ $project }}.env"; or return 1
+        echo "Wrote $project_dir/{{ $project }}.env (0600)."
+    else
+        rm -f "$project_tmp"
+        return 1
+    end
+{{ end }}
+{{ end }}
 end

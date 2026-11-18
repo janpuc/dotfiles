@@ -20,12 +20,20 @@ export CLAUDE_CONFIG_DIR GIT_EXTERNAL_DIFF PI_CLIPBOARD_OSC52
 [ -n "${MINIMAX_API_KEY:-}" ] || [ -z "${PI_MINIMAX_API_KEY:-}" ] || export MINIMAX_API_KEY="$PI_MINIMAX_API_KEY"
 [ -n "${ALIBABA_API_KEY:-}" ] || [ -z "${PI_ALIBABA_API_KEY:-}" ] || export ALIBABA_API_KEY="$PI_ALIBABA_API_KEY"
 
+# A project runner keeps shims first for cwd-sensitive bash tools. Starting Pi through its
+# shim would let mise prepend real tool paths again. Resolve Pi and node without activation.
+if [ -n "${PI_PROJECT:-}" ]; then
+	exec "$(mise which node)" "$(mise which pi)" "$@"
+fi
+
 # The real Pi is the next `pi` on PATH after this directory.
 here=$(cd "$(dirname "$0")" && pwd -P)
 IFS=:
 for dir in $PATH; do
 	[ -n "$dir" ] && [ -x "$dir/pi" ] && [ ! -d "$dir/pi" ] || continue
 	[ "$(cd "$dir" 2>/dev/null && pwd -P)" = "$here" ] && continue
+	# The first real Pi replaces the wrapper, it never falls through to the error below.
+	# shellcheck disable=SC2093
 	exec "$dir/pi" "$@"
 done
 echo "pi: no Pi on PATH besides $here/pi" >&2
