@@ -46,3 +46,12 @@ projects:
     # with its local branches, stashes and worktrees). kubeconfig, talosconfig and .secrets.env
     # live untracked in home-ops/. Cluster changes ask Jan through the guard.
     lifecycle: active
+  renplay:
+    # renplay-org: the Ren'Py player (core), lab, catalog, engines, website and the org profile,
+    # plus plans and lab data. GH_TOKEN is a renplay-org fine-grained token, so gh and git use it
+    # inside this workspace while other projects keep the janpuc login.
+    lifecycle: active
+    secrets:
+      GH_TOKEN: op://Kubernetes/aether/GH_TOKEN_RENPLAY
+      CLOUDFLARE_ACCOUNT_ID: op://Kubernetes/renplay-org/CLOUDFLARE_ACCOUNT_ID
+      CLOUDFLARE_API_TOKEN: op://Kubernetes/renplay-org/CLOUDFLARE_API_TOKEN
