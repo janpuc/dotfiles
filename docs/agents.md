@@ -58,6 +58,7 @@ system is changed by asking its owner.
 |---|---|
 | `network` | UniFi gateway, Wi-Fi, firewall, Tailscale, DNS |
 | `kubernetes` | home-ops, the cluster, Flux, Talos |
+| `agh` | Jan's studies at AGH: numerical methods, algorithms, networks lab, exam prep | local-only `wypozyczalnia-samochodow` (its GitHub copy is gone) |
 | `home` | Home Assistant and the DietPi speakers |
 | `bigmouth` | the NAS |
 | `renplay` | renplay-org repositories and deploys |
