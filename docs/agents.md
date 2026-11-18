@@ -101,6 +101,7 @@ Pushover push. The restore runbook is the Restore section of [aether](aether.md)
 |---|---|---|
 | `home` | Jan's Home Assistant config | `home-assistant` (janpuc/home-assistant) |
 | `bigmouth` | BigMouth NAS storage and its off-site backup plan | none yet |
+| `thesis` | Jan's engineering thesis (AGH): multi-tier compute for games on handhelds, a Bevy voxel case study | none, the PoC code lives in the workspace |
 
 ## Limits to know
 
