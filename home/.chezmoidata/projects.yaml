@@ -32,3 +32,12 @@ projects:
     repos:
       - name: bc250
         url: https://github.com/janpuc/BC250.git
+  network:
+    # Jan's home network: the UniFi gateway (UDR bob, 192.168.69.1), Wi-Fi, VLANs, firewall,
+    # Tailscale subnet routing, Thread and Matter, Shelly. Audits, backups of the UniFi config and
+    # helper scripts. Reaches the LAN from aether through the tailnet subnet router.
+    lifecycle: active
+    secrets:
+      UNIFI_API_KEY: op://Kubernetes/unifi/UNIFI_API_KEY
+      UNIFI_SSH_PASS: op://Kubernetes/unifi-ssh/password
+      HA_TOKEN: op://Kubernetes/hass-mcp/HASS_MCP_TOKEN
