@@ -16,6 +16,7 @@
 !.chezmoiscripts/*-linux-mise.sh
 !.chezmoiscripts/*-linux-docker.sh
 !.chezmoiscripts/*-linux-backup.sh
+!.chezmoiscripts/*-pi-git-packages.sh
 !.local
 !.local/bin
 !.local/bin/agent-run

@@ -1,8 +1,10 @@
 #!/bin/sh
 # Pi checks a git package out once and never moves it when its pin in settings.json changes, so a
-# new pin needs `pi update <source>`. Re-runs whenever the managed settings change.
+# new pin needs `pi update <source>`. Re-runs whenever the managed settings change. Runs on the
+# Mac and on aether. aether's mise shims are added in case apply runs without mise activated.
 # settings {{ include "dot_pi/private_agent/modify_settings.json.tmpl" | sha256sum }}
 set -eu
+PATH="$HOME/.local/share/mise/shims:$PATH"
 settings="$HOME/.pi/agent/settings.json"
 [ -f "$settings" ] && command -v pi >/dev/null || exit 0
 for src in $(grep -o '"git:[^"]*"' "$settings" | tr -d '"'); do
