@@ -62,6 +62,7 @@ system is changed by asking its owner.
 | `ai` | Jan's AI tooling: Pi packages, model evals, the local models on sisyphus | `pi-usage`, `pi-footer`, `pi-title-spinner`, `pi-claude-bridge`, `pi-optchat`, `pi-model-eval`, `mac-models` |
 | `polished` | Self-hosted nail polish inventory (Python server, iOS app built on the Mac) | `polished` |
 | `austerity` | austerity.watch, the public map of the 2026 protest wave in Europe | `austerity-watch` |
+| `maker` | Xiao ESP32 boards and 3D-printed cases, earlier ESP32 experiments | none, local repo `esp32/mmWave1` pending |
 | `home` | Home Assistant and the DietPi speakers |
 | `bigmouth` | the NAS |
 | `renplay` | renplay-org repositories and deploys |
