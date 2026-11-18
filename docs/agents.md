@@ -104,6 +104,15 @@ Pushover push. The restore runbook is the Restore section of [aether](aether.md)
 | `thesis` | Jan's engineering thesis (AGH): multi-tier compute for games on handhelds, a Bevy voxel case study | none, the PoC code lives in the workspace |
 | `gaming` | BC250 gaming box, inFamous on the Steam Deck (native port, recomp), game reverse engineering (TDU, XBOX, spore). Not renplay | `bc250` (janpuc/BC250), local-only `bc250-control-center`, `infamous-reborn`, `infamous-work` |
 | `network` | Jan's home network: UniFi gateway, Wi-Fi and VLANs, firewall, Tailscale and split DNS, Thread and Matter | none, audits, config backups and scripts live in the workspace |
+| `kubernetes` | Jan's Talos and Flux homelab cluster | `home-ops` (janpuc/home-ops), worktrees under `.worktrees/home-ops/` |
+
+## Cluster access from the Mac
+
+The Mac keeps working with the cluster from any folder: `~/.kube/config` is the homelab
+kubeconfig and `~/.talos/config` the talosconfig, so `kubectl`, `k9s`, `flux` and `talosctl`
+need nothing set. `kubectx` still switches to the work clusters through `KUBECONFIG`, and
+`kubectx -u` returns to the homelab. On aether the same two files live untracked in
+`~/Development/kubernetes/home-ops/`.
 
 ## Limits to know
 
