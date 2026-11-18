@@ -57,8 +57,6 @@ projects:
       CLOUDFLARE_API_TOKEN: op://Kubernetes/renplay-org/CLOUDFLARE_API_TOKEN
   agh:
     # Jan's studies at AGH: course assignments, lab reports and exam prep (numerical methods,
-    # algorithms, computer networks) and the car rental project (janpuc/WypozyczalniaSamochodow).
+    # algorithms, computer networks) and the car rental project, a local-only repo since its
+    # GitHub copy (janpuc/WypozyczalniaSamochodow) is gone.
     lifecycle: active
-    repos:
-      - name: wypozyczalnia-samochodow
-        url: https://github.com/janpuc/WypozyczalniaSamochodow.git
