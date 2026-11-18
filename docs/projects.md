@@ -46,9 +46,9 @@ the new launcher.
 
 Project and member names are single directory components beginning with a letter or
 digit and containing only letters, digits, dots, underscores and hyphens. Project
-names up, ls, archive and adopt are reserved. Member paths notes, plans and scripts
-are reserved. Names and paths must be unique, relative and contained without symlink
-escapes. Members remain direct children of the workspace.
+names up, ls, archive, adopt, ask, reply and restart are reserved. Member paths notes,
+plans and scripts are reserved. Names and paths must be unique, relative and contained
+without symlink escapes. Members remain direct children of the workspace.
 
 ## Local workspace and initialization
 
@@ -71,7 +71,9 @@ escapes. Members remain direct children of the workspace.
     ├── generation
     ├── handoff-<N>.md
     ├── rotate-requested
+    ├── restart-requested
     ├── context.json              Derived context revision, digests and hashes
+    ├── inbox/<id>.json           Cross-project requests and replies
     └── run.lock
 ```
 
@@ -157,6 +159,12 @@ The Linux-only fish function delegates to ~/.local/bin/agent-run:
   generation, then member branch, dirty and ahead summaries. No upstream means ahead
   is unknown. It also reports unregistered workspace directories and child repositories
 - agent adopt <project> explicitly records an inspected existing workspace
+- agent ask <project> <text> writes a request into the target's .agent/inbox. agent
+  reply <project> <id> <text> answers the original sender's inbox from a request in
+  the current project's inbox. Unknown, archived and self targets are refused
+- agent restart <project>|all writes an atomic .agent/restart-requested marker so each
+  agent loads updated central config. all means active projects with a running Pi
+- agent ls also counts open requests and shows restart=pending while a marker waits
 - agent archive <project> stops the managed Pi block and writes a local archived record,
   without deleting or moving files. It matches the Rex child PID against the live
   runner lock and waits for that lock to release. Ambiguous tabs, unknown runner PIDs
@@ -211,14 +219,17 @@ paths and never invoke ai-sync against real user state.
 
 home/dot_pi/private_agent/AGENTS.md.tmpl is the only platform-maintained AGENTS.md.
 Its Linux preamble refers to the mandatory standards under ~/.config/agents/standards.
-The Mac render is unchanged. The manifest has schemaVersion 1, version 2.0.2, ordered
+The Mac render is unchanged. The manifest has schemaVersion 1, version 2.1.0, ordered
 mandatory file paths with per-file SHA-256 digests computed during this build, and
 compatibility metadata. Recompute digests whenever standard content changes.
 
-The standards cover workspace, session, knowledge, git, tools, approvals, handoff and
-recovery. They are mandatory documents, not optional skills. knowledge.md defines the
-fixed headings and evidence rules for PROJECT, STATE and topic pages. The agent owns
-routine knowledge upkeep. Jan reviews decisions and approvals, not routine edits.
+The standards cover workspace, session, knowledge, git, tools, approvals, handoff,
+recovery and requests between projects. requests.md fixes project ownership, the ask
+and reply flow and the rule that another project's notes and memini namespace may be
+read but not changed. They are mandatory documents, not optional skills. knowledge.md
+defines the fixed headings and evidence rules for PROJECT, STATE and topic pages. The
+agent owns routine knowledge upkeep. Jan reviews decisions and approvals, not routine
+edits.
 memini remains supplementary searchable recall in homelab/<project>, inherited by
 children. It must not be the only copy of recovery-critical facts.
 
@@ -249,7 +260,8 @@ request, so injection must not rely on those routes.
 The message is rebuilt before a turn when any loaded file's content hash changes, and
 again after a compaction or a new, resumed or forked session. Each message carries the
 standards version, the combined standards digest and a context revision, and states
-that it supersedes any earlier context message. Children inherit PI_PROJECT and
+that it supersedes any earlier context message. It also carries a one-line summary of
+the new cross-project requests waiting in the inbox. Children inherit PI_PROJECT and
 PI_PROJECT_DIR and receive the same context.
 
 Content input is the registry, the standards manifest and files, notes/PROJECT.md and
@@ -288,6 +300,9 @@ visible. A failed checkpoint or handoff keeps the old session. Old sessions and 
 history remain available.
 
 Existing rotation thresholds, idle prompting and generation semantics are unchanged.
+A restart request is treated like a rotation request but keeps the same generation and
+session id, so the conversation resumes. The runner clears a restart marker found
+before it launches Pi, and removes one written during a run before relaunching.
 Runtime .agent state must remain outside workspace Git. The hourly online backup has no
 coordination protocol: it can capture a workspace in the middle of a write.
 

@@ -20,6 +20,7 @@
 !.local
 !.local/bin
 !.local/bin/agent-run
+!.local/bin/agent
 !.config
 !.config/agents
 !.config/agents/projects.json
@@ -61,6 +62,7 @@
 .config/aether-backup
 .config/aether-backup/**
 .local/bin/agent-run
+.local/bin/agent
 .pi/agent/trust.json
 {{- end }}
 **/__pycache__

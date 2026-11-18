@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2.0.3",
+  "version": "2.1.0",
   "compatibility": {
     "contextSchemaVersion": 1,
     "bootstrapMaxBytes": 24576
@@ -37,6 +37,10 @@
     {
       "path": "recovery.md",
       "sha256": "d2dd1c7e0712adb50e083b3f21d34c30fbdc87316b3267d96e1f308bfddccf4e"
+    },
+    {
+      "path": "requests.md",
+      "sha256": "cf4211ff3cffb2eea63cd5756f6bfe514fd4ee523bddf787d5eac830f8dc45f9"
     }
   ]
 }

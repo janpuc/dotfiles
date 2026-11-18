@@ -7,7 +7,7 @@
 // compaction or a session switch. .agent/context.json records the revision and hashes. It is
 // derived state, regenerable, and never the source of truth.
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -66,6 +66,7 @@ function render(
 	budget: number,
 	contentBytes: number,
 	problems: string[],
+	open: string[],
 	body: string,
 ) {
 	const header = [
@@ -79,9 +80,29 @@ function render(
 		`- Standards digest: ${standardsDigest}`,
 		`- Context revision: ${revision}`,
 		`- Content size: ${contentBytes} of ${budget} UTF-8 bytes for the standards, PROJECT and STATE`,
+		`- Open cross-project requests: ${open.length}${open.length ? ` (${open.join(", ")})` : ""}. They wait for Jan, do not act on them.`,
 	].join("\n");
 	const warnings = problems.length ? `\n\n## Problems\n\n${problems.map((problem) => `- ${problem}`).join("\n")}` : "";
 	return `${header}${warnings}\n\n${body}\n`;
+}
+
+// Ids of the new cross-project requests waiting in this project's inbox.
+function openRequests(workspace: string, project: string): string[] {
+	const folder = join(workspace, ".agent/inbox");
+	let names: string[];
+	try {
+		names = readdirSync(folder).filter((name) => name.endsWith(".json")).sort();
+	} catch {
+		return [];
+	}
+	return names.flatMap((name) => {
+		try {
+			const item = JSON.parse(readFileSync(join(folder, name), "utf8"));
+			return typeof item?.id === "string" && item.to === project && item.status === "new" ? [item.id as string] : [];
+		} catch {
+			return [];
+		}
+	});
 }
 
 function build(project: string, workspace: string): Context {
@@ -115,12 +136,14 @@ function build(project: string, workspace: string): Context {
 		return { ...file, path: entry.path };
 	});
 	const notes = ["notes/PROJECT.md", "notes/STATE.md"].map((path) => ({ ...load(join(workspace, path)), path }));
+	const open = openRequests(workspace, project);
 	const standardsDigest = digest(JSON.stringify(standards.map((file) => [file.path, file.sha256])));
 	const revision = digest(JSON.stringify({
 		contextSchemaVersion: manifest.compatibility?.contextSchemaVersion ?? 1,
 		standardsVersion: manifest.version ?? null,
 		standards: standards.map((file) => [file.path, file.sha256]),
 		notes: notes.map((file) => [file.path, file.sha256]),
+		inbox: open,
 	})).slice(0, 16);
 	const recordedBudget = manifest.compatibility?.bootstrapMaxBytes;
 	const budget = typeof recordedBudget === "number" && Number.isSafeInteger(recordedBudget) && recordedBudget > 0
@@ -138,7 +161,7 @@ function build(project: string, workspace: string): Context {
 	if (contentBytes > budget) {
 		problems.push(`the standards, PROJECT and STATE total ${contentBytes} UTF-8 bytes, over the ${budget} byte budget. Nothing is truncated and the full content is injected. Move history from notes/STATE.md into dated notes/knowledge/ pages and keep the mandatory context within budget, per knowledge.md.`);
 	}
-	const text = render(project, workspace, manifest, standardsDigest, revision, budget, contentBytes, problems, body);
+	const text = render(project, workspace, manifest, standardsDigest, revision, budget, contentBytes, problems, open, body);
 	const record = {
 		schemaVersion: 1,
 		project,
@@ -150,6 +173,7 @@ function build(project: string, workspace: string): Context {
 		budget,
 		bytes: Buffer.byteLength(text, "utf8"),
 		problems,
+		inbox: open,
 		injectedAt: new Date().toISOString(),
 		files: Object.fromEntries([...standards, ...notes].map((file) => [file.path, { sha256: file.sha256, bytes: file.bytes }])),
 	};

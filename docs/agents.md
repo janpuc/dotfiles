@@ -39,18 +39,57 @@ Run these in any aether shell (fish).
 |---|---|
 | `agent <project>` | Open the project. Creates its Rex session and tabs if missing, starts Pi in the `pi` tab if it is not running. A brand new project folder is created the first time |
 | `agent up` | The same for every active project. Run it after a reboot or a Rex upgrade: Rex brings back tabs and scrollback but not the programs in them |
-| `agent ls` | One line per project: lifecycle, folder, Rex session, whether Pi runs, generation, and each repo's branch, dirty state and unpushed commits |
+| `agent ls` | One line per project: lifecycle, folder, Rex session, whether Pi runs, generation, open requests, a pending restart, and each repo's branch, dirty state and unpushed commits |
 | `agent adopt <project>` | Take over a folder that already exists but was never set up by the platform. It only inspects and records, it changes nothing |
 | `agent archive <project>` | Stop the project's agent and leave it out of `agent up`. Files, tabs and backups stay |
+| `agent ask <project> <text>` | Ask the owner of another project's system to do work. The request lands in that project's inbox and Jan decides whether its agent sees it |
+| `agent reply <project> <id> <text>` | Answer a request you accepted. The reply lands in the requester's inbox and Jan decides the same way |
+| `agent restart <project>\|all` | Restart a project's agent, or every running one, on the same generation and session, to load new central config. `all` skips projects whose Pi is not running |
 | `agent-run --register <project> <repo> [url]` | Add a code repo to a project as a submodule. With a URL it clones or registers the existing checkout, without one it makes a local-only repo. The agent normally does this itself |
 | `aether-backup status` | When the last backup succeeded |
 | `ai-sync` | Refresh all keys from 1Password: model keys, `gh` login, per-project secrets, backup password. Run it after rotating any of them |
+
+## Cross-project requests
+
+Every project agent owns its systems and changes only its own. Another project's
+system is changed by asking its owner.
+
+| Project | Owns |
+|---|---|
+| `network` | UniFi gateway, Wi-Fi, firewall, Tailscale, DNS |
+| `kubernetes` | home-ops, the cluster, Flux, Talos |
+| `home` | Home Assistant and the DietPi speakers |
+| `bigmouth` | the NAS |
+| `renplay` | renplay-org repositories and deploys |
+| `gaming` | the BC250, the Steam Deck and the game ports |
+| `thesis` | the thesis |
+
+`agent ask <project> <text>` writes a request into the target's inbox. `agent ls`
+counts the open ones. In the target's `pi` tab Jan sees each new request with its
+sender, its text and the current Claude 5h and week usage, then chooses Take this on
+now, Later or Decline. Only Take this on now reaches the agent. At 85 percent or more
+of either window the prompt says so and puts Later first. Later keeps the request for
+`/inbox`, which lists the open ones and offers them again. A decline writes an
+automatic reply. A reply to an accepted request comes back the same way.
+
+Requests are plain JSON in `~/Development/<project>/.agent/inbox/`, outside git and
+inside the backup. Print, JSON and RPC modes never accept or answer for you. Reading
+another project's notes and memini namespace is allowed, changing them is not.
+
+## Loading new config
+
+After a dotfiles change to AGENTS.md, the standards, the extensions or the Pi
+settings, run `chezmoi update` and then `agent restart all`. Each running agent
+finishes its current run, then restarts on the same generation and session, so the
+conversation resumes with the new config. A request waits while a run or a confirm
+prompt is open. `agent ls` shows `restart=pending` until the restart happens.
 
 ## Commands inside Pi
 
 | Command | What it does |
 |---|---|
 | `/rotate [note]` | Hand off to a fresh session: the agent updates its notes, saves facts to memini, commits the workspace, writes a handoff, and Pi restarts on the next generation with that handoff as its first message |
+| `/inbox` | List the open cross-project requests and offer them again |
 | `/reload` | Reload extensions and settings after a dotfiles change |
 | `/compact [focus]` | Compact the conversation now. Rarely needed: Opus compacts by itself near 250K tokens |
 | `/quit` | Stop Pi. The tab stays, `agent <project>` starts it again |

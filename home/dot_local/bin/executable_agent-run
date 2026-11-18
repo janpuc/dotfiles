@@ -142,6 +142,107 @@ def lifecycle(name, project):
     return value
 
 
+REQUEST_ID = re.compile(r"[0-9]{8}T[0-9]{6}-[0-9a-f]{6}")
+
+
+def inbox(project):
+    return ROOT / project / ".agent/inbox"
+
+
+def request_id():
+    return time.strftime("%Y%m%dT%H%M%S", time.gmtime()) + "-" + os.urandom(3).hex()
+
+
+def request_time():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def request_target(projects, name):
+    if name not in projects:
+        raise ValueError(f"Unknown project: {name}")
+    if lifecycle(name, projects[name]) == "archived":
+        raise ValueError(f"{name}: archived, not taking requests")
+
+
+def write_request(target, item):
+    folder = inbox(target)
+    folder.mkdir(parents=True, exist_ok=True)
+    atomic_write(folder / f"{item['id']}.json", json.dumps(item, ensure_ascii=False, indent=2) + "\n")
+
+
+def ask(projects, target, text):
+    request_target(projects, target)
+    sender = os.environ.get("PI_PROJECT", "")
+    if not sender:
+        raise ValueError("agent ask must run inside a project agent, PI_PROJECT is unset")
+    if sender not in projects:
+        raise ValueError(f"Unknown sender project: {sender}")
+    if sender == target:
+        raise ValueError("Cannot ask your own project, do the work yourself")
+    if not initialization(target) or not (ROOT / target).is_dir():
+        raise ValueError(f"{target}: workspace is not initialized yet")
+    text = text.strip()
+    if not text:
+        raise ValueError("A request needs text")
+    item = {"id": request_id(), "from": sender, "to": target, "text": text,
+            "created": request_time(), "status": "new"}
+    write_request(target, item)
+    print(f"{target}: request {item['id']}")
+
+
+def reply(projects, project, request, text):
+    request_target(projects, project)
+    sender = os.environ.get("PI_PROJECT", "")
+    if sender != project:
+        raise ValueError("agent reply must run in the project that received the request")
+    if not REQUEST_ID.fullmatch(request):
+        raise ValueError(f"Invalid request id: {request}")
+    try:
+        original = json.loads((inbox(project) / f"{request}.json").read_text())
+    except (OSError, ValueError):
+        raise ValueError(f"{project}: no request {request} in its inbox") from None
+    if not isinstance(original, dict) or original.get("to") != project or original.get("id") != request:
+        raise ValueError(f"{project}: no request {request} in its inbox")
+    target = original.get("from")
+    request_target(projects, target)
+    text = text.strip()
+    if not text:
+        raise ValueError("A reply needs text")
+    item = {"id": request_id(), "from": project, "to": target, "text": text,
+            "created": request_time(), "status": "new", "inReplyTo": request}
+    write_request(target, item)
+    print(f"{target}: reply {item['id']} to request {request}")
+
+
+def open_requests(name):
+    folder = inbox(name)
+    if not folder.is_dir():
+        return []
+    items = []
+    for path in sorted(folder.glob("*.json")):
+        try:
+            item = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(item, dict) and item.get("status") == "new" and item.get("to") == name:
+            items.append(item)
+    return items
+
+
+def restart(projects, action):
+    if action == "all":
+        targets = [name for name, project in projects.items()
+                   if lifecycle(name, project) == "active" and running(ROOT / name)]
+    else:
+        request_target(projects, action)
+        targets = [action]
+    for name in targets:
+        state = ROOT / name / ".agent"
+        state.mkdir(parents=True, exist_ok=True)
+        atomic_write(state / "restart-requested", f"{request_time()}\n")
+    print("restart requested: " + (", ".join(targets) if targets else "no running project agents"))
+
+
 def git(folder, *args):
     return run("git", "-C", folder, *args, stdout=subprocess.PIPE, text=True).stdout.strip()
 
@@ -439,6 +540,9 @@ def loop(name, project, defaults):
         # Recover either side of the generation commit after a runner crash or reboot.
         consume_rotation(folder, recovering=True)
         while True:
+            # A restart marker left before this launch is stale. The extension or the CLI
+            # writes one during a run, and the check after Pi exits relaunches it.
+            (state / "restart-requested").unlink(missing_ok=True)
             n = generation(folder)
             if not (state / "generation").exists():
                 atomic_write(state / "generation", f"{n}\n")
@@ -450,8 +554,12 @@ def loop(name, project, defaults):
             if handoff.exists() and not list(session_dir.glob(f"*_{sid}.jsonl")):
                 args.append(handoff.read_text())
             result = subprocess.run([str(arg) for arg in args], env=env)
-            if not consume_rotation(folder):
-                return result.returncode
+            if consume_rotation(folder):
+                continue
+            # A restart keeps the generation and session so the conversation resumes.
+            if (state / "restart-requested").exists():
+                continue
+            return result.returncode
 
 
 def archive(name):
@@ -498,10 +606,12 @@ def list_projects(projects):
         init = (record["state"] if folder.is_dir() else "restore-needed") if record else (
             "needs-adopt" if folder.exists() else "new")
         session = unique(sessions, name)
+        restart_marker = " restart=pending" if (folder / ".agent/restart-requested").exists() else ""
         print(f"{name} lifecycle={lifecycle(name, project)} init={init} "
               f"folder={'yes' if folder.is_dir() else 'no'} "
               f"rex={session['session_id'] if session else 'no'} "
-              f"pi={'yes' if running(folder) else 'no'} generation={generation(folder)}")
+              f"pi={'yes' if running(folder) else 'no'} generation={generation(folder)} "
+              f"requests={len(open_requests(name))}{restart_marker}")
         if folder.is_dir():
             for status in repository_status(folder):
                 print(f"  {status}")
@@ -514,9 +624,9 @@ def list_projects(projects):
 def main():
     config = json.loads(CONFIG.read_text())
     projects = config["projects"]
-    reserved = ("up", "ls", "archive", "adopt")
+    reserved = ("up", "ls", "archive", "adopt", "ask", "reply", "restart")
     if any(not valid_name(name) or name in reserved for name in projects):
-        raise ValueError("Project names must be single path components other than up, ls, archive or adopt")
+        raise ValueError("Project names must be single path components other than up, ls, archive, adopt, ask, reply or restart")
     for name, project in projects.items():
         lifecycle(name, project)
     if len(sys.argv) >= 3 and sys.argv[1] == "--launch":
@@ -526,8 +636,23 @@ def main():
                 raise ValueError(f"Usage: agent {action} <registered-project>")
             (archive if action == "archive" else adopt)(sys.argv[3])
             return 0
+        if action == "ask":
+            if len(sys.argv) < 5:
+                raise ValueError("Usage: agent ask <project> <text>")
+            ask(projects, sys.argv[3], " ".join(sys.argv[4:]))
+            return 0
+        if action == "reply":
+            if len(sys.argv) < 6:
+                raise ValueError("Usage: agent reply <project> <id> <text>")
+            reply(projects, sys.argv[3], sys.argv[4], " ".join(sys.argv[5:]))
+            return 0
+        if action == "restart":
+            if len(sys.argv) != 4:
+                raise ValueError("Usage: agent restart <project>|all")
+            restart(projects, sys.argv[3])
+            return 0
         if len(sys.argv) != 3:
-            raise ValueError("Usage: agent <project>|up|ls|archive <project>|adopt <project>")
+            raise ValueError("Usage: agent <project>|up|ls|archive <project>|adopt <project>|restart <project>|all")
         if action == "ls":
             list_projects(projects)
             return 0
