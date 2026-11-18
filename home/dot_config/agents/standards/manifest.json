@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2.0.0",
+  "version": "2.0.1",
   "compatibility": {
     "contextSchemaVersion": 1,
     "bootstrapMaxBytes": 24576
@@ -12,7 +12,7 @@
     },
     {
       "path": "session.md",
-      "sha256": "762935bc90cf5268aca3f58dff640737eb3a5c782641bb418aa553859baaaedc"
+      "sha256": "386469f5b9b3b425f856a3eb326650744b26c7585f527981bf0888d0f7676bcb"
     },
     {
       "path": "knowledge.md",
@@ -32,7 +32,7 @@
     },
     {
       "path": "handoff.md",
-      "sha256": "2333828fd084cb4870100ef42de4ef765e36cb18d7d8d1874300758b38f754f0"
+      "sha256": "0ee096382cba7f5c958891247a2bfea501e71ad7b30f3755394f133ebe6b37c4"
     },
     {
       "path": "recovery.md",

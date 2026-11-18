@@ -6,9 +6,8 @@ approvals, files touched and next actions. Supplement with memini, not instead o
 workspace knowledge. Commit intentional workspace changes with explicit paths and
 git -C. Stage updated gitlinks deliberately. Never automatically push.
 
-The existing rotation extension still asks for project AGENTS.md updates. That is
-legacy behavior awaiting replacement. Do not create one. Use the knowledge files
-instead and explicitly note this discrepancy when preparing a handoff.
+Never create a project AGENTS.md. The rotation routine asks for notes/STATE.md,
+notes/PROJECT.md and notes/knowledge/ updates per knowledge.md.
 
 Runtime protocol remains generation based. The extension writes
 .agent/handoff-<N+1>.md, then atomically writes N+1 to .agent/rotate-requested and

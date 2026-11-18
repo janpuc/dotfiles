@@ -9,15 +9,14 @@ and notes/STATE.md. Check the manifest version and each SHA-256 digest. Missing,
 invalid or oversized mandatory context is an actionable error, not an invitation to
 proceed with partial instructions. Do not silently truncate safety information.
 
-The future context loader must inject a persistent context message before the first
-model turn, after compaction, session switching and rotation. It must detect content
-hash changes before the next turn, inject the new revision and explicitly supersede
-prior standards. Include the knowledge index, not all detailed pages. The initial
+The project-context extension injects this as a persistent context message before
+the first model turn, after compaction, session switching and rotation. It detects
+content hash changes before the next turn and injects the new revision, which
+supersedes the prior one. A compaction in the middle of a run is covered at the start
+of the next run, so after a compaction mid-task re-read notes/STATE.md yourself. Include the knowledge index, not all detailed pages. The initial
 UTF-8 budget is 24 KiB for standards plus PROJECT and STATE. Move history to dated
 knowledge pages when this limit is reached.
 
-Until that loader is installed, explicitly read these files before work and after
-compaction. Manual reads are an interim measure, not proof of automatic loading.
 Derived .agent/context.json may record hashes and the loaded revision. It is not
 an authority and must be regenerable.
 

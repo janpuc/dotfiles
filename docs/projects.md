@@ -8,15 +8,16 @@ Do not run divergent authoritative copies on the Mac and aether.
 
 ## Build status
 
-This change implements build-plan steps 1 to 4: data contracts, local workspace
+This change implements build-plan steps 1 to 6: data contracts, local workspace
 bootstrap, safe repository registration and recovery, launcher lifecycle, central
-standards and the Linux instruction preamble. Nothing is applied to aether by this
-change. The live home workspace is not migrated.
+standards, the Linux instruction preamble, persistent context injection and the
+rotation update. Nothing is applied to aether by this change. The live home workspace
+is not migrated.
 
 Not built yet:
 
-- Deterministic persistent context injection and bridge integration tests
-- Rotation changes to checkpoint knowledge rather than project AGENTS.md
+- Bridge integration checks for context injection, injection after compaction on real
+  Pi and the bridge
 - Hourly encrypted restic backup, SFTP provisioning, alerts and restore drill
 - Home migration and an operator restore runbook
 
@@ -71,7 +72,7 @@ escapes. Members remain direct children of the workspace.
     ├── generation
     ├── handoff-<N>.md
     ├── rotate-requested
-    ├── context.json              Reserved for the future context loader
+    ├── context.json              Derived context revision, digests and hashes
     └── run.lock
 ```
 
@@ -234,46 +235,61 @@ as Home Assistant. Upstream repository instructions may be read but cannot weake
 central approvals. Jan's prose uses minimal punctuation, no em or en dashes, no
 semicolons and no ellipses.
 
-## Contract for the next context-loader step
+## Context injection
 
-Implement project-context.ts and register it in Linux settings. Inputs are the
-registry, validated PI_PROJECT and PI_PROJECT_DIR, the ordered standards manifest and
-files, notes/PROJECT.md and notes/STATE.md. Validate inherited project paths for
-children too. The combined standards plus PROJECT and STATE limit is 24 KiB UTF-8.
-Load the knowledge index, not every detailed topic. Missing, invalid or oversized
-mandatory data must fail visibly rather than truncate. Include standards version and
-content digests in each persistent context message. .agent/context.json is derived
-hash and revision state, never the source of truth.
+home/dot_pi/private_agent/local/project-context.ts is registered in the Pi settings for
+both renders but returns immediately when PI_PROJECT is unset, so the Mac is unaffected.
+It validates PI_PROJECT_DIR as ~/Development/<PI_PROJECT>, requires the project in
+~/.config/agents/projects.json and reads the ordered manifest. It builds one message
+from the standards, notes/PROJECT.md and notes/STATE.md and returns it from
+before_agent_start. The bridge forwards that custom message as literal prompt text,
+while project context files and system prompt changes are cached from its first
+request, so injection must not rely on those routes.
 
-Inject before the first turn through before_agent_start as literal persistent message
-content that reaches the bridge, not merely a cached system prompt. Refresh after
-compaction, session switching and rotation. Reload changed content hashes before the
-next turn and explicitly supersede the previous standards revision. Test real Pi and
-bridge behavior and children. Until then, the central preamble requires explicit
-reads at startup and after compaction. This interim policy is not automatic injection.
+The message is rebuilt before a turn when any loaded file's content hash changes, and
+again after a compaction or a new, resumed or forked session. Each message carries the
+standards version, the combined standards digest and a context revision, and states
+that it supersedes any earlier context message. Children inherit PI_PROJECT and
+PI_PROJECT_DIR and receive the same context.
 
-Central AGENTS.md, extension or settings updates require a clean runner restart or
-generation rotation. /reload alone is not sufficient for bridge context refresh.
+Content input is the registry, the standards manifest and files, notes/PROJECT.md and
+notes/STATE.md. The knowledge index is in PROJECT.md, and detailed topic pages are read
+as needed rather than injected. The budget is 24 KiB of UTF-8 for the standards plus
+PROJECT and STATE, taken from the manifest compatibility block. An oversized block, a
+missing manifest or listed standards file, and a manifest digest mismatch are reported
+in the message and in an error notification. Nothing is truncated. A missing PROJECT
+or STATE file is allowed for a new workspace and the message tells the agent to create
+it per knowledge.md. .agent/context.json records the revision, digests, per-file hashes
+and problems. It is derived state and regenerable, never the source of truth.
 
-## Generation loop and later rotation update
+A real Pi and bridge verification of startup, resume, compaction, a standards edit and
+an oversized STATE on aether is still outstanding. Central AGENTS.md, extension or
+settings updates require a clean runner restart or generation rotation. /reload alone
+is not sufficient for bridge context refresh.
+
+## Generation loop and rotation
 
 The runner still launches Pi with --session-id <project>-<N> and --model
 <model>:<thinking>, exporting PI_PROJECT, PI_PROJECT_DIR and MEMINI_NAMESPACE.
 Handoffs are sent only if that generation has no existing Pi session file. Ordinary
 restarts resume without replaying the handoff.
 
-The extension writes handoff-<N+1>.md before atomically writing rotate-requested,
-then requests shutdown. Only the runner advances generation after Pi exits. It
-recovers requests interrupted on either side of the generation write. Invalid
-requests remain visible. Old sessions and raw history remain available.
+The rotation routine now asks the agent to update notes/STATE.md, notes/PROJECT.md and
+the indexed notes/knowledge/ pages per the central standards, store durable facts with
+memory_remember, and commit the workspace with git -C <workspace> and explicit paths.
+It no longer asks for a project AGENTS.md update, and it forbids creating one. The
+generated handoff prompt uses STATE.md and PROJECT.md as evidence, keeps pending
+approvals, and tells the next agent that the platform injects the standards.
 
-Existing rotation thresholds, idle prompting, crash recovery and generation semantics
-are unchanged in this run. The extension still contains legacy project AGENTS.md
-checkpoint instructions. The central standards explicitly prohibit creating that
-file. Before production migration, update rotation to checkpoint PROJECT, STATE and
-indexed topic knowledge instead, preserve pending approvals, use the context-loader
-contract and keep the old session on checkpoint or handoff failure. Runtime .agent
-state must remain outside workspace Git. There is no backup coordination protocol.
+The extension writes handoff-<N+1>.md before atomically writing rotate-requested, then
+requests shutdown. Only the runner advances generation after Pi exits. It recovers
+requests interrupted on either side of the generation write. Invalid requests remain
+visible. A failed checkpoint or handoff keeps the old session. Old sessions and raw
+history remain available.
+
+Existing rotation thresholds, idle prompting and generation semantics are unchanged.
+Runtime .agent state must remain outside workspace Git. There is no backup
+coordination protocol.
 
 ## Deferred home migration and recovery
 
