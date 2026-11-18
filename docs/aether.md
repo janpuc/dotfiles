@@ -2,8 +2,8 @@
 
 Aether is Jan's Ubuntu server, and now only a development machine: the laptop reaches it through
 Rex, and the Pi there can place subagents on it (`machine: "aether"`).
-`chezmoi` gives it the same shell basics as the Macs, plus the internal DNS sync, the memory
-hold and the Rex login server.
+`chezmoi` gives it the same shell basics as the Macs, plus the memory hold and the Rex login
+server. Home names resolve through Tailscale split DNS (see [Home network](#home-network)).
 Laptop configuration stays on the Mac. An allowlist in `home/.chezmoiignore` makes that boundary
 explicit: new laptop files do not reach Linux unless deliberately added there.
 
@@ -20,12 +20,24 @@ explicit: new laptop files do not reach Linux unless deliberately added there.
 | `home/dot_pi/private_agent/` and `home/dot_config/fish/functions/pi.fish` | ubuntu's Pi, the same as on hermes and sisyphus |
 | `home/.chezmoiscripts/*-linux-*.sh.tmpl` | apt, system helpers, Rex and mise setup |
 | `home/.system/rex-*` (installed by `07-linux-rex`) | Rex from its apt repository. The packaged login server plus a listener on the tailnet address port 7297, where tailscaled identifies each caller, lets `tailscale:janpuc@github` in as ubuntu. Clients use the bare name `aether.tail17d532.ts.net` |
-| `home/.system/aether-hosts-sync*` (installed by `05-linux-system`) | hourly: derive internal DNS names from public home-ops into `/etc/hosts`, because the UniFi gateway does not answer DNS from the tailnet |
 | `home/.system/aether-keepalive*` (installed by `05-linux-system`) | hold 25% of RAM without CPU load to avoid Oracle's idle-instance reclamation criteria |
 
 No user-level systemd services, AI dot-directories or `~/.local/bin` launchers are allowlisted.
 The infrastructure units above are system services, installed separately by the Linux script.
 `bootstrap-linux.sh` remains the initial mise/chezmoi bootstrap, not a retirement mechanism.
+
+## Home network
+
+Aether reaches the home LAN through the tailnet: the Apple TV (`apple-tv`) advertises
+192.168.69.0/24 and 192.168.70.0/24, and aether runs with `--accept-routes`. Home names come
+from the UniFi gateway through Tailscale split DNS (admin console, DNS: nameserver 192.168.69.1
+restricted to `janpuc.com`, `internal`, `69.168.192.in-addr.arpa` and `70.168.192.in-addr.arpa`), and
+aether runs with `--accept-dns`. That covers the external-dns records for the cluster
+(`k8s.janpuc.com`, which the kubeconfig uses, and every app on envoy-internal and
+envoy-external), the DHCP and reservation names under `internal` and reverse lookups.
+Nothing on aether keeps its own copy: the old hourly `/etc/hosts` sync from home-ops was
+retired when the gateway started answering DNS from the tailnet (the `05-linux-system` script
+removes it and its block in `/etc/hosts`).
 
 ## What lives on the server only
 
@@ -74,5 +86,5 @@ Apps and their 1Password items in `op://Kubernetes`, and delete the `pi-pocket` 
 and Role from home-ops.
 
 Read-only checks include `chezmoi managed`, `mise ls`, `gh auth status`,
-`systemctl status aether-hosts-sync.timer aether-keepalive.service`,
+`systemctl status aether-keepalive.service`, `resolvectl query k8s.janpuc.com`,
 `systemctl status rex-login-server.service` and `systemctl --user list-unit-files`.
