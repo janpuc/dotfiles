@@ -32,7 +32,6 @@ Restore original absolute paths where possible. Do not restore runtime locks or 
 credential caches. Recover credentials through Jan's independent 1Password access and
 intentionally regenerate external env files.
 
-Keep the live home workspace and its GitHub safety copy until approved migration and an
-isolated restore drill succeed. Home migration is deferred. Do not reset or reclone the
-current home-assistant checkout to migrate it. The operator restore runbook is the Restore
+Never reset or reclone a member checkout to recover it. Rebuild a lost workspace from the
+backup, then let the runner restore only members that are missing. The operator restore runbook is the Restore
 section of docs/aether.md in the dotfiles repository.

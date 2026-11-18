@@ -12,13 +12,12 @@ This change implements build-plan steps 1 to 6: data contracts, local workspace
 bootstrap, safe repository registration and recovery, launcher lifecycle, central
 standards, the Linux instruction preamble, persistent context injection and the
 rotation update, plus the hourly encrypted backup. The Linux run_onchange scripts install
-the backup scripts and system units. The live home workspace is not migrated.
+the backup scripts and system units. The live home workspace runs on v2 since 2026-11-18 (generation 2).
 
-Not built yet:
-
-- Bridge integration checks for context injection, injection after compaction on real
-  Pi and the bridge
-- An isolated restore drill, and home migration with its operator runbook
+Done on 2026-11-18: a restore drill (latest snapshot into /tmp, git fsck clean in the
+workspace and the submodule, uncommitted STATE.md byte identical, sessions and history
+intact) and the home migration below. Not checked yet: context injection after a
+compaction in the middle of a run on the real bridge.
 
 The hourly encrypted restic backup to BigMouth is built and enabled on aether, see
 [aether](aether.md) for its scope, exclusions and restore steps. It is online only:
@@ -292,20 +291,15 @@ Existing rotation thresholds, idle prompting and generation semantics are unchan
 Runtime .agent state must remain outside workspace Git. The hourly online backup has no
 coordination protocol: it can capture a workspace in the middle of a write.
 
-## Deferred home migration and recovery
+## Home migration (done 2026-11-18)
 
-Do not treat agent adopt home as a migration. Preserve the entire live workspace,
-uncommitted STATE edits, sessions, raw history, refs and worktree inventory first.
-Establish an isolated restore drill before removing the existing GitHub safety copy. At
-an agreed idle boundary, stop the runner, register the existing home-assistant checkout in
-place without recloning or resetting, and keep ha-inventory as ordinary tracked content.
-
-Reconcile dated evidence into PROJECT, STATE and topic pages. Preserve tighter project
-constraints and explicitly retire all old HA write exceptions. Remove workspace
-AGENTS.md from active instruction discovery. Untrack .agent runtime files without
-deleting them. Start a deliberate new generation with tested context loading and
-updated rotation. Verify approvals without a live deployment. Archive the old GitHub
-wrapper only after Jan approves.
+The generation 1 agent moved its own knowledge into notes/PROJECT.md, notes/STATE.md and six
+pages under notes/knowledge/. The main agent then registered the existing home-assistant
+checkout as a submodule in place (no reclone, still at 0fea21f), untracked .agent/, removed
+the workspace AGENTS.md (a copy is in ~/.local/share/agent-history/home/workspace-AGENTS-v1.md),
+dropped the workspace's GitHub remote, ran `agent adopt home` and rotated to generation 2,
+which confirmed the injected context. The GitHub copy janpuc/home-workspace stays until Jan
+approves archiving it.
 
 The hourly backup includes complete workspaces, Git and submodule stores, uncommitted
 and untracked work, local-only commits, .worktrees, runtime generation and handoffs,
