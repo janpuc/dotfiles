@@ -1,5 +1,7 @@
 # aether (Ubuntu server): a dev machine reached through Rex
 
+How to use the project agents day to day: [agents](agents.md).
+
 aether is Jan's Oracle ARM VM running Ubuntu 26.04.1 as `ubuntu`, reached from the Mac app
 through its Rex login server. It hosts one long-lived Pi per project under
 `~/Development/<project>`. Project agents do their own work and use local Rex tabs for
