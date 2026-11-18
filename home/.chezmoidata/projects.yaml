@@ -21,3 +21,7 @@ projects:
     lifecycle: active
     secrets:
       TRUENAS_API_KEY: op://Kubernetes/bigmouth-readonly/TRUENAS_API_KEY
+  thesis:
+    # Jan's engineering thesis (praca inżynierska, AGH): a multi-tier compute architecture for
+    # games on handhelds, a Bevy voxel case study (Steam Deck client, BC250 home server).
+    lifecycle: active
