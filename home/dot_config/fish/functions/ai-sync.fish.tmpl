@@ -75,7 +75,7 @@ function ai-sync --description "Fetch AI credentials from 1Password into a local
     set -l project_dir "$HOME/.local/state/ai/projects"
     mkdir -p "$project_dir"; or return 1
     chmod 700 "$project_dir"; or return 1
-{{ range $project, $config := .projects }}
+{{ range $project, $config := .projects }}{{ if hasKey $config "secrets" }}
     set -l project_tmp (mktemp "$project_dir/.{{ $project }}.XXXXXX"); or return 1
     chmod 600 "$project_tmp"; or return 1
     set -l complete 1
@@ -96,7 +96,7 @@ function ai-sync --description "Fetch AI credentials from 1Password into a local
         rm -f "$project_tmp"
         return 1
     end
-{{ end }}
+{{ end }}{{ end }}
 
     # The hourly restic backup and its alerts read their secrets from files by path, so no unit file
     # or environment holds one. Replace a file atomically only when every value was read: a failed
