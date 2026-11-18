@@ -1,228 +1,303 @@
-# Projects on aether
+# Projects on aether v2
 
-aether is Jan's always-on personal development machine, an Oracle ARM VM running Ubuntu
-26.04.1 as `ubuntu`. Jan talks to each project's Pi in a Rex tab from the Mac app, connected
-to aether's Rex login server. Work repos stay off aether. The Mac stops hosting long-lived
-personal Pi sessions as each project migrates.
+Aether is Jan's always-on personal execution host, an Ubuntu ARM VM running every
+project agent as ubuntu. The Mac is a Rex client. Work repositories stay off aether.
+There is no isolation layer. docs/isolation-gvisor.md is a deferred alternative.
+Aether is the authoritative workspace writer unless Jan explicitly transfers ownership.
+Do not run divergent authoritative copies on the Mac and aether.
 
-## Registry and layout
+## Build status
 
-`home/.chezmoidata/projects.yaml` is the single source of truth. Chezmoi renders its defaults
-and project map to `~/.config/agents/projects.json` on Linux and Mac. Tailor common standards
-per project in this registry, not in launcher code.
+This change implements build-plan steps 1 to 4: data contracts, local workspace
+bootstrap, safe repository registration and recovery, launcher lifecycle, central
+standards and the Linux instruction preamble. Nothing is applied to aether by this
+change. The live home workspace is not migrated.
 
-Defaults are `model: claude-bridge/claude-opus-5-5`, `thinking: high`,
-`meminiPrefix: homelab` and rotation thresholds `sizeMB: 100`, `compactions: 5`, `days: 30`.
-A project has a GitHub `workspace` repo, `repos` entries with `name` and clone `url`, a
-`secrets` map of environment names to `op://` references, and an optional `apt` list. It can
-override model, thinking, meminiPrefix and individual rotation thresholds. Names are simple
-single directory components. Reserve `up` and `ls` for launcher commands.
+Not built yet:
 
-The first project is `home`, workspace `janpuc/home-workspace`, containing
-`home-assistant` from `https://github.com/janpuc/home-assistant.git`.
-`HA_TOKEN` comes from `op://Kubernetes/hass-mcp/HASS_MCP_TOKEN`. Plain configuration such as
-`HA_URL=https://hass.janpuc.com` belongs in the workspace's mise.toml, not the registry.
+- Deterministic persistent context injection and bridge integration tests
+- Rotation changes to checkpoint knowledge rather than project AGENTS.md
+- Hourly encrypted restic backup, SFTP provisioning, alerts and restore drill
+- Home migration and an operator restore runbook
+
+There is no nightly checkpoint, quiescence or backup barrier. Backup will be hourly
+online only. An online file copy is not an atomic filesystem snapshot. Do not claim
+these local-only workspaces are protected until backup and an isolated restore drill
+actually succeed.
+
+## Registry contract
+
+home/.chezmoidata/projects.yaml renders to ~/.config/agents/projects.json on Linux
+and Mac.
+
+Defaults remain model claude-bridge/claude-opus-5-5, thinking high, meminiPrefix
+homelab, and rotation sizeMB 100, compactions 5, days 30. A project may override these
+values and individual rotation thresholds. Keep secrets as environment names mapped
+to op:// references. The optional apt list extends the platform package layer.
+
+Project lifecycle is active or archived, defaulting to active. Optional repos entries
+are one-time initialization seeds with a unique name and optional clone URL. Omitting
+a URL creates a local-only member. After initialization, .gitmodules is authoritative,
+not the seed list. Changing or removing seeds does not change existing membership.
+No GitHub workspace remote is required. The home entry is active with home-assistant
+as a seed and the existing HA_TOKEN secret reference. The old janpuc/home-workspace
+remote is preserved on the live workspace until approved migration, not cloned by
+the new launcher.
+
+Project and member names are single directory components beginning with a letter or
+digit and containing only letters, digits, dots, underscores and hyphens. Project
+names up, ls, archive and adopt are reserved. Member paths notes, plans and scripts
+are reserved. Names and paths must be unique, relative and contained without symlink
+escapes. Members remain direct children of the workspace.
+
+## Local workspace and initialization
 
 ```text
-~/Development/<project>/          private workspace git repo and Pi cwd
-├── AGENTS.md                     project map, repo relationships and stable knowledge
-├── notes/STATE.md                milestones, current state and open threads
-├── plans/                        material outside the code repos
-├── <repo>/                       independent git repo with its own AGENTS.md
-├── .worktrees/                   task worktrees
-└── .agent/                       local conversation rotation state
-    ├── generation                positive integer, initially 1
-    ├── handoff-<N>.md            initial prompt for generation N
-    ├── rotate-requested          committed request containing the next generation number
-    ├── launch.lock               serializes launcher calls
-    └── run.lock                  held while the generation loop is alive
+~/Development/<project>/
+├── .git/
+├── .gitmodules                   Membership, URLs and local-only markers
+├── .gitignore                    .agent/ and .worktrees/ only
+├── mise.toml                     Tools, tasks and non-secret environment
+├── notes/
+│   ├── PROJECT.md                 Facts, constraints, systems and knowledge index
+│   ├── STATE.md                   Current work, verification and pending approvals
+│   └── knowledge/<topic>.md       Dated evidence and history
+├── plans/
+├── scripts/
+├── <repository>/                 Git submodule
+├── <non-git-folder>/              Ordinary tracked workspace content
+├── .worktrees/<repo>/<task>/      Linked task worktrees
+└── .agent/
+    ├── generation
+    ├── handoff-<N>.md
+    ├── rotate-requested
+    ├── context.json              Reserved for the future context loader
+    └── run.lock
 ```
 
-The workspace repo versions AGENTS.md, notes, plans, `.agent/generation` and the handoffs, so a
-fresh clone reopens the current session. Its `.gitignore` must exclude the nested repos,
-`.worktrees/`, the runner's `.agent/run.lock` and `.agent/rotate-requested`, and any local
-secrets. Git always names its target
-with `git -C <repo>`. Never `git add -A` at the workspace root.
-GitHub sync is through Jan-approved pushes. BigMouth backup comes in a later change.
+A genuinely new workspace is assembled in a temporary sibling tree with git init,
+standard knowledge headings, optional secret env reference and seed submodules. It
+gets an initial local workspace commit, then is installed by rename. Normal Git user
+identity must already be configured. No per-workspace AGENTS.md is created. Empty
+layout directories are created on disk but not filled with tracked placeholder files.
 
-Single-repo projects use the same wrapper. Later groupings are decided as they migrate:
-`home` may also hold ha-inventory, `renplay` its code and plans, `homelab` infrastructure
-repos, and `pi` Jan's Pi packages.
+Durable records outside the workspace live under ~/.local/state/agents:
+
+- initialized/<project> is JSON with schemaVersion 1, project, absolute workspace,
+  origin bootstrap or adopted, and state initializing or initialized
+- lifecycle/<project> is active or archived text and overrides registry lifecycle
+- locks/<project> serializes initialization, registration, adoption, archive and Rex
+  reconciliation even when the workspace does not yet exist
+ Initialization
+writes an initializing record before staging. Ordinary pre-install failure removes
+that record and the temporary tree so a retry is possible. A crash or post-install
+record failure remains visibly incomplete and needs operator recovery. A missing
+previously initialized workspace reports restore needed and is never recreated.
+Back up these records with platform state in the later implementation.
+
+An existing directory without a record fails with adoption required. agent adopt
+<project> verifies a Git root, reports workspace dirt and member branch, dirty and
+ahead state, including discovered unregistered child repositories, then records
+origin adopted. It does not consume seeds, register legacy members, change branches
+or migrate knowledge. It is explicit acknowledgement of existing data, not the home
+migration procedure. Removing a registry entry never deletes a directory.
+
+## Repository operations
+
+Code repositories are native Git submodules, tracked by .gitmodules and workspace
+gitlinks. Non-Git folders such as plans and ha-inventory remain ordinary workspace
+content. Each member owns its branches and commits. Workspace checkpoints explicitly
+stage updated gitlinks after intentional member commits. Never manufacture a commit
+to hide a dirty tree. Always use git -C <explicit repository path> and explicit paths
+when staging. Never git add -A at the workspace root.
+
+Register with:
+
+```text
+agent-run --register <project> <member> [url]
+```
+
+This requires an initialized workspace, registers an existing Git root without
+changing its branch or files, or prepares a new member in a temporary directory.
+It stages .gitmodules and the gitlink and initializes native submodule configuration.
+It does not commit the workspace checkpoint for the caller.
+
+Without a URL, a new repository gets an initial local commit before registration:
+
+```ini
+[submodule "example"]
+    path = example
+    url = local-only://project/example
+    aether-local-only = true
+```
+
+The marker is intentionally non-resolvable. A missing local-only member fails with
+restore needed, never a clone attempt or an empty replacement. Publishing later
+requires approval and explicit replacement with a real URL and removal of the marker.
+
+On launch, existing registered members are inspected only. The runner never resets,
+pulls, switches branches or invokes git submodule update. Dirty trees and detached
+HEADs stay untouched, including when they differ from the committed gitlink.
+
+A missing remote member is cloned to temporary storage, obtains the workspace HEAD's
+committed gitlink revision, creates the named branch agent-restored at that exact
+commit and installs the checkout by rename. It does not restore at the remote's
+current default branch. Authentication, missing commit or installation failures stop
+launch without a partial member. A registered member without a committed gitlink
+must be checkpointed before it can be recovered. Recovered repositories can retain
+a standalone .git directory, the supported old-form submodule layout.
 
 ## Launcher and Rex
 
-On Linux:
+The Linux-only fish function delegates to ~/.local/bin/agent-run:
 
-- `agent <project>` clones a missing workspace with `gh repo clone`, then missing nested
-  repos with git. It looks up the exact project label in `rex ls --json` and tab labels in
-  `rex session inspect --json`. It creates only missing resources.
-- Each project has one Rex session labelled `<project>`, with tabs `pi` and `shell`, both
-  initially at the project root. `pi` runs `agent-run <project>` with `--keep-open`.
-- If the Pi runner has exited, the launcher replaces the stopped terminal block within the
-  existing `pi` tab. Rex currently has no terminal restart method. An idle shell can also be
-  replaced, but a live unmanaged program or a tab with multiple panes is left alone with an
-  error. Unrelated tabs and sessions are never closed.
-- `agent up` performs the same reconciliation for every registered project. Use it after a
-  reboot or Rex upgrade. Rex restores tabs, cwd and scrollback, not programs.
-- `agent ls` prints folder presence, Rex session ID, Pi runner liveness and generation for
-  each project. The runner lock includes startup and rotation, not just model execution.
-- If exactly one Rex app is connected, the launcher selects the session with
-  `rex -C CLIENT do session.select session_id=ID`. With several apps it does not choose for
-  Jan. Client Remote Control must be enabled by Jan.
+- agent <project> initializes if genuinely new, safely checks members and reconciles Rex
+- agent up starts only active projects with the same idempotent reconciliation
+- agent ls prints lifecycle, initialization state, folder, Rex ID, runner liveness and
+  generation, then member branch, dirty and ahead summaries. No upstream means ahead
+  is unknown. It also reports unregistered workspace directories and child repositories
+- agent adopt <project> explicitly records an inspected existing workspace
+- agent archive <project> stops the managed Pi block and writes a local archived record,
+  without deleting or moving files. It matches the Rex child PID against the live
+  runner lock and waits for that lock to release. Ambiguous tabs, unknown runner PIDs
+  and unmanaged live programs fail closed. Other tabs and the Rex session are retained
 
-`agent` is a fish function. `~/.local/bin/agent-run` implements reconciliation and the
-long-lived generation loop. Both are Linux-only and explicitly allowlisted. The Mac has
-the registry but no local project launcher. To inspect or select aether sessions from the
-Mac, use `rex -S aether ls --json`, `rex -S aether client ls` and the client action above
-with `-S aether` before the command.
+A local archived record wins over registry active. Direct launches of archived projects
+are refused. To reactivate, an operator must intentionally remove or change the local
+record and ensure registry lifecycle is active. There is no automatic deletion or
+unarchive command. Archived projects remain in future backup scope. Backup freshness
+cannot be reported yet because no backup state producer exists.
 
-`agent-run` reads or initializes `.agent/generation` and starts the existing Pi wrapper
-`~/.pi/agent/local/bin/pi` with
-`--session-id <project>-<N> --model <model>:<thinking>`.
-It exports `PI_PROJECT`, `PI_PROJECT_DIR` and `MEMINI_NAMESPACE=<prefix>/<project>`.
-Secrets are loaded from the generated project env file. Missing secrets fail startup with
-an error rather than silently starting an unauthenticated agent.
+Each project has a Rex session with its exact label and pi and shell tabs at the
+workspace root. Pi uses --keep-open. Repeated launches create only missing resources.
+A stopped or idle-shell pi terminal is replaced within its existing tab. Multiple
+panes or a live unmanaged process are left alone. The external project lock prevents
+concurrent launches from duplicating initialization or Rex resources. The runner's
+.agent/run.lock spans startup, model execution and rotation.
 
-If `.agent/handoff-<N>.md` exists and Pi has no session file for this ID in the current
-workspace, it becomes the initial user message. Ordinary restarts resume the existing
-conversation without replaying the handoff. When Pi exits, the runner loops only if
-`.agent/rotate-requested` names the current generation plus one and that handoff exists.
-It atomically advances generation, removes the request and starts the next Pi. Otherwise it
-exits, reporting invalid requests without discarding them. On restart it recovers a pending
-request, including a generation commit interrupted before request removal.
+If exactly one Rex app is connected, select that session. With several apps do not
+choose for Jan. Remote Control must be enabled by Jan. The Mac has the registry but
+no project launcher or Linux standards installation. For remote inspection use
+rex -S aether ls --json and rex -S aether client ls.
 
-## Tools in three layers
+## Tools and credentials
 
-1. Dotfiles provide base tools: apt basics including jq, Docker CE and its compose/buildx
-   plugins, mise, yq, ripgrep, uv, node, Pi, gh, 1Password CLI and common shell tools.
-   Project `apt` lists extend this system layer. Docker uses its official deb822 apt repo
-   for the running Ubuntu codename, never an implicit fallback. Docker publishes resolute
-   and the required arm64 packages. `ubuntu` joins the docker group, effective on new login.
-   Docker group membership is root-equivalent.
-2. The workspace repo's `mise.toml` defines project-wide tool versions, environment and
-   tasks. It loads `~/.local/state/ai/projects/<project>.env` with `[env] _.file`, and keeps
-   plain values such as HA_URL in git.
-3. Each nested repo may refine tools and tasks with its own `mise.toml`.
+Three layers remain: dotfiles platform essentials, workspace mise.toml, and legitimate
+member tool configuration. Use latest Pi, Node and Rex aligned across machines, not
+pinned platform versions. Agents may add workspace user-space tools and scripts,
+record why, check ARM support and smoke test. Host-wide packages, services and
+privileged configuration need Jan. Tools useful across projects become reviewed
+dotfiles proposals. No tool-manager files are added to deployment repositories merely
+for agent convenience.
 
-Mise trusts configs under `~/Development` on Linux. Pi trusts
-`/home/ubuntu/Development` through an additive `trust.json` modifier, preserving other
-trust decisions. This is not `defaultProjectTrust: always`.
+The runner loads mise env --json from the workspace and prepends
+${MISE_DATA_DIR:-~/.local/share/mise}/shims. Each shim resolves tools for its command's
+cwd. The Pi wrapper resolves absolute Node and Pi paths via mise which while keeping
+shim-first PATH. A shim cannot change its parent shell environment after cd. Use
+mise exec -- <command> for an ordinary system command needing nested mise environment.
+Mise trusts ~/Development on Linux. Pi's additive trust modifier preserves other trust
+decisions rather than enabling defaultProjectTrust always.
 
-The runner prepends `${MISE_DATA_DIR:-~/.local/share/mise}/shims` to Pi's PATH, equivalent
-to `mise activate bash --shims`. Mise's shims documentation says each invocation resolves
-its own cwd's tools and environment. The runner loads workspace environment once with
-`mise env --json`, so apt tools like curl receive HA_URL as well as the project secrets.
-The project-only branch of the Pi wrapper resolves absolute node and Pi paths with
-`mise which` and launches them directly, preserving shim-first PATH. Launching Pi through
-its own shim or `mise exec pi` would prepend real tool directories again and freeze paths
-from the workspace for commands later run in nested repos. Shims load nested mise env
-only when a shimmed command is invoked. For an apt tool needing a nested repo's env,
-use `mise exec -- <command>`. A shim cannot update its parent bash environment after a `cd`.
+Linux ai-sync keeps shared credential handling and writes project env files under
+~/.local/state/ai/projects/. They are mode 0600 in a mode 0700 directory, with quoted
+single-line values and escaped dollars. Atomic replacement occurs only after all of
+a project's secrets are fetched. A failed refresh preserves its old file and returns
+an error. The runner validates required secret keys and fails startup if missing.
+Do not log values or commit generated env files. Tests use temporary HOME and state
+paths and never invoke ai-sync against real user state.
 
-Linux `ai-sync` keeps the shared AI credential cache unchanged and also writes each
-project's secrets through the same 1Password service account. Project env files are 0600
-in a 0700 directory, contain quoted single-line `KEY=value` assignments with dollars escaped
-against dotenv expansion, and are atomically replaced only after all the project's secrets are fetched.
-A failed read preserves that project's old file and returns an error. Re-run after rotation.
-Never commit these files or put token values in the registry.
+## Instructions, knowledge and approvals
 
-## One consistent agent, with approvals
+home/dot_pi/private_agent/AGENTS.md.tmpl is the only platform-maintained AGENTS.md.
+Its Linux preamble refers to the mandatory standards under ~/.config/agents/standards.
+The Mac render is unchanged. The manifest has schemaVersion 1, version 2.0.0, ordered
+mandatory file paths with per-file SHA-256 digests computed during this build, and
+compatibility metadata. Recompute digests whenever standard content changes.
 
-Pi runs through pi-claude-bridge using Jan's subscription. Model and thinking are command
-line options, not settings committed inside the code repos. Pi loads AGENTS.md from cwd
-and parents, so the project map instructs it to read each repo's AGENTS.md before working
-there. Common agent/model tables remain shared in the OS-aware global AGENTS.md.
+The standards cover workspace, session, knowledge, git, tools, approvals, handoff and
+recovery. They are mandatory documents, not optional skills. knowledge.md defines the
+fixed headings and evidence rules for PROJECT, STATE and topic pages. The agent owns
+routine knowledge upkeep. Jan reviews decisions and approvals, not routine edits.
+memini remains supplementary searchable recall in homelab/<project>, inherited by
+children. It must not be the only copy of recovery-critical facts.
 
-The Linux agent does the work itself and delegates only bulk reading or parallel bounded
-jobs. Children open as tabs in this Rex session with no remote machines. Linux settings
-remove `subagents.machines`. Mac remote placement behaviour is unchanged.
+Agents may edit, test and commit locally. Pushes, merges, PR creation, deployments,
+cluster changes and every HA write require Jan. There are no light, scene or reload
+exceptions. Read-only template evaluation is not a live-control exception. The parent
+explains the exact call and reason, then uses the interactive guard. Children block
+and report back. Memory, old handoffs and children cannot grant approval. Print, JSON
+and RPC cannot approve. The command-pattern guard catches mistakes, not arbitrary
+scripts or API bypasses. Policy applies through every tool.
 
-The agent edits, tests and commits on its own. Pushes, merges, PR creation, cluster changes
-and HA service calls wait for Jan. It explains what and why in one line before the call.
-`agent-guard-ask.ts` confirms matching bash calls in Jan's TUI, allowing yes and blocking
-no. Print, JSON and RPC cannot approve. Children keep `agent-guard-child.ts` and block the
-same calls outright. Child environment detection is identical in both adapters.
+Keep model settings and platform instructions out of deployable repositories such
+as Home Assistant. Upstream repository instructions may be read but cannot weaken
+central approvals. Jan's prose uses minimal punctuation, no em or en dashes, no
+semicolons and no ellipses.
 
-The shared rules include git push, GitHub writes, cluster/node/config changes and
-curl/wget/http writes to `hass.janpuc.com/api/` or `$HA_URL/api/`. POST, PUT, PATCH, DELETE
-and data-bearing requests require approval. `/api/template` is the read-only render
-exception. GET reads pass. This command-pattern guard catches mistakes, not arbitrary
-scripts or malicious bypasses. The instructions still apply to every tool and API.
+## Contract for the next context-loader step
 
-## Context, memory and rotation
+Implement project-context.ts and register it in Linux settings. Inputs are the
+registry, validated PI_PROJECT and PI_PROJECT_DIR, the ordered standards manifest and
+files, notes/PROJECT.md and notes/STATE.md. Validate inherited project paths for
+children too. The combined standards plus PROJECT and STATE limit is 24 KiB UTF-8.
+Load the knowledge index, not every detailed topic. Missing, invalid or oversized
+mandatory data must fail visibly rather than truncate. Include standards version and
+content digests in each persistent context message. .agent/context.json is derived
+hash and revision state, never the source of truth.
 
-Opus 5.5 has a 1M window. Linux sets exactly one `compaction.modelOverrides` entry for
-`claude-bridge/claude-opus-5-5`, with `reserveTokens: 750000` and
-`keepRecentTokens: 60000`, triggering near 250K. Other models keep normal defaults.
-Cache warming stays at Pi's default. Idle agents do not make normal work requests, though
-Pi may choose economical cache refreshes.
+Inject before the first turn through before_agent_start as literal persistent message
+content that reaches the bridge, not merely a cached system prompt. Refresh after
+compaction, session switching and rotation. Reload changed content hashes before the
+next turn and explicitly supersede the previous standards revision. Test real Pi and
+bridge behavior and children. Until then, the central preamble requires explicit
+reads at startup and after compaction. This interim policy is not automatic injection.
 
-Memory has four complementary layers:
+Central AGENTS.md, extension or settings updates require a clean runner restart or
+generation rotation. /reload alone is not sufficient for bridge context refresh.
 
-1. Project and repo AGENTS.md hold stable knowledge, reviewed by Jan and kept in git.
-2. memini holds durable facts in `homelab/<project>`, also inherited by children. The Linux
-   fish namespace hook maps the first component under `~/Development` to this namespace.
-   At `~/Development` itself its existing prefix behaviour remains. Mac behaviour is unchanged.
-3. `notes/STATE.md` records milestones, current work, open threads and next steps. After
-   every compaction, re-read it before continuing. After editing an AGENTS.md ask Jan for
-   `/reload` then `/compact`.
-4. The conversation is compacted normally and eventually rotated into a fresh generation.
-   Old session files remain available for history searches.
+## Generation loop and later rotation update
 
-`project-rotate.ts` is active only in a project parent session. It tracks session JSONL
-size, compactions including existing CompactionEntry entries on resume, and header age.
-Any threshold makes the status say `rotate due`. Size/age are refreshed every minute and
-at agent boundaries. At the next final idle boundary it asks `Rotate now?`, only once per
-session start. Pi 1.5 calls this `agent_settled`, because `agent_end` can precede retries,
-compaction recovery or queued messages. A no leaves the status and allows manual rotation.
+The runner still launches Pi with --session-id <project>-<N> and --model
+<model>:<thinking>, exporting PI_PROJECT, PI_PROJECT_DIR and MEMINI_NAMESPACE.
+Handoffs are sent only if that generation has no existing Pi session file. Ordinary
+restarts resume without replaying the handoff.
 
-`/rotate [note]` or a yes performs these steps:
+The extension writes handoff-<N+1>.md before atomically writing rotate-requested,
+then requests shutdown. Only the runner advances generation after Pi exits. It
+recovers requests interrupted on either side of the generation write. Invalid
+requests remain visible. Old sessions and raw history remain available.
 
-1. Send a user message asking the agent to update notes/STATE.md, update the project
-   AGENTS.md if stable knowledge changed, store durable facts with memory_remember, and
-   commit the workspace repo with explicit paths and `git -C <project dir>`. Never push.
-   Wait until this run settles successfully with its completion marker. If it aborts or
-   needs Jan, keep the current generation and allow retry with `/rotate`.
-2. Use the current compacted conversation plus notes/STATE.md to generate a self-contained
-   handoff prompt with open threads, decisions, files and next steps, modeled on Pi's
-   handoff example. A model or filesystem failure leaves the current session alive.
-3. Write `.agent/handoff-<N+1>.md`, then atomically write the next generation number to
-   `.agent/rotate-requested` and request graceful Pi shutdown. The extension never advances
-   `.agent/generation`. If the request write fails, only a stray handoff remains for retry
-   to overwrite. After Pi exits, the runner consumes the request and advances generation.
-   It sends the handoff only if the next session does not already exist.
+Existing rotation thresholds, idle prompting, crash recovery and generation semantics
+are unchanged in this run. The extension still contains legacy project AGENTS.md
+checkpoint instructions. The central standards explicitly prohibit creating that
+file. Before production migration, update rotation to checkpoint PROJECT, STATE and
+indexed topic knowledge instead, preserve pending approvals, use the context-loader
+contract and keep the old session on checkpoint or handoff failure. Runtime .agent
+state must remain outside workspace Git. There is no backup coordination protocol.
 
-Rotation does not delete old sessions. Linux and macOS chezmoi cleanup removes only the retired
-`~/.pi/agent/local/pocket.ts`, `pocket.test.ts` and `pocket-api.md` files.
+## Deferred home migration and recovery
 
-## Onboarding checklist
+Do not treat agent adopt home as a migration. Preserve the entire live workspace,
+uncommitted STATE edits, sessions, raw history, refs and worktree inventory first.
+Establish hourly backup and an isolated restore drill before removing the existing
+GitHub safety copy. At an agreed idle boundary, stop the runner, register the existing
+home-assistant checkout in place without recloning or resetting, and keep ha-inventory
+as ordinary tracked content.
 
-1. Check prerequisites: dotfiles DNS change available, `gh auth status` works as ubuntu,
-   Rex app can reach aether's login server, and Oracle does not expose SSH :22 publicly.
-2. On Mac, push approved unpushed commits and commit or stash local changes. Inventory
-   non-git folders to migrate.
-3. Inventory tools before cloning: versions, CLIs, repo tasks, system packages, container
-   needs, environment names and credential references. Assign each to base dotfiles,
-   workspace mise.toml or repo mise.toml. Grant the read-only service account access to
-   the referenced 1Password items.
-4. Create the private workspace repo with project AGENTS.md, notes/STATE.md, a mise.toml
-   and `.gitignore` excluding nested repos, .worktrees, .agent/run.lock,
-   .agent/rotate-requested and secrets. Add the project
-   to projects.yaml with clone URLs and credential references. Jan reviews the map.
-5. Collect relevant Mac Pi history, Pocket's archived history
-   (`~/Archive/aether/pi-pocket-retired-2026-11-18.tar.gz`, pocket.sqlite) and memini.
-   Consolidate old per-repo namespaces and pins into `homelab/<project>` and check recall.
-   Compile a first handoff prompt with open threads, recent decisions and known problems.
-6. Copy raw session history to `~/.local/share/agent-history/<project>/` for grep. Do not
-   import it as Pi sessions with stale Mac cwd paths.
-7. Apply the reviewed dotfiles on aether, start a new login for Docker group membership,
-   run `ai-sync`, then `agent <project>`. In the workspace run `mise install` and verify
-   its env file loads. Send the initial migration handoff or install handoff-1.md before
-   first launch. Verify one real task, a guarded call, `agent up` idempotency and `/rotate`.
-8. Archive the Mac sessions and retire their long-lived processes. Keep Mac clones only
-   for intentional sync. BigMouth backups are a separate follow-up.
+Reconcile dated evidence into PROJECT, STATE and topic pages. Preserve tighter project
+constraints and explicitly retire all old HA write exceptions. Remove workspace
+AGENTS.md from active instruction discovery. Untrack .agent runtime files without
+deleting them. Start a deliberate new generation with tested context loading and
+updated rotation. Verify approvals without a live deployment. Archive the old GitHub
+wrapper only after Jan approves.
 
-## Not now
+Later backup must include complete workspaces, Git and submodule stores, uncommitted
+and untracked work, local-only commits, .worktrees, runtime generation and handoffs,
+Pi sessions, raw history, external platform records, effective registry and standards,
+and the chezmoi source checkout. Exclude external credential caches, runtime locks and
+narrowly reviewed reproducible caches. Do not blanket-exclude dependency lockfiles or
+.env filenames. Treat sessions and untracked content as sensitive even when encrypted.
 
-Pi Durable is a library for agent apps, not the terminal Pi runtime. Its extension format
-would not load memini, claude-bridge and subagents as used here. Revisit for phone steering.
+Restricted SFTP access, the BigMouth subtree, NAS host-key pinning, snapshot policy
+and independent stale-backup monitoring need separately approved shared-system work.
+A fresh-host restore runbook and measured recovery drill remain later deliverables.

@@ -8,7 +8,7 @@ defaults:
     days: 30
 projects:
   home:
-    workspace: janpuc/home-workspace
+    lifecycle: active
     repos:
       - name: home-assistant
         url: https://github.com/janpuc/home-assistant.git

@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "version": "2.0.0",
+  "compatibility": {
+    "contextSchemaVersion": 1,
+    "bootstrapMaxBytes": 24576
+  },
+  "files": [
+    {
+      "path": "workspace.md",
+      "sha256": "c646e32bb26814db2d33bc2541986f6a048f25eac8dc292f7814d1f26d0a694c"
+    },
+    {
+      "path": "session.md",
+      "sha256": "762935bc90cf5268aca3f58dff640737eb3a5c782641bb418aa553859baaaedc"
+    },
+    {
+      "path": "knowledge.md",
+      "sha256": "f24d95f1d1a93b44ded85414f0ddcef6ed54517715402add4614b4a163ca4ba6"
+    },
+    {
+      "path": "git.md",
+      "sha256": "e7155875ef5d30999eef3dca9761e61fbdc7658c3a7ffe84f88c7e44f8e8f038"
+    },
+    {
+      "path": "tools.md",
+      "sha256": "d6c9c512d8c43fb771a4a4a56f8613a411a524a93bcd5116baa67c3f3d9ad717"
+    },
+    {
+      "path": "approvals.md",
+      "sha256": "c5964c5ffaf95b73034d14be67a937a723892b4fbedb5bb6423034a692134878"
+    },
+    {
+      "path": "handoff.md",
+      "sha256": "2333828fd084cb4870100ef42de4ef765e36cb18d7d8d1874300758b38f754f0"
+    },
+    {
+      "path": "recovery.md",
+      "sha256": "99e71d5610371d6f0d56adeee1fb3240ff689faed85931d8f0e4fcbce26e607d"
+    }
+  ]
+}

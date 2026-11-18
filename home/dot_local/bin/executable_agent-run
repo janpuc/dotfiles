@@ -8,6 +8,8 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
+import time
 
 HOME = Path.home()
 ROOT = HOME / "Development"
@@ -78,26 +80,285 @@ def running(folder):
     return False
 
 
+def runner_pid(folder):
+    path = folder / ".agent/run.lock"
+    try:
+        return int(path.read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
 def pi_window(session):
     return unique(rex("session", "inspect", session, "--json")["windows"], "pi")
 
 
-def ensure(name, project):
-    folder = ROOT / name
+def valid_name(name):
+    return isinstance(name, str) and re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", name)
+
+
+def platform_state():
+    return HOME / ".local/state/agents"
+
+
+def project_lock(name):
+    path = platform_state() / "locks" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path.open("a")
+
+
+def initialization_path(name):
+    return platform_state() / "initialized" / name
+
+
+def record_initialization(name, origin, state="initialized"):
+    path = initialization_path(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(path, json.dumps({"schemaVersion": 1, "project": name,
+                                  "workspace": str(ROOT / name), "origin": origin,
+                                  "state": state}, indent=2) + "\n")
+
+
+def initialization(name):
+    path = initialization_path(name)
+    if not path.exists():
+        return None
+    try:
+        record = json.loads(path.read_text())
+    except ValueError as error:
+        raise ValueError(f"{name}: invalid initialization record, restore needed: {path}") from error
+    if (not isinstance(record, dict) or record.get("schemaVersion") != 1 or record.get("project") != name
+            or record.get("workspace") != str(ROOT / name)
+            or record.get("origin") not in ("bootstrap", "adopted")
+            or record.get("state") not in ("initializing", "initialized")):
+        raise ValueError(f"{name}: invalid initialization record, restore needed: {path}")
+    return record
+
+
+def lifecycle(name, project):
+    path = platform_state() / "lifecycle" / name
+    value = path.read_text().strip() if path.exists() else project.get("lifecycle", "active")
+    if value not in ("active", "archived"):
+        raise ValueError(f"{name}: invalid lifecycle {value}")
+    return value
+
+
+def git(folder, *args):
+    return run("git", "-C", folder, *args, stdout=subprocess.PIPE, text=True).stdout.strip()
+
+
+def require_git_root(folder):
+    if folder.is_symlink() or not folder.is_dir():
+        raise ValueError(f"Not a workspace directory: {folder}")
+    if Path(git(folder, "rev-parse", "--show-toplevel")).resolve() != folder.resolve():
+        raise ValueError(f"Not a Git root: {folder}")
+
+
+def member_path(folder, name):
+    if not valid_name(name) or name in ("notes", "plans", "scripts"):
+        raise ValueError(f"Invalid or reserved member name: {name}")
+    target = folder / name
+    if target.is_symlink() or target.resolve().parent != folder.resolve():
+        raise ValueError(f"Member path escapes workspace: {target}")
+    return target
+
+
+def members(folder):
+    path = folder / ".gitmodules"
+    if path.is_symlink():
+        raise ValueError(f"Symlinked membership file: {path}")
+    if not path.exists():
+        return []
+    result = run("git", "config", "--null", "--file", path, "--list",
+                 stdout=subprocess.PIPE, text=True).stdout
+    entries = {}
+    for entry in result.split("\0"):
+        if not entry:
+            continue
+        key, _, value = entry.partition("\n")
+        match = re.fullmatch(r"submodule\.(.+)\.(path|url|aether-local-only)", key)
+        if not match:
+            continue
+        name, field = match.groups()
+        values = entries.setdefault(name, {})
+        if field in values:
+            raise ValueError(f"Duplicate submodule field: {key}")
+        values[field] = value
+    paths = set()
+    for name, entry in entries.items():
+        if not valid_name(name) or "path" not in entry or not entry.get("url"):
+            raise ValueError(f"Invalid submodule metadata: {name}")
+        member_path(folder, entry["path"])
+        if entry["path"] in paths:
+            raise ValueError(f"Duplicate member path: {entry['path']}")
+        paths.add(entry["path"])
+        entry["name"] = name
+        marker = entry.get("aether-local-only", "false")
+        if marker not in ("true", "false"):
+            raise ValueError(f"Invalid local-only marker: {name}")
+        entry["localOnly"] = marker == "true"
+        if entry["url"].startswith("local-only://") and not entry["localOnly"]:
+            raise ValueError(f"Missing local-only marker: {name}")
+    return list(entries.values())
+
+
+def recorded_commit(folder, member):
+    entry = git(folder, "ls-tree", "HEAD", "--", member["path"]).split()
+    if len(entry) < 3 or entry[0] != "160000" or entry[1] != "commit":
+        raise ValueError(f"{member['name']}: no committed gitlink, checkpoint the workspace first")
+    return entry[2]
+
+
+def restore_member(folder, member):
+    target = member_path(folder, member["path"])
+    if target.exists():
+        require_git_root(target)
+        return
+    if member["localOnly"]:
+        raise ValueError(f"{member['name']}: local-only member missing, restore needed from backup")
+    commit = recorded_commit(folder, member)
+    with tempfile.TemporaryDirectory(prefix=".agent-restore-", dir=folder.parent) as temp:
+        checkout = Path(temp) / "repo"
+        git(folder, "clone", "--no-checkout", "--", member["url"], checkout)
+        available = subprocess.run(["git", "-C", str(checkout), "cat-file", "-e", f"{commit}^{{commit}}"],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if available.returncode:
+            git(checkout, "fetch", "origin", commit)
+        # This is a disposable clone, including if its default branch has this name.
+        git(checkout, "checkout", "-B", "agent-restored", commit)
+        if target.exists() or target.is_symlink():
+            raise ValueError(f"Member appeared during recovery, leaving it alone: {target}")
+        checkout.rename(target)
+
+
+def register_repository(folder, project, name, url=None):
+    """Register and stage membership. The caller explicitly commits the workspace checkpoint."""
+    require_git_root(folder)
+    target = member_path(folder, name)
+    if any(m["name"] == name or m["path"] == name for m in members(folder)):
+        raise ValueError(f"Member already registered: {name}")
+    if not target.exists():
+        with tempfile.TemporaryDirectory(prefix=".agent-register-", dir=folder.parent) as temp:
+            checkout = Path(temp) / "repo"
+            if url:
+                git(folder, "clone", "--", url, checkout)
+            else:
+                git(folder, "init", "--initial-branch=main", checkout)
+                git(checkout, "commit", "--allow-empty", "-m", "Initialize local repository")
+            if target.exists() or target.is_symlink():
+                raise ValueError(f"Member appeared during registration: {target}")
+            checkout.rename(target)
+    require_git_root(target)
+    git(target, "rev-parse", "--verify", "HEAD^{commit}")
+    path = folder / ".gitmodules"
+    git(folder, "config", "--file", path, f"submodule.{name}.path", name)
+    git(folder, "config", "--file", path, f"submodule.{name}.url",
+        url or f"local-only://{project}/{name}")
+    if not url:
+        git(folder, "config", "--file", path, f"submodule.{name}.aether-local-only", "true")
+    git(folder, "-c", "advice.addEmbeddedRepo=false", "add", "--", ".gitmodules", name)
+    git(folder, "submodule", "init", "--", name)
+
+
+def bootstrap(name, project):
+    """Called under the external project lock, before Rex reconciliation."""
     ROOT.mkdir(parents=True, exist_ok=True)
-    if not folder.exists():
-        run("gh", "repo", "clone", project["workspace"], folder)
-    for repo in project.get("repos", []):
-        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", repo["name"]):
-            raise ValueError("Repo names must be a single path component")
-        target = folder / repo["name"]
+    folder = ROOT / name
+    record = initialization(name)
+    if record:
+        if record["state"] != "initialized" or not folder.is_dir():
+            raise ValueError(f"{name}: restore needed, previously initialized workspace is missing or incomplete")
+        require_git_root(folder)
+        return folder
+    if folder.exists() or folder.is_symlink():
+        raise ValueError(f"{name}: adoption required: run agent adopt {name}")
+    seeds = project.get("repos", [])
+    names = [repo["name"] for repo in seeds]
+    if len(names) != len(set(names)):
+        raise ValueError(f"{name}: duplicate seed repository")
+    for repo in seeds:
+        member_path(folder, repo["name"])
+    record_initialization(name, "bootstrap", "initializing")
+    try:
+        with tempfile.TemporaryDirectory(prefix=f".agent-init-{name}-", dir=ROOT) as temp:
+            checkout = Path(temp) / name
+            git(ROOT, "init", "--initial-branch=main", checkout)
+            for path in ("notes/knowledge", "plans", "scripts", ".agent", ".worktrees"):
+                (checkout / path).mkdir(parents=True, exist_ok=True)
+            (checkout / ".gitignore").write_text(".agent/\n.worktrees/\n")
+            (checkout / "notes/PROJECT.md").write_text(
+                f"# {name}\n\n## Facts\n\n## Operating constraints\n\n## Systems\n\n## Knowledge index\n")
+            (checkout / "notes/STATE.md").write_text(
+                "# State\n\n## Current work\n\n## Verified state\n\n## Open threads\n\n## Pending approvals\n\n## Next actions\n")
+            (checkout / "mise.toml").write_text(
+                f'[env]\n_.file = "{HOME}/.local/state/ai/projects/{name}.env"\n'
+                if project.get("secrets") else "# Project tools, tasks and non-secret environment\n")
+            git(checkout, "add", "--", ".gitignore", "notes/PROJECT.md", "notes/STATE.md", "mise.toml")
+            for repo in seeds:
+                register_repository(checkout, name, repo["name"], repo.get("url"))
+            git(checkout, "commit", "-m", "Initialize project workspace")
+            if folder.exists() or folder.is_symlink():
+                raise ValueError(f"{name}: workspace appeared during initialization")
+            checkout.rename(folder)
+        record_initialization(name, "bootstrap")
+    except Exception:
+        # If installation completed, keep the initializing record and require recovery.
+        if not folder.exists():
+            initialization_path(name).unlink(missing_ok=True)
+        raise
+    return folder
+
+
+def repository_status(folder):
+    result = []
+    registered = members(folder)
+    # Inspection also exposes ignored legacy repositories without registering them.
+    known_paths = {member["path"] for member in registered}
+    discovered = [{"name": path.name, "path": path.name, "unregistered": True}
+                  for path in sorted(folder.iterdir())
+                  if valid_name(path.name) and not path.is_symlink() and path.is_dir()
+                  and path.name not in known_paths and (path / ".git").exists()]
+    for member in registered + discovered:
+        target = member_path(folder, member["path"])
         if not target.exists():
-            run("git", "clone", "--", repo["url"], target)
-    state = folder / ".agent"
-    state.mkdir(exist_ok=True)
-    # A second `agent up` must not race session or tab creation.
-    with (state / "launch.lock").open("a") as lock:
+            result.append(f"{member['name']}:missing{'-local-only' if member['localOnly'] else ''}")
+            continue
+        require_git_root(target)
+        dirty = bool(git(target, "status", "--porcelain"))
+        head = subprocess.run(["git", "-C", str(target), "symbolic-ref", "-q", "--short", "HEAD"],
+                              stdout=subprocess.PIPE, text=True)
+        branch = head.stdout.strip() if head.returncode == 0 else "detached"
+        upstream = subprocess.run(["git", "-C", str(target), "rev-parse", "--verify", "@{upstream}"],
+                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        ahead = git(target, "rev-list", "--count", "@{upstream}..HEAD") if upstream.returncode == 0 else "unknown"
+        label = f"{member['name']}:" + ("unregistered," if member.get("unregistered") else "")
+        result.append(f"{label}branch={branch},dirty={'yes' if dirty else 'no'},ahead={ahead}")
+    return result
+
+
+def adopt(name):
+    with project_lock(name) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        if initialization(name):
+            raise ValueError(f"{name}: already has an initialization record")
+        folder = ROOT / name
+        require_git_root(folder)
+        print(f"{name}: workspace dirty={'yes' if git(folder, 'status', '--porcelain') else 'no'}")
+        for status in repository_status(folder):
+            print(status)
+        # Adoption deliberately does not migrate ignored legacy members or consume seeds.
+        record_initialization(name, "adopted")
+
+
+def ensure(name, project):
+    with project_lock(name) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if lifecycle(name, project) == "archived":
+            raise ValueError(f"{name}: archived, not starting")
+        folder = bootstrap(name, project)
+        for member in members(folder):
+            restore_member(folder, member)
+        state = folder / ".agent"
+        state.mkdir(exist_ok=True)
         session = unique(rex("ls", "--json")["sessions"], name)
         command = ["--shell=none", "--keep-open", "--", "fish", "-lc",
                    f"exec python3 {shlex.quote(str(HOME / '.local/bin/agent-run'))} {shlex.quote(name)}"]
@@ -146,6 +407,11 @@ def loop(name, project, defaults):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise ValueError(f"{name}: agent-run is already running")
+        # Archive must prove the Rex block belongs to this runner before closing it.
+        lock.seek(0)
+        lock.truncate()
+        lock.write(f"{os.getpid()}\n")
+        lock.flush()
         env = dict(os.environ)
         # Load workspace plain env too (HA_URL is in mise.toml), then retain shims first.
         env.update(json.loads(run("mise", "env", "--json", stdout=subprocess.PIPE, text=True).stdout))
@@ -188,31 +454,108 @@ def loop(name, project, defaults):
                 return result.returncode
 
 
+def archive(name):
+    with project_lock(name) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        session = unique(rex("ls", "--json")["sessions"], name)
+        if session:
+            window = pi_window(session["session_id"])
+            if window:
+                blocks = [b for layer in window["layers"] for b in layer.get("blocks", [])]
+                if len(blocks) > 1:
+                    raise ValueError(f"{name}: ambiguous pi tab, not archiving")
+                if blocks:
+                    block = blocks[0]["block_id"]
+                    process = rex("block", "call", "-s", session["session_id"], "-b", block, "process")
+                    child, foreground = process.get("child"), process.get("foreground")
+                    idle_shell = (child and child.get("name") in ("fish", "bash", "sh", "zsh")
+                                  and (foreground or {}).get("pid") == child.get("pid"))
+                    managed = (child and running(ROOT / name)
+                               and child.get("pid") == runner_pid(ROOT / name))
+                    if child and not idle_shell and not managed:
+                        raise ValueError(f"{name}: live unmanaged process or unknown runner PID, not archiving")
+                    if child and not idle_shell:
+                        # Keep an exited terminal in this window so closing its runner
+                        # cannot remove the pi tab. A later launch can replace it.
+                        rex("run", "-s", session["session_id"], "-b", block, "--split=right",
+                            "-c", ROOT / name, "--json", "--shell=none", "--keep-open", "--", "true")
+                        run("rex", "block", "close", "-s", session["session_id"], block)
+        deadline = time.monotonic() + 5
+        while running(ROOT / name):
+            if time.monotonic() >= deadline:
+                raise ValueError(f"{name}: runner did not stop, lifecycle unchanged")
+            time.sleep(0.1)
+        path = platform_state() / "lifecycle" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(path, "archived\n")
+
+
+def list_projects(projects):
+    sessions = rex("ls", "--json")["sessions"]
+    for name, project in projects.items():
+        folder = ROOT / name
+        record = initialization(name)
+        init = (record["state"] if folder.is_dir() else "restore-needed") if record else (
+            "needs-adopt" if folder.exists() else "new")
+        session = unique(sessions, name)
+        print(f"{name} lifecycle={lifecycle(name, project)} init={init} "
+              f"folder={'yes' if folder.is_dir() else 'no'} "
+              f"rex={session['session_id'] if session else 'no'} "
+              f"pi={'yes' if running(folder) else 'no'} generation={generation(folder)}")
+        if folder.is_dir():
+            for status in repository_status(folder):
+                print(f"  {status}")
+    if ROOT.exists():
+        for folder in sorted(ROOT.iterdir()):
+            if folder.is_dir() and folder.name not in projects:
+                print(f"{folder.name} unregistered path={folder}")
+
+
 def main():
     config = json.loads(CONFIG.read_text())
     projects = config["projects"]
-    if any(not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", name) or name in ("up", "ls") for name in projects):
-        raise ValueError("Project names must be a single path component other than up or ls")
-    if len(sys.argv) == 3 and sys.argv[1] == "--launch":
+    reserved = ("up", "ls", "archive", "adopt")
+    if any(not valid_name(name) or name in reserved for name in projects):
+        raise ValueError("Project names must be single path components other than up, ls, archive or adopt")
+    for name, project in projects.items():
+        lifecycle(name, project)
+    if len(sys.argv) >= 3 and sys.argv[1] == "--launch":
         action = sys.argv[2]
-        if action == "ls":
-            sessions = rex("ls", "--json")["sessions"]
-            for name in projects:
-                folder = ROOT / name
-                session = unique(sessions, name)
-                print(f"{name} folder={'yes' if folder.is_dir() else 'no'} "
-                      f"rex={session['session_id'] if session else 'no'} "
-                      f"pi={'yes' if running(folder) else 'no'} generation={generation(folder)}")
+        if action in ("archive", "adopt"):
+            if len(sys.argv) != 4 or sys.argv[3] not in projects:
+                raise ValueError(f"Usage: agent {action} <registered-project>")
+            (archive if action == "archive" else adopt)(sys.argv[3])
             return 0
-        names = list(projects) if action == "up" else [action]
+        if len(sys.argv) != 3:
+            raise ValueError("Usage: agent <project>|up|ls|archive <project>|adopt <project>")
+        if action == "ls":
+            list_projects(projects)
+            return 0
+        names = [name for name, project in projects.items() if lifecycle(name, project) == "active"] if action == "up" else [action]
         for name in names:
             if name not in projects:
                 raise ValueError(f"Unknown project: {name}")
             ensure(name, projects[name])
         return 0
+    if len(sys.argv) in (4, 5) and sys.argv[1] == "--register":
+        name, member = sys.argv[2:4]
+        if name not in projects:
+            raise ValueError(f"Unknown project: {name}")
+        with project_lock(name) as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            record = initialization(name)
+            if not record or record["state"] != "initialized" or not (ROOT / name).is_dir():
+                raise ValueError(f"{name}: initialization or restore needed")
+            register_repository(ROOT / name, name, member, sys.argv[4] if len(sys.argv) == 5 else None)
+        return 0
     if len(sys.argv) != 2 or sys.argv[1] not in projects:
         raise ValueError("Usage: agent-run <registered-project>")
     name = sys.argv[1]
+    if lifecycle(name, projects[name]) == "archived":
+        raise ValueError(f"{name}: archived, not starting")
+    record = initialization(name)
+    if not record or record["state"] != "initialized" or not (ROOT / name).is_dir():
+        raise ValueError(f"{name}: initialization or restore needed, use agent {name}")
     return loop(name, projects[name], config["defaults"])
 
 

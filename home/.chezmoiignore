@@ -20,6 +20,8 @@
 !.config
 !.config/agents
 !.config/agents/projects.json
+!.config/agents/standards
+!.config/agents/standards/**
 !.config/git
 !.config/git/**
 !.config/mise
@@ -49,6 +51,8 @@
 .config/mise
 .config/mise/**
 .config/fish/functions/agent.fish
+.config/agents/standards
+.config/agents/standards/**
 .local/bin/agent-run
 .pi/agent/trust.json
 {{- end }}

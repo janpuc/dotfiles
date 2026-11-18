@@ -2,7 +2,9 @@
 import importlib.machinery
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -25,7 +27,17 @@ class AgentRunTests(unittest.TestCase):
         self.state = self.folder / ".agent"
         self.state.mkdir()
         self.patches = [patch.object(agent, "HOME", self.home),
-                        patch.object(agent, "ROOT", self.home / "Development")]
+                        patch.object(agent, "ROOT", self.home / "Development"),
+                        patch.dict(os.environ, {
+                            "HOME": str(self.home), "PATH": os.environ["PATH"],
+                            "XDG_CONFIG_HOME": str(self.home / ".config"),
+                            "XDG_STATE_HOME": str(self.home / ".local/state"),
+                            "XDG_DATA_HOME": str(self.home / ".local/share"),
+                            "GIT_CONFIG_GLOBAL": str(self.home / ".gitconfig"),
+                            "GIT_CONFIG_NOSYSTEM": "1",
+                            "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.invalid",
+                            "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.invalid",
+                        }, clear=True)]
         for item in self.patches:
             item.start()
             self.addCleanup(item.stop)
@@ -71,6 +83,7 @@ class AgentRunTests(unittest.TestCase):
 
         with patch.object(agent, "rex", side_effect=fake_rex), \
              patch.object(agent, "running", side_effect=lambda _: alive), \
+             patch.object(agent, "bootstrap", return_value=self.folder), \
              patch.object(agent, "run") as command:
             agent.ensure("home", {"workspace": "janpuc/home-workspace"})
             alive = True
@@ -204,6 +217,84 @@ class AgentRunTests(unittest.TestCase):
         result = subprocess.run(["sh", str(SOURCE.parents[2] / "dot_pi/private_agent/local/bin/executable_pi"), "--session-id", "home-1"],
                                 env=env, capture_output=True, text=True, check=True)
         self.assertEqual(result.stdout.splitlines(), [env["PATH"], "--session-id home-1"])
+
+    def bare_remote(self):
+        source = self.home / "source"
+        agent.git(self.home, "init", "--initial-branch=main", source)
+        (source / "file.txt").write_text("first\n")
+        agent.git(source, "add", "--", "file.txt")
+        agent.git(source, "commit", "-m", "First commit")
+        remote = self.home / "remote.git"
+        agent.git(source, "clone", "--bare", "--", source, remote)
+        return source, remote
+
+    def test_registration_local_only_and_missing_member_requires_restore(self):
+        folder = agent.bootstrap("empty", {})
+        agent.register_repository(folder, "empty", "local")
+        member = agent.members(folder)[0]
+        self.assertEqual(member["url"], "local-only://empty/local")
+        self.assertTrue(member["localOnly"])
+        agent.git(folder, "commit", "-m", "Register local member")
+        self.assertEqual(agent.recorded_commit(folder, member), agent.git(folder / "local", "rev-parse", "HEAD"))
+        shutil.rmtree(folder / "local")
+        with self.assertRaisesRegex(ValueError, "local-only.*restore needed"):
+            agent.restore_member(folder, member)
+        self.assertFalse((folder / "local").exists())
+
+    def test_missing_remote_restored_at_recorded_commit_without_touching_others(self):
+        source, remote = self.bare_remote()
+        folder = agent.bootstrap("empty", {"repos": [
+            {"name": "code", "url": str(remote)}, {"name": "other", "url": str(remote)}]})
+        member = agent.members(folder)[0]
+        original = agent.recorded_commit(folder, member)
+        other = folder / "other"
+        agent.git(other, "checkout", "--detach", "HEAD")
+        (other / "file.txt").write_text("keep other work\n")
+        before = agent.git(other, "status", "--porcelain")
+        (source / "file.txt").write_text("new remote head\n")
+        agent.git(source, "commit", "-am", "Advance remote")
+        agent.git(source, "push", str(remote), "main")
+        shutil.rmtree(folder / "code")
+        for entry in agent.members(folder):
+            agent.restore_member(folder, entry)
+        self.assertEqual(agent.git(folder / "code", "rev-parse", "HEAD"), original)
+        self.assertEqual(agent.git(folder / "code", "branch", "--show-current"), "agent-restored")
+        self.assertEqual((folder / "code/file.txt").read_text(), "first\n")
+        self.assertEqual(agent.git(other, "status", "--porcelain"), before)
+        self.assertEqual(agent.git(other, "rev-parse", "HEAD"), original)
+        self.assertEqual(agent.git(other, "branch", "--show-current"), "")
+        self.assertEqual((other / "file.txt").read_text(), "keep other work\n")
+
+    def test_dirty_and_detached_members_untouched(self):
+        _, remote = self.bare_remote()
+        folder = agent.bootstrap("empty", {"repos": [{"name": "code", "url": str(remote)}]})
+        target = folder / "code"
+        original = agent.git(target, "rev-parse", "HEAD")
+        agent.git(target, "checkout", "--detach", original)
+        (target / "file.txt").write_text("uncommitted\n")
+        (target / "untracked.txt").write_text("keep me\n")
+        before = agent.git(target, "status", "--porcelain")
+        agent.restore_member(folder, agent.members(folder)[0])
+        self.assertEqual(agent.git(target, "status", "--porcelain"), before)
+        self.assertEqual(agent.git(target, "rev-parse", "HEAD"), original)
+        self.assertEqual(agent.git(target, "branch", "--show-current"), "")
+        self.assertEqual((target / "file.txt").read_text(), "uncommitted\n")
+        self.assertEqual((target / "untracked.txt").read_text(), "keep me\n")
+
+    def test_missing_initialized_and_unadopted_workspaces_refuse_bootstrap(self):
+        folder = agent.bootstrap("empty", {})
+        shutil.rmtree(folder)
+        with self.assertRaisesRegex(ValueError, "restore needed"):
+            agent.bootstrap("empty", {})
+        self.assertFalse(folder.exists())
+        self.assertTrue(agent.initialization_path("empty").is_file())
+        agent.git(self.folder, "init", "--initial-branch=main")
+        (self.folder / "untouched.txt").write_text("legacy data\n")
+        with self.assertRaisesRegex(ValueError, "adoption required"):
+            agent.bootstrap("home", {})
+        self.assertEqual((self.folder / "untouched.txt").read_text(), "legacy data\n")
+        self.assertFalse(agent.initialization_path("home").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

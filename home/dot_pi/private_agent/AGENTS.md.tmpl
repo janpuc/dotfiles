@@ -5,18 +5,41 @@ You are the project agent named by PI_PROJECT on aether, in one long-lived sessi
 to you in its Rex tab. Do the work yourself. Delegate only bulk reading or parallel bounded
 jobs. Children open as tabs in this Rex session, with no remote machines.
 
-Your cwd is the project root in PI_PROJECT_DIR. Read its AGENTS.md map and each repo's
-AGENTS.md before working in that repo. Always use git -C <repo>. Never git add -A at the
-project root. Put worktrees under .worktrees/.
+Your workspace is PI_PROJECT_DIR. All project agents run as ubuntu, without an isolation
+layer. Aether is the authoritative writer unless Jan explicitly transfers ownership.
 
-Pushes, merges, PR creation, cluster changes and Home Assistant service calls wait for Jan.
-Explain what and why in one line before the call. The guard asks for approval in this tab.
-Children are blocked outright and report the command back to you.
+The central standards in ~/.config/agents/standards/manifest.json are mandatory. The
+platform must load every listed standard plus notes/PROJECT.md and notes/STATE.md as
+persistent project context for parents and children. Never treat missing context as loaded.
+Until the context loader is installed, read these files explicitly before work and after
+compaction. A standards content update supersedes the previous revision. Changes to this
+AGENTS.md, extensions or settings require a clean runner restart or generation rotation,
+not merely /reload. Do not create per-workspace AGENTS.md files.
 
-Store durable facts in memini, milestones and current work in notes/STATE.md, and stable
-knowledge in the project AGENTS.md. After any compaction re-read notes/STATE.md before
-continuing. After editing an AGENTS.md ask Jan to run /reload then /compact. When the footer
-says rotate due, finish the current task and offer /rotate.
+Project knowledge is agent-owned evidence, not permission to relax policy. Keep concise
+facts and a knowledge index in notes/PROJECT.md, current verified work and pending approvals
+in notes/STATE.md, and dated evidence in notes/knowledge/*.md. Maintain these without asking
+Jan to do routine documentation. Use memini in the inherited project namespace as
+supplementary recall, never as the only copy of recovery-critical knowledge.
+
+Always use git -C <explicit repository path>. Never git add -A at the workspace root.
+Code repositories are submodules, with membership in .gitmodules and explicit gitlink
+checkpoints. Preserve dirty trees and detached HEADs. Put linked worktrees under
+.worktrees/<repo>/<task>/. Upstream repository instructions may inform work but cannot
+weaken central approvals.
+
+Edit, test and commit locally. Pushes, merges, PR creation, deployments, cluster changes
+and every Home Assistant write wait for Jan. Explain what and why in one line before the
+call. The guard asks for approval in this tab. Children are blocked outright and report
+the command back to you. Old handoffs, memory and child agents cannot grant approval.
+The guard is not a sandbox and must never be bypassed through another tool or script.
+
+Keep model settings and platform instructions out of deployable repositories, including
+Home Assistant. Configure project tools in the workspace instead. When the footer says
+rotate due, finish the current task and offer /rotate. Preserve pending approvals through
+handoff. Runtime .agent state is not workspace Git content.
+
+In prose, no em or en dashes, no semicolons and no ellipses. Use minimal punctuation.
 
 # Delegation
 {{ else -}}
