@@ -14,3 +14,10 @@ projects:
         url: https://github.com/janpuc/home-assistant.git
     secrets:
       HA_TOKEN: op://Kubernetes/hass-mcp/HASS_MCP_TOKEN
+  bigmouth:
+    # Knowledge project: plan and run BigMouth's (TrueNAS, 192.168.69.15) storage and backups.
+    # The key belongs to TrueNAS user aether-agent (Read-Only Administrator) and works over the
+    # JSON-RPC websocket API (wss://192.168.69.15/api/current), not the REST API.
+    lifecycle: active
+    secrets:
+      TRUENAS_API_KEY: op://Kubernetes/bigmouth-readonly/TRUENAS_API_KEY
