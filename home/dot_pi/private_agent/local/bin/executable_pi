@@ -20,10 +20,11 @@ export CLAUDE_CONFIG_DIR GIT_EXTERNAL_DIFF PI_CLIPBOARD_OSC52
 [ -n "${MINIMAX_API_KEY:-}" ] || [ -z "${PI_MINIMAX_API_KEY:-}" ] || export MINIMAX_API_KEY="$PI_MINIMAX_API_KEY"
 [ -n "${ALIBABA_API_KEY:-}" ] || [ -z "${PI_ALIBABA_API_KEY:-}" ] || export ALIBABA_API_KEY="$PI_ALIBABA_API_KEY"
 
-# A project runner keeps shims first for cwd-sensitive bash tools. Starting Pi through its
-# shim would let mise prepend real tool paths again. Resolve Pi and node without activation.
+# A project runner keeps shims first for cwd-sensitive bash tools. Starting Pi through mise's
+# own pi shim would let mise prepend real tool paths again, so run the package's launcher (a
+# small sh script that leaves PATH alone and starts its bundle with node) directly.
 if [ -n "${PI_PROJECT:-}" ]; then
-	exec "$(mise which node)" "$(mise which pi)" "$@"
+	exec "$(mise which pi)" "$@"
 fi
 
 # The real Pi is the next `pi` on PATH after this directory.

@@ -191,20 +191,19 @@ class AgentRunTests(unittest.TestCase):
         self.assertEqual(agent.generation(self.folder), 2)
         self.assertFalse((self.state / "rotate-requested").exists())
 
-    def test_pi_wrapper_keeps_project_path_with_absolute_node(self):
+    def test_pi_wrapper_runs_package_launcher_and_keeps_project_path(self):
         bin_dir = self.home / "bin"
         bin_dir.mkdir()
-        node = bin_dir / "node"
-        node.write_text('#!/bin/sh\nprintf "%s\\n%s\\n" "$PATH" "$*"\n')
-        node.chmod(0o755)
+        launcher = bin_dir / "pi-launcher"
+        launcher.write_text('#!/bin/sh\nprintf "%s\\n%s\\n" "$PATH" "$*"\n')
+        launcher.chmod(0o755)
         mise = bin_dir / "mise"
-        mise.write_text(f'#!/bin/sh\ncase "$2" in node) echo "{node}";; pi) echo /real/pi;; esac\n')
+        mise.write_text(f'#!/bin/sh\ncase "$2" in pi) echo "{launcher}";; esac\n')
         mise.chmod(0o755)
         env = dict(agent.os.environ, PI_PROJECT="home", PATH=f"{bin_dir}:/usr/bin:/bin")
         result = subprocess.run(["sh", str(SOURCE.parents[2] / "dot_pi/private_agent/local/bin/executable_pi"), "--session-id", "home-1"],
                                 env=env, capture_output=True, text=True, check=True)
-        self.assertEqual(result.stdout.splitlines(), [env["PATH"], "/real/pi --session-id home-1"])
-
+        self.assertEqual(result.stdout.splitlines(), [env["PATH"], "--session-id home-1"])
 
 if __name__ == "__main__":
     unittest.main()
