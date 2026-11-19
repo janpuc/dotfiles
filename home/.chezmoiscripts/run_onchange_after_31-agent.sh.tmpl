@@ -7,4 +7,9 @@ set -eu
 PATH="$HOME/.local/share/mise/shims:/opt/homebrew/bin:$HOME/.local/bin:$PATH"
 [ -e "$HOME/.local/bin/agent-run" ] || exit 0
 command -v go >/dev/null || { echo "agent: go is not installed" >&2; exit 1; }
-GOBIN="$HOME/.local/bin" GOFLAGS=-trimpath go install "github.com/janpuc/agent/cmd/agent@{{ .agent.version }}"
+# go install never replaces a file that is not a Go binary, such as the old sh wrapper, so it
+# builds next to the target and renames over it, which also leaves running commands intact.
+tmp=$(mktemp -d "$HOME/.local/bin/.agent-install.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT
+GOBIN="$tmp" GOFLAGS=-trimpath go install "github.com/janpuc/agent/cmd/agent@{{ .agent.version }}"
+mv -f "$tmp/agent" "$HOME/.local/bin/agent"
