@@ -329,7 +329,8 @@ def reply(projects, project, request, text):
         raise ValueError(f"{project}: no request {request} in its inbox")
     target = original.get("from")
     # Jan has no laptop inbox. His replies wait in the dotfiles project's ordinary inbox.
-    target = "dotfiles" if target == "jan" else target
+    # Requests sent before the 2026-11-19 rename still name main as their sender.
+    target = "dotfiles" if target in ("jan", "main") else target
     request_target(REGISTRY["projects"] if REGISTRY else projects, target)
     text = text.strip()
     if not text:
