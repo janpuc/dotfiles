@@ -84,6 +84,7 @@ packages:
           - discord
           - prismlauncher
           - protonvpn
+          - steam
           - tailscale-app
           - vorssaint # menu bar toolkit; settings go in ~/.config/vorssaint/settings.plist once chosen
           - wireshark-app
