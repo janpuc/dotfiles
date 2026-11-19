@@ -104,7 +104,7 @@ If anything fails or needs Jan's input, explain it and do not emit that marker.`
 			const generationFile = join(state, "generation");
 			if (Number(readFileSync(generationFile, "utf8").trim()) !== currentGeneration) throw new Error("Generation changed during rotation");
 			atomicWrite(join(state, `handoff-${currentGeneration + 1}.md`), `${handoff}\n`);
-			// This record is the commit point. Only agent-run advances generation after Pi exits.
+			// This record is the commit point. Only the runner advances generation after Pi exits.
 			atomicWrite(join(state, "rotate-requested"), `${currentGeneration + 1}\n`);
 			requestCommitted = true;
 			ctx.shutdown();

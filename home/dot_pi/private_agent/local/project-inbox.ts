@@ -138,7 +138,7 @@ export default function (pi: ExtensionAPI) {
 		if (project === "work" && !fetching) {
 			fetching = true;
 			try {
-				const result = await pi.exec("python3", [join(homedir(), ".local/bin/agent-run"), "--fetch-replies"], { timeout: 20000 });
+				const result = await pi.exec(join(homedir(), ".local/bin/agent"), ["--fetch-replies"], { timeout: 20000 });
 				if (result.code !== 0) ctx.ui.notify("Work reply fetch failed, check the restricted aether inbox key", "warning");
 			} catch {
 				ctx.ui.notify("Work reply fetch failed, replies remain on aether", "warning");

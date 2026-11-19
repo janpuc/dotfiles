@@ -7,7 +7,7 @@ agentSsh:
     aether: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICWufpRYHdxDMIIxqwCqC6hqAtl7kifkS+RhmsNd0Clb
     sisyphus: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgf/1p8LAoYIvHblYg09cyAxEyE9ow7+i3mdgwN7NGU
   # main on aether runs only agent ls, agent restart all and chezmoi update on sisyphus,
-  # through agent-run --main-endpoint. Key: aether ~/.ssh/main-sisyphus.pub.
+  # through agent --main-endpoint. Key: aether ~/.ssh/main-sisyphus.pub.
   mainSisyphus:
     publicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILGTVmOggO5gTZmbOfahCjUrwasgQ6LJedvwhZG7i+1F
     sourceAddress: 100.108.252.49

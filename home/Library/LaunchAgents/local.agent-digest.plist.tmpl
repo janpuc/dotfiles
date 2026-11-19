@@ -3,8 +3,7 @@
 <plist version="1.0"><dict>
   <key>Label</key><string>local.agent-digest</string>
   <key>ProgramArguments</key><array>
-    <string>/opt/homebrew/bin/mise</string><string>exec</string><string>--</string><string>python3</string>
-    <string>{{ .chezmoi.homeDir }}/.local/bin/agent-run</string><string>--digest-daily</string>
+    <string>{{ .chezmoi.homeDir }}/.local/bin/agent</string><string>--digest-daily</string>
   </array>
   <key>WorkingDirectory</key><string>{{ .chezmoi.homeDir }}</string>
   <key>EnvironmentVariables</key><dict>

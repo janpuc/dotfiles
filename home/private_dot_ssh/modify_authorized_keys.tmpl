@@ -32,12 +32,11 @@ text = sys.stdin.read()
 {{ if eq .chezmoi.hostname "aether" -}}
 text = managed(text, value({{ .workInbox.publicKey | toJson | toJson }}),
                value({{ .workInbox.sourceAddress | toJson | toJson }}), "agents-work-inbox",
-               'command="/home/ubuntu/.local/bin/agent-run --remote-inbox",' + RESTRICT)
+               'command="{{ .chezmoi.homeDir }}/.local/bin/agent --remote-inbox",' + RESTRICT)
 {{ else if eq .chezmoi.hostname "sisyphus" -}}
 text = managed(text, value({{ .agentSsh.mainSisyphus.publicKey | toJson | toJson }}),
                value({{ .agentSsh.mainSisyphus.sourceAddress | toJson | toJson }}), "agents-main",
-               'command="/opt/homebrew/bin/mise exec -- python3 {{ .chezmoi.homeDir }}/.local/bin/agent-run'
-               ' --main-endpoint",' + RESTRICT)
+               'command="{{ .chezmoi.homeDir }}/.local/bin/agent --main-endpoint",' + RESTRICT)
 text = managed(text, value({{ .agentSsh.hermesSisyphus.publicKey | toJson | toJson }}),
                value({{ .agentSsh.hermesSisyphus.sourceAddress | toJson | toJson }}), "agents-hermes",
                "no-port-forwarding,no-agent-forwarding,no-X11-forwarding")
