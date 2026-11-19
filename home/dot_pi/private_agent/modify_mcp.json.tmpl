@@ -1,0 +1,18 @@
+#!/bin/sh
+# Pi MCP servers. Merged so servers added with pi mcp add survive. The superlogical server is
+# Rex docs and Rex Beta Discord history behind Jan's Discord OAuth, so it stays off the work host.
+# OAuth tokens live in mcp-auth.json, which pi mcp login writes and chezmoi never touches.
+# The fixed callback port lets the login run over ssh -L from a laptop browser.
+set -eu
+input=$(cat)
+printf '%s' "${input:-"{}"}" | jq '
+{{- if ne .chezmoi.hostname "sisyphus" }}
+  .mcpServers.superlogical = {
+    "url": "https://www.superlogical.com/rex/community-mcp",
+    "oauth": {"callbackPort": 47297},
+    "description": "Rex documentation, changelog and Rex Beta Discord discussions"
+  }
+{{- else }}
+  del(.mcpServers.superlogical)
+{{- end }}
+'
