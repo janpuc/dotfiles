@@ -13,8 +13,7 @@
 # (`machine: local`), while `machine: aether` on hermes opens one in its `subagents` session
 # over SSH (~/.ssh/config names both). A placed child cannot be handed local extension paths, so
 # there is no `defaultExtensions`: every child loads its machine's packages, the bridge and
-# pi-web-access among them, and agent-guard-child.ts turns the guard (no push, GitHub writes or
-# cluster changes) on in children only.
+# pi-web-access among them, and agent-guard.ts (the hard-deny list) runs in every session and child.
 # pi-subagents 0.84 checks a machine's cwd on the parent's disk as well (a bug), so each needs a
 # path that exists on both ends, /tmp on aether.
 {{- $host := default dict (get .hosts .chezmoi.hostname) -}}
@@ -35,8 +34,7 @@ managed='{
     "npm:pi-web-access@0.46.0",
     "git:github.com/janpuc/pi-usage@v0.2.4",
     "git:github.com/janpuc/pi-footer@v0.1.0",
-    "./local/agent-guard-child.ts",
-    "./local/agent-guard-ask.ts",
+    "./local/agent-guard.ts",
     "./local/project-rotate.ts",
     "./local/project-context.ts",
     "./local/project-inbox.ts",
@@ -94,7 +92,7 @@ managed='{
     }
   }
 }'
-retired='["github.com/janpuc/pi-title-spinner", "pi-subagent-manager", "./local/claude-bridge-subagents.ts", "./local/agent-guard-placed.ts", "./local/bc250-quiet-hours.ts", "./local/pocket.ts"]'
+retired='["github.com/janpuc/pi-title-spinner", "pi-subagent-manager", "./local/claude-bridge-subagents.ts", "./local/agent-guard-placed.ts", "./local/agent-guard-child.ts", "./local/agent-guard-ask.ts", "./local/bc250-quiet-hours.ts", "./local/pocket.ts"]'
 input=$(cat)
 printf '%s' "${input:-"{}"}" | jq --argjson m "$managed" --argjson r "$retired" '
   def id: (if type == "object" then .source else . end) | sub("^(npm|git):"; "") | sub("@[^@/]*$"; "");

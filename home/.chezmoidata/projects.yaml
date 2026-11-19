@@ -75,7 +75,8 @@ projects:
   kubernetes:
     # Jan's Talos and Flux homelab cluster: janpuc/home-ops (registered from the Mac checkout
     # with its local branches, stashes and worktrees). kubeconfig, talosconfig and .secrets.env
-    # live untracked in home-ops/. Cluster changes ask Jan through the guard.
+    # live untracked in home-ops/. It may debug the cluster directly (kubectl, flux, helm), prefers
+    # PRs, and writes any manual fix back into home-ops so git stays true.
     lifecycle: active
   renplay:
     # renplay-org: the Ren'Py player (core), lab, catalog, engines, website and the org profile,

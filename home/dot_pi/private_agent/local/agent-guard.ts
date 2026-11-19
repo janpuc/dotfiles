@@ -1,8 +1,13 @@
-// Agents never change shared systems: no push, no GitHub writes, no cluster, node or dotfiles
-// changes or Home Assistant writes. Children block them through agent-guard-child.ts, while
-// Jan's sessions ask through agent-guard-ask.ts. A pattern check that catches mistakes, not a
-// sandbox: a script can still do anything.
+// The hard-deny list: the few commands that cannot be undone are refused without a question, in
+// every session and every subagent child. Everything else runs. Safety comes from recoverability
+// (git, Flux, volume backups, NAS snapshots, restic), not from prompts. Jan lifts one refusal for
+// one command by telling the agent, which reruns it as AGENT_OVERRIDE="<reason>" <command>.
+// Refusals, overrides and notable actions (pushes, merges, deploys) go to an append-only log
+// that `agent digest` reads. A pattern check that catches mistakes, not a sandbox.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir, hostname } from "node:os";
+import { dirname, join } from "node:path";
 
 // A command name, any options before the subcommand, then the subcommand.
 const OPTS = String.raw`(?:\s+-{1,2}[A-Za-z][\w-]*(?:[= ][^\s;&|-]\S*)?)*`;
@@ -17,8 +22,6 @@ const RULES: [string, RegExp][] = [
 	["a node change", cmd("talosctl", String.raw`apply-config|apply|upgrade|upgrade-k8s|reboot|reset|shutdown|edit|patch|bootstrap|rotate-ca|wipe|etcd\s+(?:remove-member|leave|forfeit-leadership|defrag)`)],
 	["a Helm change", cmd("helm", "install|upgrade|uninstall|rollback|delete")],
 	["a dotfiles apply", cmd("chezmoi", "apply|update|destroy|purge")],
-	// main's sisyphus key is forced to three commands there. Only agent ls runs without asking.
-	["a sisyphus command", /^(?:\S*\/)?ssh\s(?=(?:.*\s)?(?:\S+@)?(?:sisyphus(?:\.\S*)?|100\.103\.124\.32|192\.168\.69\.249)(?:\s|$))(?!(?:.*\s)?sisyphus agent ls$)/],
 ];
 
 // This deliberately handles ordinary shell command forms, not arbitrary shell programs.
@@ -67,10 +70,10 @@ function simpleCommands(source: string): string[][] {
 const basename = (word: string) => word.split("/").at(-1) ?? "";
 const assignment = (word: string) => /^[A-Za-z_][\w]*=/.test(word);
 
-function unwrap(words: string[]): string[] {
+function unwrap(words: string[], assignments: string[] = []): string[] {
 	words = [...words];
 	while (words.length) {
-		if (assignment(words[0])) { words.shift(); continue; }
+		if (assignment(words[0])) { assignments.push(words.shift()!); continue; }
 		const tool = basename(words[0]);
 		if (!["env", "sudo", "command", "exec", "nohup", "time"].includes(tool)) break;
 		words.shift();
@@ -181,8 +184,7 @@ function simpleChange(input: string[], profile: string): string | undefined {
 		for (let i = 0; i < args.length && args[i].startsWith("-"); i++) {
 			if (/^-[^-]*c/.test(args[i])) {
 				const body = args[i + 1];
-				return body === undefined || /^\$(?:\w+|\{\w+\}|\(\))$/.test(body.trim())
-					? "an unclassified shell command" : sharedChange(body, profile);
+				return body === undefined ? undefined : sharedChange(body, profile);
 			}
 		}
 	}
@@ -208,7 +210,7 @@ function simpleChange(input: string[], profile: string): string | undefined {
 	}
 }
 
-/** What the command would change, or undefined when it only reads. */
+/** The notable action a command takes (push, merge, deploy), for the action log. */
 export function sharedChange(command: string, profile = process.env.PI_GUARD_PROFILE ?? "personal"): string | undefined {
 	try {
 		for (const words of simpleCommands(command.replace(/\\\r?\n/g, ""))) {
@@ -216,18 +218,146 @@ export function sharedChange(command: string, profile = process.env.PI_GUARD_PRO
 			if (what) return what;
 		}
 	} catch {
-		return "an unclassified shell command";
+		return undefined;
 	}
 }
 
+const DEFAULT_BRANCH = /^(?:refs\/heads\/)?(?:main|master)$/;
+// Tools that only show text, so a pattern in their arguments is a search, not an action.
+const TEXT_TOOLS = new Set(["grep", "rg", "ag", "cat", "less", "more", "head", "tail", "echo", "printf", "bat", "jq", "yq", "wc", "diff", "sed", "awk", "find", "ls", "file"]);
+const PROD = /(?:^|[^a-z])prod(?:uction)?(?:[^a-z]|$)/i;
+
+function forcePush(args: string[]): string | undefined {
+	let i = 0;
+	while (i < args.length && args[i].startsWith("-")) i += /^(?:-C|-c|--git-dir|--work-tree|--namespace)$/.test(args[i]) ? 2 : 1;
+	if (args[i] !== "push") return;
+	const rest = args.slice(i + 1);
+	const flags = rest.filter((word) => word.startsWith("-"));
+	const positional = rest.filter((word, n) => !word.startsWith("-") && !/^(?:-o|--push-option|--repo|--receive-pack|--exec)$/.test(rest[n - 1] ?? ""));
+	const refspecs = positional.slice(1);
+	if (flags.some((flag) => flag === "--mirror")) return "a mirror push";
+	const deleting = flags.some((flag) => flag === "--delete" || /^-[^-]*d/.test(flag));
+	if (deleting && refspecs.some((ref) => DEFAULT_BRANCH.test(ref))) return "deleting a default branch";
+	if (refspecs.some((ref) => ref.startsWith(":") && DEFAULT_BRANCH.test(ref.slice(1)))) return "deleting a default branch";
+	const force = flags.some((flag) => /^--force(?:-with-lease)?(?:=.*)?$/.test(flag) || /^-[^-]*f/.test(flag));
+	const forced = refspecs.filter((ref) => force || ref.startsWith("+"));
+	if (!forced.length && !force) return;
+	if (force && (!refspecs.length || flags.includes("--all") || flags.includes("--branches")))
+		return "a force push without a named branch (name it: git push -f origin <branch>)";
+	for (const ref of forced) {
+		const target = ref.replace(/^\+/, "").split(":").at(-1)!;
+		if (target === "HEAD" || target.includes("*") || DEFAULT_BRANCH.test(target)) return "a force push to a default branch";
+	}
+}
+
+function kubectlDelete(args: string[]): string | undefined {
+	const positional = args.filter((word, n) => !word.startsWith("-") && !/^(?:-n|--namespace|--context|--kubeconfig|-l|--selector|-o|--output)$/.test(args[n - 1] ?? ""));
+	if (positional[0] !== "delete") return;
+	const kinds = (positional[1] ?? "").split(",").map((kind) => kind.split("/")[0].toLowerCase());
+	if (kinds.some((kind) => /^(?:ns|namespaces?)$/.test(kind))) return "deleting a Kubernetes namespace";
+	if (kinds.some((kind) => /^(?:pvc?|persistentvolumes?|persistentvolumeclaims?)$/.test(kind))) return "deleting a persistent volume or claim";
+}
+
+function terraform(args: string[], profile: string, text: string, cwd: string): string | undefined {
+	const positional = args.filter((word) => !word.startsWith("-"));
+	const verb = positional[0] === "run-all" || positional[0] === "run" ? positional[1] : positional[0];
+	if (verb === "destroy" || verb === "apply" && args.some((word) => /^--?destroy$/.test(word))) return "a terraform destroy";
+	if (verb === "apply" && profile === "work" && (PROD.test(text) || PROD.test(cwd))) return "a terraform apply on production";
+}
+
+const TEXT_RULES: [string, RegExp][] = [
+	["deleting a NAS dataset or snapshot", /\b(?:zfs|zpool)\s+destroy\b|\b(?:pool\.dataset\.delete|pool\.snapshot\.delete|zfs\.snapshot\.delete|pool\.dataset\.destroy_snapshots)\b/],
+	["deleting a NAS dataset or snapshot", /^(?=.*\bDELETE\b).*\/api\/v2\.0\/(?:pool\/dataset|pool\/snapshot|zfs\/snapshot)\//is],
+	["sending a message in Jan's name", /\/_matrix\/client\/\S*\/send\/|slack\.com\/api\/chat\.(?:postMessage|scheduleMessage|update)|hooks\.slack\.com\/|api\.(?:x|twitter)\.com\/[\d.]+\/(?:tweets|statuses\/update)|discord(?:app)?\.com\/api\/(?:v\d+\/)?(?:webhooks|channels\/\d+\/messages)|gmail\.googleapis\.com\/\S*\/send|graph\.microsoft\.com\/\S*\/sendMail|\/api\/v1\/statuses\b|com\.atproto\.repo\.createRecord|\bsmtps?:\/\/|tell application "(?:Messages|Mail)"/i],
+];
+
+function denied(words: string[], profile: string, cwd: string, env = ""): string | undefined {
+	if (!words.length) return;
+	const tool = basename(words[0]), args = words.slice(1), text = words.join(" ");
+	if (tool === "git") return forcePush(args);
+	if (tool === "gh" && cmd("gh", String.raw`repo\s+delete`).test(text)) return "deleting a GitHub repository";
+	if (tool === "kubectl" && !dryRun(tool, args, "")) return kubectlDelete(args);
+	if (tool === "talosctl" && cmd("talosctl", "reset|wipe|upgrade-k8s").test(text) && !dryRun(tool, args, "")) return "a talosctl reset, wipe or Kubernetes upgrade";
+	if (["terraform", "tofu", "terragrunt"].includes(tool)) return terraform(args, profile, `${env} ${text}`, cwd);
+	if (["sendmail", "msmtp", "swaks", "signal-cli", "matrix-commander", "toot", "twurl"].includes(tool)
+		|| ["mail", "mailx", "mutt", "neomutt"].includes(tool) && args.some((word) => word.includes("@"))) return "sending a message in Jan's name";
+	if (TEXT_TOOLS.has(tool)) return;
+	for (const [what, re] of TEXT_RULES) if (re.test(text)) return what;
+}
+
+export interface Verdict { denied?: string; overrides: { what: string; reason: string }[] }
+
+/** The first hard-denied part of a command, and the refusals it lifted with AGENT_OVERRIDE. */
+export function hardDeny(command: string, profile = process.env.PI_GUARD_PROFILE ?? "personal", cwd = process.cwd(), canOverride = true): Verdict {
+	const verdict: Verdict = { overrides: [] };
+	const check = (source: string, override: string | undefined) => {
+		let commands: string[][];
+		try {
+			commands = simpleCommands(source.replace(/\\\r?\n/g, ""));
+		} catch {
+			// Unbalanced quoting: judge the raw text line by line rather than refuse everything.
+			commands = source.split("\n").map((line) => line.trim().split(/\s+/).filter(Boolean));
+		}
+		for (const raw of commands) {
+			const assignments: string[] = [];
+			const words = unwrap(raw, assignments);
+			const own = assignments.find((word) => word.startsWith("AGENT_OVERRIDE="))?.slice(15).trim();
+			const reason = own || override;
+			const tool = basename(words[0] ?? ""), args = words.slice(1);
+			if (["bash", "sh", "zsh", "dash", "fish"].includes(tool)) {
+				const c = args.findIndex((word) => /^-[^-]*c$/.test(word));
+				if (c >= 0 && args[c + 1] !== undefined) { check(args[c + 1], reason); if (verdict.denied) return; continue; }
+			}
+			if (tool === "eval") { check(args.join(" "), reason); if (verdict.denied) return; continue; }
+			const what = denied(words, profile, cwd, assignments.join(" "));
+			if (!what) continue;
+			if (reason && canOverride) verdict.overrides.push({ what, reason });
+			else { verdict.denied = what; return; }
+		}
+	};
+	check(command, undefined);
+	return verdict;
+}
+
+export function actionLog(): string {
+	return process.env.AGENT_ACTION_LOG || join(homedir(), ".local/state/agents/actions.jsonl");
+}
+
+/** Append one record to the action log. A log failure never blocks the command. */
+export function logAction(kind: "denied" | "override" | "action", what: string, command: string, extra: Record<string, unknown> = {}) {
+	try {
+		const file = actionLog();
+		mkdirSync(dirname(file), { recursive: true });
+		appendFileSync(file, JSON.stringify({
+			ts: new Date().toISOString(), host: hostname().split(".")[0], project: process.env.PI_PROJECT ?? null,
+			task: process.env.PI_TASK ?? null, child: isChild() || undefined, kind, what, command: command.slice(0, 300), ...extra,
+		}) + "\n", { mode: 0o600 });
+	} catch { /* the log is a record, not a gate */ }
+}
+
+const isChild = () => process.env.PI_SUBAGENT_CHILD === "1" || process.env.PI_SUBAGENTS_HERDR_BRIDGE === "1";
+
 export default function (pi: ExtensionAPI) {
-	pi.on("tool_call", (event) => {
+	pi.on("tool_call", (event, ctx) => {
 		if (event.toolName !== "bash") return;
-		const what = sharedChange(String((event.input as { command?: unknown }).command ?? ""));
-		if (!what) return;
-		return {
-			block: true,
-			reason: `Blocked ${what}: agents don't change shared systems. Report the exact command to the parent, which runs it after Jan says yes.`,
-		};
+		const command = String((event.input as { command?: unknown }).command ?? "");
+		const child = isChild();
+		const verdict = hardDeny(command, undefined, ctx.cwd, !child);
+		if (verdict.denied) {
+			logAction("denied", verdict.denied, command);
+			return {
+				block: true,
+				reason: child
+					? `Refused ${verdict.denied}: it cannot be undone. Report the exact command to your parent.`
+					: `Refused ${verdict.denied}: it cannot be undone. Only Jan can lift this, for one command. If he has told you to, rerun it as AGENT_OVERRIDE="<his reason>" <command>, otherwise ask him in one line.`,
+			};
+		}
+		for (const { what, reason } of verdict.overrides) logAction("override", what, command, { reason });
+	});
+	pi.on("tool_result", (event) => {
+		if (event.toolName !== "bash") return;
+		const command = String((event.input as { command?: unknown }).command ?? "");
+		const what = sharedChange(command);
+		if (what) logAction("action", what, command, { ok: !event.isError });
 	});
 }

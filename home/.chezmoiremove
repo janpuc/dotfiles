@@ -2,4 +2,6 @@
 .pi/agent/local/pocket.ts
 .pi/agent/local/pocket.test.ts
 .pi/agent/local/pocket-api.md
+.pi/agent/local/agent-guard-ask.ts
+.pi/agent/local/agent-guard-child.ts
 {{- end }}
