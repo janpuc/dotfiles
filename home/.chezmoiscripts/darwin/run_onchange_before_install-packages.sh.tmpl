@@ -1,3 +1,4 @@
+{{ if eq .chezmoi.os "darwin" -}}
 #!/usr/bin/env zsh
 
 set -eufo pipefail
@@ -36,6 +37,13 @@ set -eufo pipefail
 {{- end }}
 
 /opt/homebrew/bin/brew bundle --file=/dev/stdin --force-cleanup <<EOF
+{{ if eq .chezmoi.hostname "sisyphus" -}}
+$(if [ ! -f "$HOME/.local/state/agents/model-wipe-approved" ]; then
+    # Retain installed model packages until approval, never reinstall retired ones.
+    if /opt/homebrew/bin/brew list --formula llama.cpp >/dev/null 2>&1; then printf '%s\n' 'brew "llama.cpp"'; fi
+    if /opt/homebrew/bin/brew list --cask osaurus >/dev/null 2>&1; then printf '%s\n' 'cask "osaurus"'; fi
+fi)
+{{ end -}}
 {{ range $taps | uniq -}}
 tap {{ . | quote }}
 {{ end -}}
@@ -49,3 +57,4 @@ cask {{ . | quote }}
 vscode {{ . | quote }}
 {{ end -}}
 EOF
+{{ end -}}

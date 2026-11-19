@@ -4,6 +4,8 @@ input=$(cat)
 printf '%s' "${input:-"{}"}" | jq '
 {{- if eq .chezmoi.os "linux" }}
   .["/home/ubuntu/Development"] = true
+{{- else if eq .chezmoi.hostname "sisyphus" }}
+  .[{{ printf "%s/Work" .chezmoi.homeDir | toJson }}] = true
 {{- else }}
   .
 {{- end }}

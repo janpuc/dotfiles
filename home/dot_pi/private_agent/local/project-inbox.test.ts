@@ -55,6 +55,32 @@ function harness(mode: string, hasUI: boolean, choose: () => Promise<string | un
 	return { pi, ctx, state, sent, asked: () => asked };
 }
 
+test("two accepted items both arrive, the streaming second as a followUp", async () => {
+	const f = fixture();
+	try {
+		const second = { ...f.item, id: "20261118T120001-abcdef", text: "Second request" };
+		fs.writeFileSync(join(f.workspace, ".agent/inbox", `${second.id}.json`), JSON.stringify(second));
+		const h = harness("tui", true, async () => "Take this on now");
+		let idle = true;
+		h.ctx.isIdle = () => idle;
+		const delivered: { text: string; options: unknown }[] = [];
+		const pi = { sendUserMessage: (text: string, options?: unknown) => {
+			delivered.push({ text, options });
+			idle = false;
+		} };
+		await offerOpen(pi as any, "home", f.workspace, h.ctx, h.state);
+		assert.equal(delivered.length, 2);
+		assert.match(delivered[0].text, /Rotate the speaker/);
+		assert.equal(delivered[0].options, undefined);
+		assert.match(delivered[1].text, /Second request/);
+		assert.deepEqual(delivered[1].options, { deliverAs: "followUp" });
+		assert.equal(f.status(), "accepted");
+		assert.equal(JSON.parse(fs.readFileSync(join(f.workspace, ".agent/inbox", `${second.id}.json`), "utf8")).status, "accepted");
+	} finally {
+		f.restore();
+	}
+});
+
 test("an inbox item reaches the agent only after Take this on now", async () => {
 	const f = fixture();
 	try {

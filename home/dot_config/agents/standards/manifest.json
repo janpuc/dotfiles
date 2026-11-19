@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2.2.1",
+  "version": "2.3.0",
   "compatibility": {
     "contextSchemaVersion": 1,
     "bootstrapMaxBytes": 49152
@@ -8,7 +8,7 @@
   "files": [
     {
       "path": "platform.md",
-      "sha256": "973cce49f73fd9bfa4d8f9407af353dc6abfe141b2da8c08a4ee93b38aadb527"
+      "sha256": "b854af5e3804afcc9fa96d7cc946c264681b20d47bcd03ba53a64e7f89b332c2"
     },
     {
       "path": "tasks.md",
@@ -16,11 +16,11 @@
     },
     {
       "path": "workspace.md",
-      "sha256": "d13f8984aac1e3540e3af824f1896ee16f6972846fbdcc0ff6fbb83097c54d14"
+      "sha256": "d1e575957c046956d0c12e38f592ee3704ea831573e493ce5468832207078d36"
     },
     {
       "path": "session.md",
-      "sha256": "eacbdad4c426fa8cd8b32dd9be8b686c3dba3cf5ab18ca27b1b280afe60e5f72"
+      "sha256": "42c67488811b387fcdb685ebd06e7e670bd773c5428012e4960355b6a50d45f2"
     },
     {
       "path": "knowledge.md",
@@ -36,7 +36,7 @@
     },
     {
       "path": "approvals.md",
-      "sha256": "507f1e31b07eb1a12e198d87045b7797b9d95498003467f9bc7e794fe5f03ec1"
+      "sha256": "4307eabe622c6191553074995f751c18d1176f2acd38db4fc2855b55c27e64ce"
     },
     {
       "path": "handoff.md",
@@ -48,7 +48,11 @@
     },
     {
       "path": "requests.md",
-      "sha256": "aadb47f45f078c2006f6dea8fb4637d1733c940ad498ab89e03c7e6f56d888b5"
+      "sha256": "c3177a3461e27f71def042f4b6807a8b51f70a1b231762507a4f35f30cd9683b"
+    },
+    {
+      "path": "wipe.md",
+      "sha256": "e16a1297bad970ea64f034a89954197257c2ed1e862985b94da74151d2e29f78"
     }
   ]
 }

@@ -10,25 +10,30 @@
 # decides what it can call.
 #
 # The usual agents open as a visible Pi in a background tab of the parent's Rex session
-# (`machine: local`); `machine: sisyphus` or `aether` opens one in the `subagents` session there,
+# (`machine: local`), while `machine: aether` on hermes opens one in its `subagents` session
 # over SSH (~/.ssh/config names both). A placed child cannot be handed local extension paths, so
 # there is no `defaultExtensions`: every child loads its machine's packages, the bridge and
 # pi-web-access among them, and agent-guard-child.ts turns the guard (no push, GitHub writes or
 # cluster changes) on in children only.
 # pi-subagents 0.84 checks a machine's cwd on the parent's disk as well (a bug), so each needs a
-# path that exists on both ends: the shared home path on sisyphus, /tmp on aether.
+# path that exists on both ends, /tmp on aether.
+{{- $host := default dict (get .hosts .chezmoi.hostname) -}}
+{{- $providers := default "all" (get $host "providers") -}}
+{{- $enabled := list -}}
+{{- range list "claude-bridge/claude-opus-5-5" "claude-bridge/claude-sonnet-5-5" -}}
+{{- if or (kindIs "string" $providers) (has (first (splitList "/" .)) $providers) -}}{{- $enabled = append $enabled . -}}{{- end -}}
+{{- end }}
 set -eu
 managed='{
   "defaultProvider": "claude-bridge",
   "defaultModel": "claude-opus-5-5",
-  "enabledModels": ["claude-bridge/claude-opus-5-5", "claude-bridge/claude-sonnet-5-5"],
+  "enabledModels": {{ $enabled | toJson }},
   "packages": [
     "npm:pi-claude-bridge@0.9.3",
     "npm:@eleboucher/pi-memini@0.7.38",
     "npm:pi-subagents@0.87.0",
     "npm:pi-web-access@0.46.0",
     "git:github.com/janpuc/pi-usage@v0.2.4",
-    "git:github.com/janpuc/pi-title-spinner@v0.1.0",
     "git:github.com/janpuc/pi-footer@v0.1.0",
     "./local/agent-guard-child.ts",
     "./local/agent-guard-ask.ts",
@@ -46,9 +51,8 @@ managed='{
   },
 {{- end }}
   "subagents": {
-{{- if eq .chezmoi.os "darwin" }}
+{{- if and (eq .chezmoi.os "darwin") (eq .chezmoi.hostname "hermes") }}
     "machines": {
-      "sisyphus": { "rex": { "ssh": "sisyphus" }, "cwd": "/Users/jan.pucilowski" },
       "aether": { "rex": { "ssh": "aether" }, "cwd": "/tmp" }
     },
 {{- end }}
@@ -63,8 +67,6 @@ managed='{
         "openai/gpt-6-astra",
         "claude-bridge/claude-sonnet-5-5",
         "claude-bridge/claude-fable-5-1",
-        "litellm/m3pro/huihui-qwen3.8-27b",
-        "litellm/m3pro-local/huihui-qwen3.8-27b",
         "alibaba/qwen4-max-preview",
         "alibaba/deepseek-v4.1-flash"
       ]
@@ -92,15 +94,18 @@ managed='{
     }
   }
 }'
-retired='["pi-subagent-manager", "./local/claude-bridge-subagents.ts", "./local/agent-guard-placed.ts", "./local/bc250-quiet-hours.ts", "./local/pocket.ts"]'
+retired='["github.com/janpuc/pi-title-spinner", "pi-subagent-manager", "./local/claude-bridge-subagents.ts", "./local/agent-guard-placed.ts", "./local/bc250-quiet-hours.ts", "./local/pocket.ts"]'
 input=$(cat)
 printf '%s' "${input:-"{}"}" | jq --argjson m "$managed" --argjson r "$retired" '
   def id: (if type == "object" then .source else . end) | sub("^(npm|git):"; "") | sub("@[^@/]*$"; "");
   ($m.packages | map(id)) as $ids
   | . * ($m | del(.packages))
-  | del(.subagents.defaultExtensions)
-{{- if eq .chezmoi.os "linux" }}
+  | del(.subagents.defaultExtensions, .subagents.machines.sisyphus)
+  | .subagents.modelScope.allow |= map(select((split("/")[0]) as $provider | {{ $providers | toJson }} as $allowed | $allowed == "all" or ($allowed | index($provider)) != null))
+{{- if or (eq .chezmoi.os "linux") (eq .chezmoi.hostname "sisyphus") }}
   | del(.subagents.machines)
+{{- end }}
+{{- if eq .chezmoi.os "linux" }}
   | .compaction.modelOverrides = $m.compaction.modelOverrides
 {{- end }}
   | .packages = $m.packages + [(.packages // [])[] | select(id as $i | ($ids + $r) | index($i) | not)]'

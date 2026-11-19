@@ -1,24 +1,28 @@
-# Multi-host agent platform, phase 1
+# Multi-host agent platform
 
 Aether is Jan's always-on personal execution host, an Ubuntu ARM VM running every
 project agent as ubuntu. The Mac is a Rex client. Work repositories stay off aether.
 There is no isolation layer. docs/isolation-gvisor.md is a deferred alternative.
-The registry now assigns hosts, but phase 1 serves only aether. main is an ordinary
+The registry assigns aether to personal projects and sisyphus to work. main is an ordinary
 always-on aether project with a dotfiles/ seed submodule, not a laptop sender or a
 special inbox. It owns platform setup, migration, registry, standards, runner and
 AGENTS.md. Jan supplies its first brief separately.
 Aether is the authoritative workspace writer unless Jan explicitly transfers ownership.
 Do not run divergent authoritative copies on the Mac and aether.
 
-## Phase 1 additions
+## Platform phases
 
-This build adds registry hosts and providers, main, task sessions, a hermes SSH
-dispatcher, fixed memini namespaces, standards 2.2.0 and managed Rex navigation.
-Validation is offline. No live state, GitHub, memini, SSH or chezmoi apply is part of
-the build. Deployment and interactive Rex title, close and fold checks remain manual.
-Phase 2 alone will add work on sisyphus. main may SSH there only for agent ls,
-agent restart all and chezmoi update, never read ~/Work. /delegate, work migration,
-work credentials and model removal are deferred.
+Phase 1 added registry hosts and providers, main, task sessions, a hermes SSH
+dispatcher, fixed memini namespaces and managed Rex navigation. Phase 2 adds the
+work host, guard, credentials, keep-awake, gated model retirement, disabled backup
+and safe wipe. The Work migration remains separate, as do /delegate and automated
+migration commands. See [sisyphus](sisyphus.md) for setup and the deployment order.
+main may SSH there only for agent ls, agent restart all and chezmoi update, never
+read ~/Work. Work asks main through a restricted aether endpoint and pulls replies.
+
+Validation is offline, with read-only host discovery. No live changes, GitHub,
+1Password, memini or chezmoi apply are part of this build. Deployment, restore drills
+and interactive Rex title, close and fold checks remain manual.
 
 ## Previous build status
 
@@ -45,7 +49,11 @@ home/.chezmoidata/projects.yaml renders to ~/.config/agents/projects.json on Lin
 and Mac.
 
 hosts.aether defines root ~/Development, meminiPrefix homelab, meminiHome personal/jan
-and guard personal. Each project has host (default aether), providers and tasks.maxOpen
+and guard personal. hosts.sisyphus defines root ~/Work, namespace work, meminiHome
+none, guard work, providers all, vault Work and maxAgents five. Its single work
+project has no seeds and GH_TOKEN from op://Work/github/GH_TOKEN. Sisyphus secrets
+must use Work and aether secrets must never use Work, checked at registry render.
+Each project has host (default aether), providers and tasks.maxOpen
 (default four). The render resolves these fields into projects.json. Defaults retain
 model claude-bridge/claude-opus-5-5, thinking high and rotation sizeMB 100, compactions 5,
 days 30. Providers preserve today's claude-bridge, openai, minimax, opencode-go, alibaba
@@ -220,8 +228,9 @@ concurrent launches from duplicating initialization or Rex resources. The runner
 .agent/run.lock spans startup, model execution and rotation.
 
 If exactly one Rex app is connected, select that session. With several apps do not
-choose for Jan. Remote Control must be enabled by Jan. The Mac has the registry and dispatcher but
-no local project runner or Linux standards installation. For remote inspection use
+choose for Jan. Remote Control must be enabled by Jan. Hermes has the registry and dispatcher but
+no local project execution or standards installation. Sisyphus runs the shared
+runner with Work standards, mise tools and trust, using launchd for its host services. For remote inspection use
 rex -S aether ls --json and rex -S aether client ls.
 
 ## Tasks
@@ -277,7 +286,7 @@ mise exec -- <command> for an ordinary system command needing nested mise enviro
 Mise trusts ~/Development on Linux. Pi's additive trust modifier preserves other trust
 decisions rather than enabling defaultProjectTrust always.
 
-Linux ai-sync keeps shared credential handling and writes project env files under
+Host-local ai-sync keeps shared credential handling and writes project env files under
 ~/.local/state/ai/projects/. They are mode 0600 in a mode 0700 directory, with quoted
 single-line values and escaped dollars. Atomic replacement occurs only after all of
 a project's secrets are fetched. A failed refresh preserves its old file and returns
@@ -288,8 +297,10 @@ paths and never invoke ai-sync against real user state.
 ## Instructions, knowledge and approvals
 
 home/dot_pi/private_agent/AGENTS.md.tmpl is the only platform-maintained AGENTS.md.
-Its Linux preamble refers to the mandatory standards under ~/.config/agents/standards.
-The Mac render is unchanged. The manifest has schemaVersion 1, version 2.2.0, ordered
+Its aether and sisyphus preambles refer to the mandatory standards under
+~/.config/agents/standards. Hermes only loses retired M3 Pro placement and models,
+and the redundant title-spinner package is retired everywhere without changing Pi's
+own title. The manifest has schemaVersion 1, version 2.3.0, ordered
 mandatory file paths with per-file SHA-256 digests computed during this build, and
 compatibility metadata. Recompute digests whenever standard content changes.
 
@@ -305,7 +316,8 @@ namespace, inherited by children. personal/jan holds personal facts and homelab 
 shared infrastructure facts. Tasks never create child namespaces: entries use tags
 ticket:<ID> or task:<slug> plus project, task id and ticket metadata. Unregistered
 sessions on aether and the Mac share homelab/scratch, never a new cwd-derived name.
-The legacy laptop ~/Work prefix remains until phase 2's work project uses work. It must not be the only copy of recovery-critical facts.
+Work sessions use the fixed work namespace. Sisyphus uses its own memini key with
+MEMINI_HOME unset. Memini must not be the only copy of recovery-critical facts.
 
 Agents may edit, test and commit locally. Pushes, merges, PR creation, deployments,
 cluster changes and every HA write require Jan. There are no light, scene or reload
@@ -323,7 +335,7 @@ semicolons and no ellipses.
 ## Context injection
 
 home/dot_pi/private_agent/local/project-context.ts is registered in the Pi settings for
-both renders but returns immediately when PI_PROJECT is unset, so the Mac is unaffected.
+all hosts but returns immediately when PI_PROJECT is unset, so laptop intake is unaffected.
 It validates PI_PROJECT_DIR as PI_PROJECT_ROOT/<PI_PROJECT>, requires the project in
 ~/.config/agents/projects.json and reads the ordered manifest. It builds one message
 from the standards, notes/PROJECT.md and notes/STATE.md and returns it from

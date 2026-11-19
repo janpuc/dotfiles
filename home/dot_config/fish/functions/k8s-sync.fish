@@ -1,4 +1,16 @@
 function k8s-sync --description "Discover EKS clusters and generate kubeconfigs"
+    if test (command hostname -s) = sisyphus
+        set -l work_env "$HOME/.config/op/sisyphus-work.env"
+        if not test -r "$work_env"
+            echo "Missing Work service account: $work_env" >&2
+            return 1
+        end
+        set -fx OP_SERVICE_ACCOUNT_TOKEN (string match -rg '^\s*(?:export\s+)?OP_SERVICE_ACCOUNT_TOKEN=(.*)$' <"$work_env" | string trim -c '"\'')[1]
+        if test -z "$OP_SERVICE_ACCOUNT_TOKEN"
+            echo 'Missing Work service account token' >&2
+            return 1
+        end
+    end
     set -l AWS_INV "$HOME/.aws/inventory.json"
     set -l K8S_INV "$HOME/.kube/inventory.json"
     set -l PREFS "$HOME/.kube/role-preferences.json"

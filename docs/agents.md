@@ -1,12 +1,14 @@
-# Project agents on aether: user guide
+# Project agents: user guide
 
-aether is Jan's personal dev machine. Every project there has one long-lived Pi agent that
-Jan talks to through Rex. This page is how to use it. The design behind it is in
-[projects](projects.md), the machine itself in [aether](aether.md).
+Aether runs Jan's personal project agents, sisyphus the single coordinating work
+project and its tasks. Jan talks to them through Rex on hermes. The platform design
+is in [projects](projects.md), host details in [aether](aether.md) and
+[sisyphus](sisyphus.md).
 
 ## The shape of it
 
-- A project is a folder `~/Development/<project>` on aether: a local git repo (the workspace)
+- A project is a folder `~/Development/<project>` on aether or `~/Work/work` on
+  sisyphus: a local git repo (the workspace)
   with the project's code repos inside as git submodules, plus notes, plans and scripts.
 - Each project has one Rex session named after it, with two tabs: `pi` (the agent) and
   `shell` (a plain terminal in the project folder).
@@ -16,9 +18,11 @@ Jan talks to through Rex. This page is how to use it. The design behind it is in
   `~/.config/agents/standards/`. There is no per-project AGENTS.md to maintain.
 - What the agent learns about the project it writes down itself in `notes/PROJECT.md`,
   `notes/STATE.md` and `notes/knowledge/`. Those, with the standards, are loaded into every
-  session automatically. Durable facts also go to memini, namespace `homelab/<project>`.
-- Everything under `~/Development`, the Pi sessions and the agent history is backed up
-  every hour to BigMouth.
+  session automatically. Durable facts also go to memini, namespace `homelab/<project>`
+  on aether or `work` on sisyphus. Sisyphus has its own key and no personal inheritance.
+- Aether backs up `~/Development`, Pi sessions and agent history hourly to BigMouth.
+  Sisyphus backs up Work and agent state only after its separate NAS provisioning,
+  enable marker and restore drill.
 
 ## The platform coordinator
 
@@ -30,8 +34,8 @@ give it its first brief separately. Other agents request platform work with
 
 ## Daily use
 
-Connect the Rex app to aether, pick the project's session and talk to the agent in the
-`pi` tab. Nothing needs to run on the Mac.
+Connect the Rex app to aether for personal projects or sisyphus for work, pick the
+project's session and talk to the agent in its `pi` tab. Nothing executes on hermes.
 
 The agent edits, tests and commits locally on its own. It asks you in the tab before
 anything that leaves aether or changes a shared system: git push, merging or opening PRs,
@@ -39,9 +43,9 @@ other GitHub writes, kubectl, flux, talosctl and helm changes, chezmoi apply and
 Home Assistant write. Answer the prompt in the tab. Subagents it starts are blocked from
 those commands outright.
 
-## Commands on aether
+## Commands on execution hosts
 
-Run these in any aether shell, or on the hermes laptop. The laptop reads the registry
+Run these on the project's host, or on the hermes laptop. The laptop reads the registry
 and dispatches over SSH to the project's host, without a local agent or inbox.
 `agent ls` and `agent task ls` prefix laptop output with the host. `agent restart all`
 restarts running project and task sessions. `agent -h`, `agent --help`, `agent help`
@@ -49,7 +53,8 @@ and `agent task -h` show the same grouped help in fish and sh.
 
 Laptop requests from a registered `~/Development/<project>` path use that project
 as the sender. Outside one they come from `jan`, with replies delivered to `main`'s
-ordinary aether inbox. A project agent cannot send as `jan` or impersonate `main`.
+ordinary aether inbox. Registered Work paths dispatch as `work` to sisyphus.
+A project agent cannot send as `jan` or impersonate `main`.
 
 | Command | What it does |
 |---|---|
@@ -72,7 +77,8 @@ system is changed by asking its owner.
 
 | Project | Owns |
 |---|---|
-| `main` | The platform, dotfiles, registry, standards, runner and central AGENTS.md |
+| `main` (aether) | The platform, dotfiles, registry, standards, runner and central AGENTS.md |
+| `work` (sisyphus) | All work projects, tasks, work credentials and work host coordination |
 | `network` | UniFi gateway, Wi-Fi, firewall, Tailscale, DNS |
 | `kubernetes` | home-ops, the cluster, Flux, Talos |
 | `agh` | Jan's studies at AGH: numerical methods, algorithms, networks lab, exam prep | local-only `wypozyczalnia-samochodow` (its GitHub copy is gone) |
@@ -96,7 +102,8 @@ automatic reply. A reply to an accepted request comes back the same way.
 
 Requests are plain JSON in `~/Development/<project>/.agent/inbox/`, outside git and
 inside the backup. Print, JSON and RPC modes never accept or answer for you. Reading
-another project's notes and memini namespace is allowed, changing them is not.
+another aether project's notes and memini namespace on aether is allowed, changing
+them is not. Work agents read no personal material and main never reads Work.
 
 ## Tasks
 
@@ -141,8 +148,8 @@ small shared infrastructure facts and `homelab/<project>` every registered aethe
 project. Tasks use their project's namespace with `ticket:<ID>` or `task:<slug>`
 tags and project, task id and ticket metadata, never a task child namespace.
 Outside a registered project, aether and the Mac use `homelab/scratch`, including
-unknown Git repos. Laptop `~/Work` retains the legacy `work` prefix until phase 2.
-Phase 2's work project uses `work`. No new namespace is derived from a directory.
+unknown Git repos. Work sessions use the fixed `work` namespace, including laptop intake. No new
+namespace is derived from a directory. Sisyphus never exports `MEMINI_HOME`.
 
 ## Rex navigation
 
@@ -160,6 +167,9 @@ The aether-managed `~/.config/rex/init.lua` defines these keys:
 `rex do go_project name=main` jumps to a named project. Sessions sort with `main`
 first, then alphabetically. The project Pi tab has no forced title, so Pi's own title
 can show. Its window id is retained for reconciliation. Task tabs keep `task:<id>`.
+Rex's tab indicators are the activity signal (OSC 7501). The redundant
+`pi-title-spinner` package is retired on all hosts. Pi's own program title, such as
+`π - home`, stays, it is not replaced by a spinner.
 After changing the Lua config, run `rex config reload` **on aether**. Remote reload
 is refused, and a Mac-local config does not control aether sessions. The scan action's
 app focus behavior still needs an interactive smoke check.
@@ -171,6 +181,21 @@ settings, run `chezmoi update` and then `agent restart all`. Each running agent
 finishes its current run, then restarts on the same generation and session, so the
 conversation resumes with the new config. A request waits while a run or a confirm
 prompt is open. `agent ls` shows `restart=pending` until the restart happens.
+
+## How to change the platform
+
+The platform and Jan's machine config live in one repo, janpuc/dotfiles. `main` owns it and
+works in its checkout on aether (`~/Development/main/dotfiles`).
+
+- Platform changes (a project, a standard, agent behaviour, Pi config): `agent ask main "..."`
+  from anywhere, or talk to `main` in its Rex tab. It branches, edits, tests and commits, and
+  asks Jan before every push. After the push it runs `chezmoi update` and `agent restart all`
+  on aether, and on sisyphus with its three permitted commands.
+- Mac-only changes (Homebrew, macOS defaults, fish on the Mac) go through `main` the same way.
+  Jan then runs `chezmoi update` on the Mac.
+- Editing by hand in the Mac's `~/.local/share/chezmoi` is fine: pull first, commit and push
+  right away. `main` pulls before every change and never force-pushes.
+- Agents never edit dotfiles themselves. They ask `main`.
 
 ## Commands inside Pi
 
@@ -245,12 +270,24 @@ need nothing set. `kubectx` still switches to the work clusters through `KUBECON
 `kubectx -u` returns to the homelab. On aether the same two files live untracked in
 `~/Development/kubernetes/home-ops/`.
 
-## Phase 2 boundary
+## Work on sisyphus
 
-No sisyphus changes are part of phase 1. Its future `work` project coordinates work.
+The `work` project at `~/Work/work` coordinates work, with no seed repositories.
+Register the existing 17 checkouts during the separate migration, do not reclone.
 `main` may SSH there only for `agent ls`, `agent restart all` and `chezmoi update`,
-never read `~/Work`. Work migrations, `/delegate`, model removal and work credentials
-are deferred. Existing Mac model instructions remain until that phase.
+never read `~/Work`. Work asks main for platform changes through the restricted
+inbox endpoint on aether and pulls replies, main never connects to deliver one.
+
+The work guard adds AWS writes, terraform changes and prod-profile assumptions to
+all existing rules. Work secrets come from its own Work-vault service account,
+model and infrastructure keys from the existing Kubernetes account. WBD uses
+`aws sso login --use-device-code` in the Work tab, SAML profiles arrive through
+`work-creds <profile>` on hermes, which refuses static keys.
+
+See [sisyphus](sisyphus.md) for the ordered deployment, keep-awake daemon, approval-
+gated model deletion, disabled-until-provisioned backup, separate Work migration
+and permanent wipe. `work-wipe` defaults to a dry run and needs `--really` to delete.
+It is not migration cleanup. `/delegate` and automated migration remain out of scope.
 
 ## Limits to know
 

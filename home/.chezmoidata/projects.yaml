@@ -4,6 +4,15 @@ hosts:
     meminiPrefix: homelab
     meminiHome: personal/jan
     guard: personal
+  sisyphus:
+    root: ~/Work
+    meminiPrefix: work
+    meminiHome: none
+    guard: work
+    providers: all
+    vault: Work
+    backup: sisyphus-backup
+    maxAgents: 5
 defaults:
   host: aether
   providers: [claude-bridge, openai, minimax, opencode-go, alibaba, litellm]
@@ -16,6 +25,13 @@ defaults:
     compactions: 5
     days: 30
 projects:
+  work:
+    host: sisyphus
+    lifecycle: active
+    meminiNamespace: work
+    # Jan fills this item before ai-sync. Existing checkouts are registered during migration.
+    secrets:
+      GH_TOKEN: op://Work/github/GH_TOKEN
   main:
     host: aether
     lifecycle: active

@@ -1,11 +1,13 @@
 # Requests between projects
 
-Change only your own project's systems. Read other owners' notes and memini read-only,
-never change their workspaces, repositories, memory or systems. Ask the owner instead.
+Change only your own project's systems. On aether, other aether owners' notes and
+memini are read-only. Never change their workspaces, repositories, memory or systems.
+Work agents never read personal notes or memory. main never reads Work. Ask the owner.
 
 | Project | Owns |
 |---|---|
-| main | the platform, dotfiles, registry, standards, runner, central AGENTS.md |
+| main (aether) | the platform, dotfiles, registry, standards, runner, central AGENTS.md |
+| work (sisyphus) | all work projects, tasks, credentials and work host coordination |
 | network | UniFi gateway, Wi-Fi, firewall, Tailscale, DNS |
 | kubernetes | home-ops, the cluster, Flux, Talos |
 | home | Home Assistant and DietPi speakers |
@@ -14,8 +16,11 @@ never change their workspaces, repositories, memory or systems. Ask the owner in
 | gaming | BC250, Steam Deck, game ports |
 | thesis | the thesis |
 
-Phase 2: work on sisyphus coordinates work. main may SSH there only for agent ls,
-agent restart all and chezmoi update, never read ~/Work. No work host in phase 1.
+main may SSH to sisyphus only for agent ls, agent restart all and chezmoi update,
+never read ~/Work. Work requests to aether use a dedicated restricted SSH identity,
+not a shell. It may deliver a work request to an active aether owner or fetch and
+acknowledge replies addressed to work. Replies wait on aether until work pulls them.
+The endpoint validates the sender, target, operation and 32 KiB payload cap.
 
 agent ask <owner> "<text>" states outcome, reason and done check. One request per
 outcome, to an active project other than yourself. Jan decides in its tab whether

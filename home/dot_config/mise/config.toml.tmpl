@@ -1,3 +1,14 @@
+{{ if eq .chezmoi.hostname "sisyphus" -}}
+# Host tools for the Work agent, including launchd's Python and backup binary.
+[settings]
+trusted_config_paths = ["~/Work"]
+
+[tools]
+node = "lts"
+python = "latest"
+restic = "latest"
+"npm:@earendil-works/pi-coding-agent" = "latest"
+{{ else -}}
 # Global tools on the aether server (Linux only, see .chezmoiignore).
 # Installed by `mise install` from the Linux script.
 [settings]
@@ -25,3 +36,4 @@ node = "lts"
 # Model Studio's CLI: pi-usage reads the Alibaba Token Plan's monthly pool through its console
 # login (`bl auth login --console --config token-plan --console-site international`, once).
 "npm:bailian-cli" = "2.9.0"
+{{ end -}}

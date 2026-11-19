@@ -21,6 +21,8 @@
 !.local/bin
 !.local/bin/agent-run
 !.local/bin/agent
+!.ssh
+!.ssh/authorized_keys
 !.config
 !.config/agents
 !.config/agents/projects.json
@@ -56,19 +58,27 @@
 !.editorconfig
 {{- else -}}
 .chezmoiscripts/*-linux-*.sh
+{{ if ne .chezmoi.hostname "sisyphus" }}
 .config/mise
 .config/mise/**
-{{ if ne .chezmoi.hostname "hermes" }}
+.config/agents/standards
+.config/agents/standards/**
+.pi/agent/trust.json
+Library/LaunchAgents/local.sisyphus-backup.plist
+Library/LaunchAgents/local.sisyphus-backup-watchdog.plist
+{{ end }}
+.ssh/authorized_keys
+{{ if and (ne .chezmoi.hostname "hermes") (ne .chezmoi.hostname "sisyphus") }}
 .config/fish/functions/agent.fish
 .local/bin/agent-run
 .local/bin/agent
+.local/bin/work-creds-send
+.local/bin/work-wipe
+.config/fish/functions/work-creds.fish
 {{ end }}
 .config/rex
 .config/rex/**
-.config/agents/standards
-.config/agents/standards/**
 .config/aether-backup
 .config/aether-backup/**
-.pi/agent/trust.json
 {{- end }}
 **/__pycache__

@@ -1,10 +1,12 @@
 # Workspace
 
 The registry owns host, root, identity, lifecycle, defaults, secret references and
-initial seed repos. Phase 1 serves aether at ~/Development/<project>, exported as
-PI_PROJECT_ROOT and PI_PROJECT_DIR. Aether is authoritative unless Jan transfers
-ownership. All agents run as ubuntu, not an isolation boundary. Work stays off aether.
-main coordinates platform setup and migration from its dotfiles/ submodule.
+initial seed repos. Each host has one root, exported as PI_PROJECT_ROOT, and each
+workspace is PI_PROJECT_DIR. Aether serves ~/Development/<project>, sisyphus serves
+~/Work/work. Each execution host is authoritative for its projects unless Jan
+transfers ownership. Agents share the host account, not an isolation boundary.
+Work stays off aether. main coordinates platform setup and migration from dotfiles/,
+work coordinates work on sisyphus. Nothing personal is read or written by Work agents.
 
 Seeds are consumed only at initialization. Afterward .gitmodules and committed
 gitlinks own membership, URLs and revisions. Removing registry entries never deletes.

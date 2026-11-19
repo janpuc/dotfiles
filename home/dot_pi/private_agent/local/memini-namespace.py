@@ -1,10 +1,14 @@
 """Resolve only platform-owned namespaces. Unknown paths share the host scratch space."""
 import json
+import socket
 from pathlib import Path
 
 
 def namespace(home, cwd):
     home, cwd = Path(home).resolve(), Path(cwd).resolve()
+    # Sisyphus never selects a personal namespace, including shells outside ~/Work.
+    if socket.gethostname().split(".")[0].lower() == "sisyphus":
+        return "work"
     try:
         cwd.relative_to(home / "Work")
         return "work"

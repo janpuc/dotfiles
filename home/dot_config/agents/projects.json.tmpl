@@ -1,8 +1,18 @@
 {{- $projects := dict -}}
 {{- range $name, $project := .projects -}}
 {{- $resolved := deepCopy $project -}}
-{{- $_ := set $resolved "host" (default $.defaults.host (get $project "host")) -}}
-{{- $_ := set $resolved "providers" (default $.defaults.providers (get $project "providers")) -}}
+{{- $hostName := default $.defaults.host (get $project "host") -}}
+{{- if not (hasKey $.hosts $hostName) -}}{{ fail (printf "Unknown project host %s" $hostName) }}{{- end -}}
+{{- $host := get $.hosts $hostName -}}
+{{- range $key, $ref := (default dict (get $project "secrets")) -}}
+{{- if or (and (eq $hostName "sisyphus") (not (hasPrefix "op://Work/" $ref))) (and (eq $hostName "aether") (hasPrefix "op://Work/" $ref)) -}}
+{{ fail (printf "Project %s secret %s violates host vault policy" $name $key) }}
+{{- end -}}
+{{- end -}}
+{{- $_ := set $resolved "host" $hostName -}}
+{{- $providers := get $project "providers" -}}
+{{- if not (hasKey $project "providers") -}}{{- $providers = default $.defaults.providers (get $host "providers") -}}{{- end -}}
+{{- $_ := set $resolved "providers" $providers -}}
 {{- $_ := set $resolved "tasks" (merge (deepCopy (default dict (get $project "tasks"))) $.defaults.tasks) -}}
 {{- $_ := set $projects $name $resolved -}}
 {{- end -}}

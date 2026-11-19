@@ -2,6 +2,7 @@
 // never reaches the agent without Jan choosing "Take this on now" in the tab: in print, json
 // or rpc mode an item stays new. There is no model call in this path, the prompt and the
 // accepted message are plain text.
+import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -122,7 +123,12 @@ function replyDecline(item: InboxItem, project: string) {
 	if (!root) throw new Error("PI_PROJECT_ROOT is required for inbox replies");
 	const recipient = item.from === "jan" ? "main" : item.from;
 	if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(recipient)) throw new Error("Invalid inbox sender");
-	const target = inbox(join(root, recipient));
+	if (project === "work" && recipient !== "work") {
+		execFileSync("python3", [join(homedir(), ".local/bin/agent-run"), "--launch", "reply", project, item.id, DECLINE_TEXT], { timeout: 20000 });
+		return;
+	}
+	const target = recipient === "work" && project !== "work"
+		? join(homedir(), ".local/state/agents/remote-inbox/work") : inbox(join(root, recipient));
 	const reply: InboxItem = {
 		id: requestId(), from: project, to: recipient, text: DECLINE_TEXT,
 		created: new Date().toISOString(), status: "new", inReplyTo: item.id,
@@ -153,7 +159,7 @@ export async function offerOpen(
 			if (choice === ACCEPT) {
 				if (!setStatus(folder, item, "accepted")) continue;
 				try {
-					pi.sendUserMessage(message(item, project));
+					pi.sendUserMessage(message(item, project), ctx.isIdle() ? undefined : { deliverAs: "followUp" });
 				} catch (error) {
 					setStatus(folder, item, "new");
 					ctx.ui.notify(`inbox: could not hand ${item.id} to the agent: ${error}`, "error");
@@ -195,9 +201,21 @@ export default function (pi: ExtensionAPI) {
 	const state: InboxState = { offered: new Set(), busy: false, promptOpen: false };
 	let timer: ReturnType<typeof setInterval> | undefined;
 
-	const poll = (ctx: ExtensionContext) => {
+	let fetching = false;
+	const poll = async (ctx: ExtensionContext) => {
 		if (requestRestart(project, folder, ctx, state)) return;
-		void offerOpen(pi, project, folder, ctx, state);
+		if (project === "work" && !fetching) {
+			fetching = true;
+			try {
+				const result = await pi.exec("python3", [join(homedir(), ".local/bin/agent-run"), "--fetch-replies"], { timeout: 20000 });
+				if (result.code !== 0) ctx.ui.notify("Work reply fetch failed, check the restricted aether inbox key", "warning");
+			} catch {
+				ctx.ui.notify("Work reply fetch failed, replies remain on aether", "warning");
+			} finally {
+				fetching = false;
+			}
+		}
+		await offerOpen(pi, project, folder, ctx, state);
 	};
 
 	pi.on("session_start", (_event, ctx) => {
@@ -221,6 +239,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			await ctx.waitForIdle();
+			if (project === "work") await poll(ctx);
 			const open = openItems(folder, project);
 			ctx.ui.notify(open.length
 				? `Open requests: ${open.map((item) => `${item.id} from ${item.from}`).join(", ")}`

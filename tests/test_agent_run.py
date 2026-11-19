@@ -1,6 +1,8 @@
 """Offline tests for the project runner, with no Rex or GitHub mutations."""
+import contextlib
 import importlib.machinery
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -41,6 +43,77 @@ class AgentRunTests(unittest.TestCase):
         for item in self.patches:
             item.start()
             self.addCleanup(item.stop)
+
+    def test_remote_inbox_forced_command_rejects_other_operations(self):
+        with patch.object(agent, "HOST", "aether"):
+            for command in ("", "bash", "deliver main", "fetch; id", "ls", "--launch ls"):
+                with self.subTest(command=command), patch.dict(os.environ, {"SSH_ORIGINAL_COMMAND": command}):
+                    with self.assertRaisesRegex(ValueError, "only deliver or fetch"):
+                        agent.remote_inbox({"projects": {}})
+
+    def test_aether_projects_queue_replies_to_work(self):
+        config = {"defaults": {"host": "aether"}, "projects": {
+            "main": {}, "home": {}, "work": {"host": "sisyphus"}}}
+        local_projects = {name: project for name, project in config["projects"].items() if name != "work"}
+        request = "20261119T075914-25fd7a"
+        with patch.object(agent, "HOST", "aether"), patch.object(agent, "REGISTRY", config), \
+                patch.object(agent, "remote_call") as remote, contextlib.redirect_stdout(io.StringIO()):
+            for project in local_projects:
+                with self.subTest(project=project), patch.dict(os.environ, {"PI_PROJECT": project}):
+                    folder = agent.inbox(project)
+                    folder.mkdir(parents=True, exist_ok=True)
+                    (folder / f"{request}.json").write_text(json.dumps({
+                        "id": request, "from": "work", "to": project, "status": "accepted", "text": "Help"}))
+                    agent.reply(local_projects, project, request, "Verified")
+            remote.assert_not_called()
+            queue = agent.platform_state() / "remote-inbox/work"
+            items = [json.loads(path.read_text()) for path in queue.glob("*.json")]
+            self.assertEqual({item["from"] for item in items}, set(local_projects))
+            self.assertTrue(all(item["to"] == "work" and item["inReplyTo"] == request for item in items))
+            with patch.dict(os.environ, {"SSH_ORIGINAL_COMMAND": "fetch"}), \
+                    patch.object(agent.sys, "stdin", io.StringIO('{}')), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                agent.remote_inbox(config)
+            self.assertEqual(len(json.loads(output.getvalue())), 2)
+
+    def test_remote_inbox_validates_delivery(self):
+        config = {"defaults": {"host": "aether"}, "projects": {
+            "home": {}, "../escape": {}, "work": {"host": "sisyphus"}}}
+        item = {"id": "20261119T075914-25fd7a", "from": "work", "to": "home", "text": "Help", "status": "new"}
+        agent.record_initialization("home", "adopted")
+        with patch.object(agent, "HOST", "aether"), patch.dict(os.environ, {"SSH_ORIGINAL_COMMAND": "deliver"}):
+            for changes in ({"from": "main"}, {"to": "../escape"}, {"to": "work"}, {"id": "../escape"},
+                            {"text": "x" * agent.REMOTE_LIMIT}):
+                with self.subTest(changes=list(changes)), \
+                        patch.object(agent.sys, "stdin", io.StringIO(json.dumps(dict(item, **changes)))):
+                    with self.assertRaises(ValueError):
+                        agent.remote_inbox(config)
+            agent.record_initialization("home", "adopted", "initializing")
+            with patch.object(agent.sys, "stdin", io.StringIO(json.dumps(item))):
+                with self.assertRaisesRegex(ValueError, "not initialized"):
+                    agent.remote_inbox(config)
+            agent.record_initialization("home", "adopted")
+            with patch.object(agent.sys, "stdin", io.StringIO(json.dumps(item))), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                agent.remote_inbox(config)
+            self.assertTrue((agent.inbox("home") / f"{item['id']}.json").is_file())
+
+    def test_remote_inbox_fetch_refuses_symlinks(self):
+        queue = agent.work_reply_queue()
+        queue.mkdir(parents=True)
+        outside = self.home / "private.json"
+        outside.write_text('{"secret": "not a reply"}')
+        link = queue / "20261119T075914-25fd7a.json"
+        link.symlink_to(outside)
+        with patch.object(agent, "HOST", "aether"), patch.dict(os.environ, {"SSH_ORIGINAL_COMMAND": "fetch"}), \
+                patch.object(agent.sys, "stdin", io.StringIO('{}')):
+            with self.assertRaisesRegex(ValueError, "queue entry"):
+                agent.remote_inbox({})
+        link.unlink()
+        queue.rmdir()
+        queue.symlink_to(self.home)
+        with self.assertRaisesRegex(ValueError, "Unsafe work reply queue"):
+            agent.work_reply_queue()
 
     def test_default_generation_and_runner_lock(self):
         self.assertEqual(agent.generation(self.folder), 1)

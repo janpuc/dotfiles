@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""Hourly encrypted Work backup to BigMouth. Disabled until explicitly provisioned."""
+from datetime import datetime, timezone
+import fcntl
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+import urllib.parse
+import urllib.request
+
+HOME = Path.home()
+CONFIG = HOME / ".config/sisyphus-backup"
+STATE = HOME / ".local/state/sisyphus-backup"
+REPOSITORY = "sftp:sisyphus-backup@192.168.69.15:/sisyphus/restic"
+PASSWORD = HOME / ".config/restic/sisyphus.password"
+KEY = HOME / ".ssh/sisyphus-backup"
+KNOWN_HOSTS = CONFIG / "known_hosts"
+PATHS = [HOME / path for path in ("Work", ".pi/agent/sessions", ".local/share/agent-history", ".local/state/agents")]
+
+
+def enabled():
+    if not (CONFIG / "enabled").exists() or not KNOWN_HOSTS.is_file():
+        print("sisyphus-backup: disabled, provision NAS, pin known_hosts and create ~/.config/sisyphus-backup/enabled")
+        return False
+    result = subprocess.run(["ssh-keygen", "-F", "192.168.69.15", "-f", str(KNOWN_HOSTS)], capture_output=True)
+    if result.returncode:
+        print("sisyphus-backup: disabled, known_hosts has no pinned NAS key")
+        return False
+    return True
+
+
+def alert(message):
+    env = dict(line.split("=", 1) for line in (CONFIG / "pushover.env").read_text().splitlines() if "=" in line)
+    data = urllib.parse.urlencode({"token": env["PUSHOVER_TOKEN"], "user": env["PUSHOVER_USER_KEY"],
+                                  "title": "sisyphus backup", "message": message}).encode()
+    with urllib.request.urlopen("https://api.pushover.net/1/messages.json", data, timeout=20) as response:
+        response.read()
+
+
+def restic(*args, capture=False):
+    ssh_args = (f"-i {KEY} -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes "
+                f"-o UserKnownHostsFile={KNOWN_HOSTS}")
+    return subprocess.run(["restic", "--repo", REPOSITORY, "--password-file", str(PASSWORD),
+                           "--cache-dir", str(HOME / ".cache/restic"), "-o", "sftp.args=" + ssh_args, *map(str, args)],
+                          check=True, text=True, capture_output=capture)
+
+
+def exclusions():
+    result = []
+    for file in sorted((HOME / "Work").glob("*/.backup-exclude")):
+        for line in file.read_text().splitlines():
+            path = line.split("#", 1)[0].strip().rstrip("/")
+            if path and not path.startswith("/") and ".." not in path:
+                result.append(str(file.parent / path))
+    return result
+
+
+def run_backup():
+    for path in (PASSWORD, KEY):
+        if not path.is_file():
+            raise ValueError(f"Missing {path}, finish backup provisioning")
+    try:
+        restic("cat", "config", capture=True)
+    except subprocess.CalledProcessError as error:
+        message = (error.stdout or "") + (error.stderr or "")
+        absent = ("repository does not exist" in message
+                  or "unable to open config file: stat" in message and "no such file or directory" in message
+                  or "Is there a repository at the following location?" in message)
+        if not absent:
+            raise
+        restic("init")
+    exclude_file = STATE / "project-excludes"
+    exclude_file.write_text("\n".join(exclusions()) + "\n")
+    args = ["backup", "--host", "sisyphus", "--exclude-file", exclude_file]
+    for pattern in ("**/node_modules", "**/.venv", "**/__pycache__", "**/.cache",
+                    "**/.agent/run.lock", "**/.agent/launch.lock", "**/.agent/tasks/*/run.lock"):
+        args += ["--exclude", pattern]
+    restic(*args, *PATHS)
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    temp = STATE / "last-success.tmp"
+    temp.write_text(now + "\n")
+    temp.replace(STATE / "last-success")
+    today = time.strftime("%Y-%m-%d")
+    prune = STATE / "last-prune"
+    args = ["forget", "--keep-hourly", "48", "--keep-daily", "30", "--keep-weekly", "12", "--keep-monthly", "12", "--quiet"]
+    if (not prune.exists() or prune.read_text().strip() != today) and int(time.strftime("%H")) >= 3:
+        restic(*args, "--prune")
+        prune.write_text(today + "\n")
+    else:
+        restic(*args)
+    check = STATE / "last-check"
+    last_check = float(check.read_text()) if check.exists() else 0
+    if time.time() - last_check >= 7 * 86400:
+        restic("check", "--read-data-subset=1%")
+        check.write_text(str(time.time()) + "\n")
+
+
+def watchdog():
+    success = STATE / "last-success"
+    last = datetime.fromisoformat(success.read_text().strip().replace("Z", "+00:00")).timestamp() if success.exists() else 0
+    alerted = STATE / "last-stale-alert"
+    last_alert = float(alerted.read_text()) if alerted.exists() else 0
+    if time.time() - last > 7200 and time.time() - last_alert >= 21600:
+        alert("No successful sisyphus backup for over two hours")
+        alerted.write_text(str(time.time()) + "\n")
+
+
+def main():
+    os.umask(0o077)
+    action = sys.argv[1] if len(sys.argv) == 2 else "run" if len(sys.argv) == 1 else ""
+    if action not in ("run", "status", "watchdog"):
+        raise ValueError("Usage: sisyphus-backup [run|status|watchdog]")
+    if not enabled():
+        return 0
+    if action == "status":
+        success = STATE / "last-success"
+        print("last successful backup: " + (success.read_text().strip() if success.exists() else "none recorded"))
+        return 0 if success.exists() else 1
+    STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with (STATE / (action + ".lock")).open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("sisyphus-backup: another run is active")
+            return 0
+        if action == "watchdog":
+            watchdog()
+        else:
+            try:
+                run_backup()
+            except Exception:
+                try:
+                    alert("sisyphus backup failed, check its local log")
+                except Exception as error:
+                    print(f"sisyphus-backup: alert failed: {type(error).__name__}", file=sys.stderr)
+                raise
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception as error:
+        print(f"sisyphus-backup: {error}", file=sys.stderr)
+        sys.exit(1)

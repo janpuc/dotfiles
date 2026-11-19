@@ -1,0 +1,29 @@
+{{ if eq .chezmoi.hostname "sisyphus" -}}
+#!/bin/sh
+# Caffeinate: {{ include ".system/local.caffeinate.plist" | sha256sum }}
+# Backup: {{ include ".system/sisyphus-backup" | sha256sum }}
+# Hourly agent: {{ include "Library/LaunchAgents/local.sisyphus-backup.plist.tmpl" | sha256sum }}
+# Watchdog: {{ include "Library/LaunchAgents/local.sisyphus-backup-watchdog.plist.tmpl" | sha256sum }}
+# Mise: {{ include "dot_config/mise/config.toml.tmpl" | sha256sum }}
+set -eu
+umask 077
+export PATH="/opt/homebrew/bin:$HOME/.local/share/mise/shims:/usr/bin:/bin:/usr/sbin:/sbin"
+src={{ .chezmoi.sourceDir | quote }}
+mkdir -p "$HOME/.local/bin" "$HOME/.ssh" "$HOME/.config/sisyphus-backup" "$HOME/.config/restic" \
+    "$HOME/.local/state/sisyphus-backup" "$HOME/.local/state/agents"
+chmod 700 "$HOME/.ssh" "$HOME/.config/sisyphus-backup" "$HOME/.config/restic" "$HOME/.local/state/sisyphus-backup"
+mise install
+install -m 755 "$src/.system/sisyphus-backup" "$HOME/.local/bin/sisyphus-backup"
+[ -f "$HOME/.ssh/sisyphus-backup" ] || ssh-keygen -q -t ed25519 -N '' -C sisyphus-backup -f "$HOME/.ssh/sisyphus-backup"
+[ -f "$HOME/.ssh/work-inbox" ] || ssh-keygen -q -t ed25519 -N '' -C sisyphus-work-inbox -f "$HOME/.ssh/work-inbox"
+for label in local.sisyphus-backup local.sisyphus-backup-watchdog; do
+    launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/$label.plist"
+done
+sudo install -o root -g wheel -m 644 "$src/.system/local.caffeinate.plist" /Library/LaunchDaemons/local.caffeinate.plist
+sudo launchctl bootout system/local.caffeinate 2>/dev/null || true
+sudo launchctl bootstrap system /Library/LaunchDaemons/local.caffeinate.plist
+sudo pmset -c sleep 0 disksleep 0 womp 1
+printf '%s\n' 'Keep-awake installed, Jan can now stop the manual caffeinate pane.'
+printf '%s\n' 'Backup remains disabled until the NAS handoff, pinned known_hosts and enabled marker exist.'
+{{ end -}}

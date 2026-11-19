@@ -5,6 +5,26 @@ import ask from "./agent-guard-ask.ts";
 import child from "./agent-guard-child.ts";
 
 for (const command of [
+	...['delete', 'terminate', 'modify', 'put', 'create', 'update', 'attach', 'detach', 'stop', 'reboot']
+		.map((verb) => `aws --profile dev ec2 ${verb}-example --dry-run`),
+	"aws iam add-user-to-group", "aws iam generate-credential-report", "aws s3 rm s3://bucket/a", "aws s3 mv a b",
+	"aws --cli-binary-format raw-in-base64-out s3 cp --exclude '*' a s3://bucket/a", "aws s3 sync . s3://bucket", "aws s3api put-object", "aws s3api delete-object",
+	"aws --cli-input-json file://x ec2 terminate-instances", "aws ec2 run-instances --cli-input-json file://x",
+	"aws ec2 start-instances", "aws ec2 authorize-security-group-ingress --group-id sg-test",
+	"aws --profile dev --region eu-west-1 --output json --cli-input-json file://x --debug ec2 start-instances",
+	"aws s3 cp s3://bucket/a ./a", "aws ec2 future-write-verb", "tofu apply", "tofu state rm x",
+	"terraform apply", "terraform destroy", "terraform import x y", "terraform taint x",
+	"terraform state rm x", "terraform state mv x y", "assume WBD/prod/Admin", "granted assume prod-readonly",
+	"bash -c 'aws ec2 stop-instances'", "git push",
+]) test(`work guard: ${command}`, () => assert.ok(sharedChange(command, "work")));
+
+for (const command of ["aws s3 ls", "aws ec2 describe-instances", "aws sts get-caller-identity", "terraform plan", "tofu plan",
+	"aws --profile dev --region eu-west-1 --output json --cli-input-json file://x --debug ec2 describe-instances",
+	"aws dynamodb scan", "aws dynamodb query", "aws ec2 wait instance-running", "aws help",
+	"aws iam list-users", "assume dev/Admin"])
+	test(`work reads: ${command}`, () => assert.equal(sharedChange(command, "work"), undefined));
+
+for (const command of [
 	"git push origin main",
 	"git -C /tmp/repo push",
 	"gh pr merge 123 --squash",

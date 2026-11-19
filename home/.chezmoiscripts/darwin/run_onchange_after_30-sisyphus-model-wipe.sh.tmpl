@@ -1,0 +1,61 @@
+{{ if eq .chezmoi.hostname "sisyphus" -}}
+#!/bin/sh
+# Jan creates the marker only after Kubernetes confirms LiteLLM no longer routes here.
+# bc250-eval contains gaming docs as well as AI material and is deliberately preserved.
+# Marker state changes the script digest, so a later approval causes run_onchange to run again.
+# Approval: {{ if stat (joinPath .chezmoi.homeDir ".local/state/agents/model-wipe-approved") }}present{{ else }}absent{{ end }}
+set -eu
+: "${HOME:?Model wipe requires a nonempty HOME}"
+marker="$HOME/.local/state/agents/model-wipe-approved"
+if [ ! -f "$marker" ]; then
+    echo "Model wipe skipped, missing $marker. Create it only after approval, then apply again."
+    exit 0
+fi
+python3 <<'PY'
+import os
+from pathlib import Path
+import shutil
+import subprocess
+
+home = Path(os.environ["HOME"])
+if not home.is_absolute() or home.is_symlink() or home.resolve() == Path("/"):
+    raise ValueError("Unsafe model wipe HOME")
+home = home.resolve(strict=True)
+paths = [home / path for path in (
+    "models", "MLXModels", ".osaurus", "comfyui", "comfyui-data",
+    ".venvs/comfyui", ".venvs/hf", ".config/m3pro", ".cache/huggingface",
+)]
+protected = [home / path for path in ("Development", ".kube/config", ".talos")]
+# Validate the whole inventory before any side effect. Reject symlink targets and ancestors,
+# even dangling links. rmtree unlinks links inside a directory instead of traversing them.
+for path in paths:
+    resolved = path.resolve()
+    if (resolved != path or resolved == home or not resolved.is_relative_to(home)
+            or any(resolved.is_relative_to(keep) or keep.is_relative_to(resolved) for keep in protected)):
+        raise ValueError(f"Unsafe model wipe path: {path}")
+    if path.is_symlink() or any(parent.is_symlink() for parent in path.parents
+                                if parent != home and parent.is_relative_to(home)):
+        raise ValueError(f"Symlinked model wipe path: {path}")
+
+for label in ("local.llama-swap", "local.wired-limit"):
+    if subprocess.run(["sudo", "launchctl", "print", f"system/{label}"],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+        subprocess.run(["sudo", "launchctl", "bootout", f"system/{label}"], check=True)
+    subprocess.run(["sudo", "rm", "-f", f"/Library/LaunchDaemons/{label}.plist"], check=True)
+# Unloading wired-limit alone does not undo its sysctl. Reset to the OS default at reboot.
+for path in paths:
+    if path.is_symlink():
+        raise ValueError(f"Symlinked model wipe path: {path}")
+    if path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+# local.node-exporter and ~/bc250-eval remain. No reboot is initiated automatically.
+for kind, package in (("--formula", "llama.cpp"), ("--cask", "osaurus")):
+    brew = "/opt/homebrew/bin/brew"
+    if subprocess.run([brew, "list", kind, package], stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL).returncode == 0:
+        subprocess.run([brew, "uninstall", kind, package], check=True)
+PY
+echo 'Model services and data removed. Jan should arrange a reboot to reset the wired memory limit.'
+{{ end -}}

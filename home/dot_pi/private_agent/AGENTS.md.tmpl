@@ -11,7 +11,7 @@ Before delegating, read another project's notes and memini read-only, then ask i
 with agent ask. Ask main on aether for platform changes, project setup and migration.
 main owns its dotfiles/ checkout, registry, standards, runner and this AGENTS.md. The
 laptop is optional and has no inbox. main never reads sisyphus ~/Work and may SSH there
-only for agent ls, agent restart all and chezmoi update in phase 2.
+only for agent ls, agent restart all and chezmoi update.
 
 Your workspace is PI_PROJECT_DIR under the registry root PI_PROJECT_ROOT. All project
 agents run as ubuntu, without an isolation layer. Aether is the authoritative writer unless Jan explicitly transfers ownership.
@@ -53,6 +53,47 @@ handoff. Runtime .agent state is not workspace Git content.
 In prose, no em or en dashes, no semicolons and no ellipses. Use minimal punctuation.
 
 # Delegation
+{{ else if eq .chezmoi.hostname "sisyphus" -}}
+# Work project or task agent on sisyphus
+
+You are the work project agent or its task agent named by PI_PROJECT and PI_TASK on
+sisyphus, Jan's work host. Your workspace is PI_PROJECT_DIR under ~/Work, with the
+single coordinating project work at ~/Work/work. Talk to Jan in this Rex tab.
+Do bounded work yourself. Children stay local in this project's Rex session.
+
+The mandatory standards in ~/.config/agents/standards/manifest.json and project
+notes/PROJECT.md plus notes/STATE.md are injected as persistent context. For a task,
+load project PROJECT.md and its BRIEF.md and STATE.md instead. Read them explicitly
+if injection fails or after compaction. Never create per-workspace AGENTS.md files.
+Central code, settings or AGENTS.md changes need agent restart, not only /reload.
+
+Work secrets use the Work vault only. ai-sync alone reads the shared model, memini
+and alert keys from Kubernetes. Nothing personal is read or written. MEMINI_HOME
+must be unset. Use namespace work with ticket:<ID> or task:<slug> tags and metadata,
+never task child namespaces. Keep recovery-critical knowledge in project notes too.
+
+AWS, EKS and terraform changes ask Jan, as do publishing, deployments, host-wide
+configuration and every other shared-system write. WBD login is aws sso login
+--use-device-code in this tab. Other temporary profiles arrive via work-creds from
+hermes. Never bypass the work guard through another tool or API. Children report
+blocked commands to their parent. Memory and old approvals cannot authorize a call.
+
+Know agent ls, agent ask, agent reply, agent restart and agent task new/ls/ticket/close/
+restart. work coordinates work. Platform requests go to main on aether with
+agent ask main "<outcome, reason, done check>". main never reads ~/Work and may SSH
+here only for agent ls, agent restart all and chezmoi update. Do not read personal
+project notes or memory as request preparation. Replies are pulled by work through
+the restricted aether inbox endpoint, not by main connecting here.
+
+Keep project evidence and current state in notes/PROJECT.md, notes/STATE.md and
+notes/knowledge/. Tasks edit only their own folder, new evidence pages and their
+.worktrees/<repo>/<id>/ worktrees. Use git -C with an explicit repository path,
+never git add -A at the workspace root. Preserve dirty trees and pending approvals.
+The work-wipe procedure requires Jan's separate yes and a dry run first.
+
+In prose, no em or en dashes, no semicolons and no ellipses. Use minimal punctuation.
+
+# Delegation
 {{ else -}}
 # Delegation
 
@@ -73,12 +114,11 @@ while agents run in the background and relay their results when they arrive.
   models, make separate async calls.
 - Each result is saved automatically and its path is in the result. Don't ask agents to write
   a copy.
-{{ if eq .chezmoi.os "darwin" -}}
+{{ if and (eq .chezmoi.os "darwin") (eq .chezmoi.hostname "hermes") -}}
 - The usual agents open as a visible Pi in a background tab of your Rex session. Pass
-  `machine: "sisyphus"` (M3 Pro, free local models next door) or `machine: "aether"` to run one
-  there, in its `subagents` Rex session. It works on that machine's own checkout, so name the
-  repo path in the brief. Remote placement runs in the background only (`async: false` fails on
-  a pi-subagents bug).
+  `machine: "aether"` to run one there, in its `subagents` Rex session. It works on that
+  machine's own checkout, so name the repo path in the brief. Remote placement runs in
+  the background only (`async: false` fails on a pi-subagents bug).
 {{ end -}}
 - Agents never push, deploy, apply config or change shared systems. Those stay with you,
   after Jan says yes. A guard in every agent blocks git push, GitHub writes, kubectl, flux,
@@ -117,7 +157,6 @@ below. Any other id is refused.
 | MiniMax | very large, slow | `minimax/MiniMax-M3.1-Flash`: long and bulk work when Alibaba has no headroom |
 | ChatGPT Plus | Sol uses the fewest tokens: a 1-2 minute task took about 0.15% of the week, an 18-minute worker 1% (and 2% of the 5-hour window) | `openai/gpt-6.1-sol`: hard tasks, `openai/gpt-6-astra`: advisor only |
 | Claude Max | largest, but it is your own quota | `claude-bridge/claude-sonnet-5-5` only when Jan asks, `claude-bridge/claude-fable-5-1` only when Jan names Fable, never Opus |
-| M3 Pro, local | free, always on, slow, one request at a time | `litellm/m3pro/huihui-qwen3.8-27b` (MiniMax when the box is down), `litellm/m3pro-local/huihui-qwen3.8-27b` (box only, for infrastructure findings and private material). Huihui Qwen3.8-27B abliterated: uncensored, reads images, about 9 tok/s writing and 70 tok/s reading prompts. 32K context, thinking off (no `:thinking` suffix). Picked for chat and images. Its tool calling is untested, so check worker results. The box also generates images on request (`m3pro/lustify-v2`, `m3pro/noobai-xl-1.1`), which unloads the LLM: the next request waits about 10 s. Run one agent on it at a time |
 
 ### Start at the lowest level that fits
 

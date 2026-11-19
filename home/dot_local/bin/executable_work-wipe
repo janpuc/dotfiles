@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Explicit work-only deletion inventory. Dry run unless Jan supplies --really."""
+import argparse
+import json
+from pathlib import Path
+import shutil
+import socket
+import sys
+
+
+def wipe_paths(home, host):
+    if host not in ("hermes", "sisyphus"):
+        raise ValueError("work-wipe is only for hermes and sisyphus")
+    paths = [home / path for path in (
+        "Work", ".aws", ".granted", ".saml2aws", ".aws-sso",
+        ".local/state/ai/projects/work.env", ".config/op/sisyphus-work.env",
+    )]
+    # All generated Work kubeconfigs, including legacy direct files. The personal config and
+    # its cache are deliberately excluded on both hosts. Never follow a kube directory symlink.
+    kube = home / ".kube"
+    if kube.is_symlink():
+        raise ValueError("Refusing symlinked ~/.kube")
+    if kube.is_dir():
+        paths += [path for path in sorted(kube.iterdir()) if path.name not in ("config", "cache")]
+    registry = home / ".config/agents/projects.json"
+    if registry.exists():
+        projects = json.loads(registry.read_text())["projects"]
+        for name, project in projects.items():
+            if any(ref.startswith("op://Work/") for ref in project.get("secrets", {}).values()):
+                if not name or Path(name).name != name or name in (".", ".."):
+                    raise ValueError("Invalid work project name")
+                paths.append(home / f".local/state/ai/projects/{name}.env")
+    sessions = home / ".pi/agent/sessions"
+    if sessions.is_symlink():
+        raise ValueError("Refusing symlinked Pi sessions")
+    prefix = "--" + str(home / "Work").lstrip("/").replace("/", "-")
+    if sessions.is_dir():
+        for path in sorted(sessions.iterdir()):
+            if path.name != prefix + "--" and not path.name.startswith(prefix + "-"):
+                continue
+            if path.is_symlink() or not path.is_dir():
+                raise ValueError("Refusing an unverifiable Work session entry")
+            # Pi's folder encoding is lossy: Work-foo can also mean Work/foo. Verify
+            # actual session headers so a similarly named non-Work path is never wiped.
+            files = list(path.iterdir())
+            verified = bool(files)
+            for file in files:
+                try:
+                    if file.is_symlink() or not file.is_file():
+                        verified = False
+                        break
+                    with file.open() as stream:
+                        header = json.loads(stream.readline(8192))
+                    cwd = Path(header["cwd"])
+                    if not cwd.is_relative_to(home / "Work") or ".." in cwd.parts:
+                        verified = False
+                        break
+                except (OSError, ValueError, KeyError, TypeError):
+                    verified = False
+                    break
+            if verified or not files and path.name == prefix + "--":
+                paths.append(path)
+            else:
+                print("Work session candidate skipped, no verified Work cwd in every header", file=sys.stderr)
+    paths.append(home / ".local/share/agent-history/work")
+    if host == "sisyphus":
+        paths += [home / path for path in (
+            ".local/state/agents", ".local/state/sisyphus-backup", ".cache/restic",
+            ".config/sisyphus-backup", ".config/restic/sisyphus.password",
+            ".ssh/sisyphus-backup", ".ssh/sisyphus-backup.pub",
+            ".ssh/work-inbox", ".ssh/work-inbox.pub",
+        )]
+    return list(dict.fromkeys(paths))
+
+
+def wipe(home, host, really=False):
+    paths = wipe_paths(home, host)
+    # Check the complete inventory before deleting anything. A symlink leaf is unlinked, never
+    # traversed. A symlink ancestor could escape the inventory and therefore fails closed.
+    for path in paths:
+        if not path.is_relative_to(home) or path.is_relative_to(home / "Development"):
+            raise ValueError(f"Unsafe wipe path: {path}")
+        if any(parent.is_symlink() for parent in path.parents if parent != home and parent.is_relative_to(home)):
+            raise ValueError(f"Symlinked wipe ancestor: {path}")
+    print(f"Host: {host}")
+    print("Deleting reviewed work inventory" if really else "Dry run only, deletion requires --really")
+    for path in paths:
+        print(path)
+    if really:
+        for path in paths:
+            if path.is_symlink() or path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                shutil.rmtree(path)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true")
+    mode.add_argument("--really", action="store_true")
+    args = parser.parse_args()
+    wipe(Path.home(), socket.gethostname().split(".")[0].lower(), args.really)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError) as error:
+        print(f"work-wipe: {error}", file=sys.stderr)
+        sys.exit(1)

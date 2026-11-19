@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Copy one temporary AWS profile, never a long-lived key, from hermes to sisyphus."""
+import configparser
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import socket
+import subprocess
+import sys
+import tempfile
+
+
+def validate(profile, values):
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./@+ -]*", profile):
+        raise ValueError("Invalid AWS profile")
+    if not values.get("AWS_SESSION_TOKEN"):
+        raise ValueError("Refusing credentials without AWS_SESSION_TOKEN")
+    if any(not isinstance(values.get(key), str) or not values[key] or any(char in values[key] for char in "\r\n")
+           for key in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_CREDENTIAL_EXPIRATION")):
+        raise ValueError("Temporary credentials need keys, session token and expiry")
+    expiry = datetime.fromisoformat(values["AWS_CREDENTIAL_EXPIRATION"].replace("Z", "+00:00"))
+    if expiry.tzinfo is None or expiry <= datetime.now(timezone.utc):
+        raise ValueError("Refusing expired credentials")
+
+
+def receive(profile, values):
+    validate(profile, values)
+    folder = Path.home() / ".aws"
+    folder.mkdir(mode=0o700, exist_ok=True)
+    if folder.is_symlink():
+        raise ValueError("Refusing symlinked ~/.aws")
+    folder.chmod(0o700)
+    path = folder / "credentials"
+    if path.is_symlink():
+        raise ValueError("Refusing symlinked credentials")
+    config = configparser.RawConfigParser()
+    config.read(path)
+    config[profile] = {
+        "aws_access_key_id": values["AWS_ACCESS_KEY_ID"],
+        "aws_secret_access_key": values["AWS_SECRET_ACCESS_KEY"],
+        "aws_session_token": values["AWS_SESSION_TOKEN"],
+        "expiration": values["AWS_CREDENTIAL_EXPIRATION"],
+    }
+    with tempfile.NamedTemporaryFile(mode="w", dir=folder, delete=False) as temp:
+        try:
+            config.write(temp)
+            temp.close()
+            os.replace(temp.name, path)
+        finally:
+            Path(temp.name).unlink(missing_ok=True)
+
+
+def send(profile):
+    output = subprocess.run(["aws", "configure", "export-credentials", "--profile", profile, "--format", "env"],
+                            check=True, capture_output=True, text=True).stdout
+    values = {}
+    for line in output.splitlines():
+        words = shlex.split(line)
+        if words[:1] == ["export"]:
+            words = words[1:]
+        for word in words:
+            key, sep, value = word.partition("=")
+            if sep and key.startswith("AWS_"):
+                values[key] = value
+    # Check before any second command or SSH. Static credentials must never leave the laptop.
+    if not values.get("AWS_SESSION_TOKEN"):
+        raise ValueError("Refusing credentials without AWS_SESSION_TOKEN")
+    if not values.get("AWS_CREDENTIAL_EXPIRATION"):
+        process = json.loads(subprocess.run(
+            ["aws", "configure", "export-credentials", "--profile", profile, "--format", "process"],
+            check=True, capture_output=True, text=True).stdout)
+        if (process.get("AccessKeyId") != values.get("AWS_ACCESS_KEY_ID")
+                or process.get("SecretAccessKey") != values.get("AWS_SECRET_ACCESS_KEY")
+                or process.get("SessionToken") != values["AWS_SESSION_TOKEN"]):
+            raise ValueError("Credentials changed during export, retry")
+        values["AWS_CREDENTIAL_EXPIRATION"] = process.get("Expiration")
+    validate(profile, values)
+    command = shlex.join(["/opt/homebrew/bin/python3", ".local/bin/work-creds-send", "--receive", profile])
+    subprocess.run(["ssh", "sisyphus", command], input=json.dumps(values), text=True, check=True)
+    print(f"Sent temporary profile {profile}, expires {values['AWS_CREDENTIAL_EXPIRATION']}")
+
+
+def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--receive" and socket.gethostname().split(".")[0] == "sisyphus":
+        receive(sys.argv[2], json.loads(sys.stdin.read(16384)))
+    elif len(sys.argv) == 2 and socket.gethostname().split(".")[0] == "hermes":
+        send(sys.argv[1])
+    else:
+        raise ValueError("Usage on hermes: work-creds <profile>")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except configparser.Error:
+        print("work-creds: invalid AWS credentials file, no profiles were replaced", file=sys.stderr)
+        sys.exit(1)
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        print(f"work-creds: {error}", file=sys.stderr)
+        sys.exit(1)

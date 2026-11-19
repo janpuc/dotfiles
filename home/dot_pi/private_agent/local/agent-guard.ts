@@ -142,7 +142,36 @@ function dryRun(tool: string, args: string[], what: string): boolean {
 		&& args.some((word) => word === "--dry-run" || word === "-n");
 }
 
-function simpleChange(input: string[]): string | undefined {
+function workChange(tool: string, args: string[]): string | undefined {
+	// Global CLI options can precede the service or verb. Skip only known value options.
+	const valueFlags = new Set([
+		"--profile", "--region", "--endpoint-url", "--output", "--query", "--ca-bundle", "--color",
+		"--cli-read-timeout", "--cli-connect-timeout", "--cli-binary-format", "--exclude", "--include",
+		"--acl", "--grants", "--storage-class", "--sse", "--sse-c", "--sse-c-key", "--sse-kms-key-id",
+		"--sse-c-copy-source", "--sse-c-copy-source-key", "--metadata", "--metadata-directive", "--copy-props",
+		"--website-redirect", "--content-type", "--cache-control", "--content-disposition", "--content-encoding",
+		"--content-language", "--expires", "--source-region", "--page-size", "--expected-size",
+		"--checksum-mode", "--checksum-algorithm", "--request-payer", "--cli-input-json", "--cli-input-yaml",
+	]);
+	const positional: string[] = [];
+	for (let i = 0; i < args.length; i++) {
+		if (valueFlags.has(args[i])) i++;
+		else if (!args[i].startsWith("-")) positional.push(args[i]);
+	}
+	const [service, verb] = positional;
+	if (tool === "aws") {
+		const readOnly = service === "help" || verb === "help"
+			|| service === "s3" && verb === "ls"
+			|| service === "sts" && verb === "get-caller-identity"
+			|| service !== "s3" && /^(?:(?:describe|list|get|head|lookup|search|batch-get|validate)-|(?:scan|query|wait)$)/.test(verb ?? "");
+		if (!readOnly) return "an AWS write";
+	}
+	if (["terraform", "tofu"].includes(tool) && (/^(?:apply|destroy|import|taint)$/.test(service ?? "")
+		|| service === "state" && ["rm", "mv"].includes(verb))) return "a terraform change";
+	if ((tool === "assume" || tool === "granted" && service === "assume") && args.some((arg) => /prod/i.test(arg))) return "assuming a production profile";
+}
+
+function simpleChange(input: string[], profile: string): string | undefined {
 	const words = unwrap(input);
 	if (!words.length) return;
 	const tool = basename(words[0]), args = words.slice(1);
@@ -151,11 +180,15 @@ function simpleChange(input: string[]): string | undefined {
 			if (/^-[^-]*c/.test(args[i])) {
 				const body = args[i + 1];
 				return body === undefined || /^\$(?:\w+|\{\w+\}|\(\))$/.test(body.trim())
-					? "an unclassified shell command" : sharedChange(body);
+					? "an unclassified shell command" : sharedChange(body, profile);
 			}
 		}
 	}
-	if (tool === "eval") return sharedChange(args.join(" "));
+	if (tool === "eval") return sharedChange(args.join(" "), profile);
+	if (profile === "work") {
+		const what = workChange(tool, args);
+		if (what) return what;
+	}
 	if (homeAssistantWrite(tool, args)) return "a Home Assistant write";
 	const command = words.join(" ");
 	for (const [what, re] of RULES) if (re.test(command)) return dryRun(tool, args, what) ? undefined : what;
@@ -174,10 +207,10 @@ function simpleChange(input: string[]): string | undefined {
 }
 
 /** What the command would change, or undefined when it only reads. */
-export function sharedChange(command: string): string | undefined {
+export function sharedChange(command: string, profile = process.env.PI_GUARD_PROFILE ?? "personal"): string | undefined {
 	try {
 		for (const words of simpleCommands(command.replace(/\\\r?\n/g, ""))) {
-			const what = simpleChange(words);
+			const what = simpleChange(words, profile);
 			if (what) return what;
 		}
 	} catch {

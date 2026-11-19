@@ -17,8 +17,10 @@ ROOT = HOME / "Development"
 CONFIG = HOME / ".config/agents/projects.json"
 HOST = socket.gethostname().split(".")[0].lower()
 HOST_CONFIG = {}
+REGISTRY = {}
+REMOTE_LIMIT = 32768
 
-HELP = """agent: project agents on aether, dispatched over SSH from hermes
+HELP = """agent: project agents on aether and sisyphus, dispatched over SSH from hermes
 
 Projects
   ls                    List projects and status                 agent ls
@@ -60,7 +62,8 @@ def dispatch(config, args):
     sender = os.environ.get("PI_PROJECT")
     if not sender:
         try:
-            candidate = Path.cwd().resolve().relative_to(HOME / "Development").parts[0]
+            root = "Work" if Path.cwd().resolve().is_relative_to(HOME / "Work") else "Development"
+            candidate = Path.cwd().resolve().relative_to(HOME / root).parts[0]
             if candidate in projects:
                 sender = candidate
         except (ValueError, IndexError):
@@ -88,10 +91,8 @@ def dispatch(config, args):
             remote.append(f"PI_PROJECT={sender}")
         else:
             remote += ["-u", "PI_PROJECT"]
-        remote += ["python3", ".local/bin/agent-run"]
-        if command[0] == "ask" and not sender:
-            remote += ["--client-jan"]
-        remote += ["--launch", *command]
+        remote += ["fish", "-lc", shlex.join(["python3", ".local/bin/agent-run"]) + " " +
+                   shlex.join((["--client-jan"] if command[0] == "ask" and not sender else []) + ["--launch", *command])]
         if command in (["ls"], ["task", "ls"]):
             output = run("ssh", host, shlex.join(remote), stdout=subprocess.PIPE, text=True).stdout
             for line in output.splitlines():
@@ -259,8 +260,18 @@ def request_target(projects, name):
         raise ValueError(f"{name}: archived, not taking requests")
 
 
+def work_reply_queue():
+    queue = platform_state() / "remote-inbox/work"
+    if (not queue.resolve().is_relative_to(HOME.resolve())
+            or queue.is_symlink() or any(parent.is_symlink() for parent in queue.parents
+                                         if parent != HOME and parent.is_relative_to(HOME))):
+        raise ValueError("Unsafe work reply queue")
+    return queue
+
+
 def write_request(target, item):
-    folder = inbox(target)
+    # Replies wait on aether. Only work can fetch them, main never connects to sisyphus.
+    folder = work_reply_queue() if target == "work" and HOST == "aether" else inbox(target)
     folder.mkdir(parents=True, exist_ok=True)
     atomic_write(folder / f"{item['id']}.json", json.dumps(item, ensure_ascii=False, indent=2) + "\n")
 
@@ -280,14 +291,20 @@ def ask(projects, target, text, client_jan=False):
         raise ValueError("jan is reserved for the laptop client")
     if sender == target:
         raise ValueError("Cannot ask your own project, do the work yourself")
-    if not initialization(target) or not (ROOT / target).is_dir():
+    remote = REGISTRY and project_host(REGISTRY, target) != HOST
+    if remote and not (HOST == "sisyphus" and sender == "work"):
+        raise ValueError("Only work may deliver remote requests to aether")
+    if not remote and (not initialization(target) or not (ROOT / target).is_dir()):
         raise ValueError(f"{target}: workspace is not initialized yet")
     text = text.strip()
     if not text:
         raise ValueError("A request needs text")
     item = {"id": request_id(), "from": sender, "to": target, "text": text,
             "created": request_time(), "status": "new"}
-    write_request(target, item)
+    if remote:
+        remote_call("deliver", item)
+    else:
+        write_request(target, item)
     print(f"{target}: request {item['id']}")
 
 
@@ -307,14 +324,117 @@ def reply(projects, project, request, text):
     target = original.get("from")
     # Jan has no laptop inbox. His replies wait in main's ordinary project inbox.
     target = "main" if target == "jan" else target
-    request_target(projects, target)
+    request_target(REGISTRY["projects"] if REGISTRY else projects, target)
     text = text.strip()
     if not text:
         raise ValueError("A reply needs text")
     item = {"id": request_id(), "from": project, "to": target, "text": text,
             "created": request_time(), "status": "new", "inReplyTo": request}
-    write_request(target, item)
+    if len(json.dumps(item).encode()) > REMOTE_LIMIT - 1024:
+        raise ValueError("Reply exceeds inbox payload limit")
+    if HOST == "aether" and target == "work":
+        write_request(target, item)
+    elif REGISTRY and project_host(REGISTRY, target) != HOST:
+        if HOST != "sisyphus" or project != "work":
+            raise ValueError("Only work may deliver replies remotely")
+        remote_call("deliver", item)
+    else:
+        write_request(target, item)
     print(f"{target}: reply {item['id']} to request {request}")
+
+
+def remote_call(operation, payload):
+    if HOST != "sisyphus":
+        raise ValueError("Only sisyphus uses the work inbox key")
+    output = run("ssh", "-T", "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
+                 "-o", "IdentityAgent=none", "-o", "ControlMaster=no", "-o", "ControlPath=none",
+                 "-o", "StrictHostKeyChecking=yes", "-i", HOME / ".ssh/work-inbox", "aether", operation,
+                 input=json.dumps(payload), stdout=subprocess.PIPE, text=True, timeout=15).stdout
+    return json.loads(output)
+
+
+def remote_inbox(config):
+    """Forced SSH command. No shell, arbitrary paths or other operations are accepted."""
+    operation = os.environ.get("SSH_ORIGINAL_COMMAND", "")
+    if HOST != "aether" or operation not in ("deliver", "fetch"):
+        raise ValueError("Remote inbox accepts only deliver or fetch on aether")
+    raw = sys.stdin.read(REMOTE_LIMIT + 1)
+    if len(raw.encode()) > REMOTE_LIMIT:
+        raise ValueError("Remote inbox payload exceeds 32 KiB")
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("Remote inbox requires an object")
+    if operation == "deliver":
+        target = payload.get("to")
+        if (payload.get("from") != "work" or not valid_name(target) or target not in config["projects"]
+                or project_host(config, target) != "aether"
+                or not isinstance(payload.get("id"), str) or not REQUEST_ID.fullmatch(payload["id"])
+                or not isinstance(payload.get("text"), str) or not payload["text"].strip()
+                or payload.get("status") != "new"):
+            raise ValueError("Invalid work request")
+        request_target(config["projects"], target)
+        record = initialization(target)
+        if not record or record["state"] != "initialized" or not (ROOT / target).is_dir():
+            raise ValueError("Target workspace is not initialized")
+        item = {key: payload[key] for key in ("id", "from", "to", "text", "status")}
+        item["created"] = request_time()
+        if "inReplyTo" in payload:
+            if not isinstance(payload["inReplyTo"], str) or not REQUEST_ID.fullmatch(payload["inReplyTo"]):
+                raise ValueError("Invalid reply id")
+            item["inReplyTo"] = payload["inReplyTo"]
+        path = inbox(target) / f"{item['id']}.json"
+        if not path.exists():
+            write_request(target, item)
+        else:
+            old = json.loads(path.read_text())
+            if any(old.get(key) != item[key] for key in ("from", "to", "text")):
+                raise ValueError("Request id already exists")
+        print(json.dumps({"delivered": item["id"]}))
+        return 0
+    acknowledgements = payload.get("ack", [])
+    if (set(payload) - {"ack"} or not isinstance(acknowledgements, list) or len(acknowledgements) > 128
+            or any(not isinstance(item, str) or not REQUEST_ID.fullmatch(item) for item in acknowledgements)):
+        raise ValueError("Invalid work reply acknowledgements")
+    queue = work_reply_queue()
+    for item in acknowledgements:
+        (queue / f"{item}.json").unlink(missing_ok=True)
+    items = []
+    for path in sorted(queue.glob("*.json")):
+        if path.is_symlink() or not path.is_file() or not REQUEST_ID.fullmatch(path.stem):
+            raise ValueError("Invalid work reply queue entry")
+        with path.open() as stream:
+            raw = stream.read(REMOTE_LIMIT + 1)
+        if len(raw.encode()) > REMOTE_LIMIT:
+            raise ValueError("Work reply exceeds 32 KiB")
+        item = json.loads(raw)
+        if (not isinstance(item, dict) or item.get("to") != "work" or item.get("id") != path.stem
+                or not isinstance(item.get("inReplyTo"), str) or not REQUEST_ID.fullmatch(item["inReplyTo"])):
+            raise ValueError("Invalid work reply")
+        if len(json.dumps(items + [item]).encode()) > REMOTE_LIMIT:
+            break
+        items.append(item)
+    print(json.dumps(items))
+    return 0
+
+
+def fetch_replies():
+    if HOST != "sisyphus" or os.environ.get("PI_PROJECT") != "work":
+        raise ValueError("Only the work project may fetch replies")
+    acknowledgements = platform_state() / "work-reply-acks.json"
+    pending = json.loads(acknowledgements.read_text()) if acknowledgements.exists() else []
+    items = remote_call("fetch", {"ack": pending})
+    received = []
+    for item in items:
+        if (item.get("to") != "work" or not REQUEST_ID.fullmatch(item.get("id", ""))
+                or not isinstance(item.get("text"), str)):
+            raise ValueError("Invalid work reply")
+        # Preserve a locally accepted or declined reply after an interrupted acknowledgement.
+        if not (inbox("work") / f"{item['id']}.json").exists():
+            write_request("work", item)
+        received.append(item["id"])
+    acknowledgements.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(acknowledgements, json.dumps(received) + "\n")
+    return 0
 
 
 def open_requests(name):
@@ -560,12 +680,27 @@ def adopt(name):
         record_initialization(name, "adopted")
 
 
+def require_agent_capacity():
+    limit = HOST_CONFIG.get("maxAgents")
+    if limit is None:
+        return
+    count = 0
+    for name, project in REGISTRY.get("projects", {}).items():
+        if project_host(REGISTRY, name) == HOST:
+            count += int(running(ROOT / name))
+            count += sum(running(ROOT / name, meta["id"]) for meta in task_records(ROOT / name))
+    if count >= limit:
+        raise ValueError(f"{HOST}: maxAgents={limit}, stop an agent first")
+
+
 def ensure(name, project):
     with project_lock(name) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if lifecycle(name, project) == "archived":
             raise ValueError(f"{name}: archived, not starting")
         folder = bootstrap(name, project)
+        if not running(folder):
+            require_agent_capacity()
         for member in members(folder):
             restore_member(folder, member)
         state = folder / ".agent"
@@ -651,10 +786,13 @@ def loop(name, project, defaults, task=None):
         env.update(json.loads(run("mise", "env", "--json", stdout=subprocess.PIPE, text=True).stdout))
         env.update(PI_PROJECT=name, PI_PROJECT_DIR=str(folder), PI_PROJECT_ROOT=str(ROOT),
                    PI_GUARD_PROFILE=HOST_CONFIG.get("guard", "personal"),
-                   MEMINI_NAMESPACE=f"{HOST_CONFIG.get('meminiPrefix', 'homelab')}/{name}",
+                   MEMINI_NAMESPACE=project.get("meminiNamespace", f"{HOST_CONFIG.get('meminiPrefix', 'homelab')}/{name}"),
                    MEMINI_HOME=HOST_CONFIG.get("meminiHome", "personal/jan"))
-        for key in ("MEMINI_NAMESPACE_PREFIX", "PI_TASK", "PI_TASK_DIR", "PI_TASK_STATE_DIR"):
+        for key in ("MEMINI_NAMESPACE_PREFIX", "PI_TASK", "PI_TASK_DIR", "PI_TASK_STATE_DIR",
+                    "OP_SERVICE_ACCOUNT_TOKEN"):
             env.pop(key, None)
+        if env["MEMINI_HOME"] == "none":
+            env.pop("MEMINI_HOME")
         cwd = folder
         if task:
             meta = read_task(folder, task)
@@ -675,7 +813,7 @@ def loop(name, project, defaults, task=None):
                 loaded.add(key)
             if any(key not in loaded for key in project["secrets"]):
                 raise ValueError(f"Missing project secrets, run ai-sync: {secrets}")
-        providers = project.get("providers", defaults.get("providers", "all"))
+        policies = [HOST_CONFIG.get("providers", "all"), project.get("providers", defaults.get("providers", "all"))]
         provider_keys = {
             "claude-bridge": ("PI_CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"),
             "openai": ("PI_OPENAI_API_KEY", "OPENAI_API_KEY"),
@@ -684,7 +822,9 @@ def loop(name, project, defaults, task=None):
             "alibaba": ("PI_ALIBABA_API_KEY", "ALIBABA_API_KEY"),
             "litellm": ("LITELLM_API_KEY",),
         }
-        if providers != "all":
+        for providers in policies:
+            if providers == "all":
+                continue
             if not isinstance(providers, list) or any(provider not in provider_keys for provider in providers):
                 raise ValueError("Invalid providers policy")
             for provider, keys in provider_keys.items():
@@ -820,6 +960,7 @@ def start_task(name, task):
         raise ValueError(f"{task}: closed")
     if running(folder, task):
         return
+    require_agent_capacity()
     session = unique(rex("ls", "--json")["sessions"], name)
     if not session:
         raise ValueError(f"{name}: start the project first")
@@ -987,7 +1128,7 @@ def list_projects(projects):
 
 
 def main():
-    global ROOT, HOST_CONFIG
+    global ROOT, HOST_CONFIG, REGISTRY
     args = sys.argv[1:]
     if not args or args in (["--launch"], ["--launch", "help"], ["--launch", "-h"], ["--launch", "--help"],
                             ["--launch", "task"], ["--launch", "task", "-h"], ["--launch", "task", "--help"],
@@ -1000,6 +1141,12 @@ def main():
             return 2
         sys.argv[2:] = [args[2]]
     config = json.loads(CONFIG.read_text())
+    REGISTRY = config
+    if sys.platform == "darwin" and HOST == "sisyphus":
+        os.environ["PATH"] = os.pathsep.join([
+            str(HOME / ".local/share/mise/shims"), "/opt/homebrew/bin",
+            "/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS",
+            os.environ.get("PATH", "/usr/bin:/bin")])
     if sys.platform == "darwin" and HOST == "hermes":
         return dispatch(config, sys.argv[1:])
     if HOST not in config["hosts"]:
@@ -1008,6 +1155,10 @@ def main():
     ROOT = Path(HOST_CONFIG["root"]).expanduser().resolve()
     projects = {name: project for name, project in config["projects"].items()
                 if project_host(config, name) == HOST}
+    if sys.argv[1:] == ["--remote-inbox"]:
+        return remote_inbox(config)
+    if sys.argv[1:] == ["--fetch-replies"]:
+        return fetch_replies()
     client_jan = len(sys.argv) > 1 and sys.argv[1] == "--client-jan"
     if client_jan:
         sys.argv.pop(1)
@@ -1030,12 +1181,14 @@ def main():
         if action == "ask":
             if len(sys.argv) < 5:
                 raise ValueError("Usage: agent ask <project> <text>")
-            ask(projects, sys.argv[3], " ".join(sys.argv[4:]), client_jan=client_jan)
+            ask(config["projects"], sys.argv[3], " ".join(sys.argv[4:]), client_jan=client_jan)
             return 0
         if action == "reply":
             if len(sys.argv) < 6:
                 raise ValueError("Usage: agent reply <project> <id> <text>")
-            reply(projects, sys.argv[3], sys.argv[4], " ".join(sys.argv[5:]))
+            if sys.argv[3] not in projects:
+                raise ValueError("Replies must originate on this project's host")
+            reply(config["projects"], sys.argv[3], sys.argv[4], " ".join(sys.argv[5:]))
             return 0
         if action == "restart":
             if len(sys.argv) != 4:

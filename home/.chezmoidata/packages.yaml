@@ -48,7 +48,6 @@ packages:
         - claude
         - claude-code@latest
         - codex
-        - keepingyouawake
         - mantrakp04/tap/ardia
         - microsoft-teams
         - obsidian
@@ -86,6 +85,7 @@ packages:
           - prismlauncher
           - protonvpn
           - tailscale-app
+          - vorssaint # menu bar toolkit; settings go in ~/.config/vorssaint/settings.plist once chosen
           - wireshark-app
           - zulu@21
         vscode:
@@ -104,14 +104,12 @@ packages:
         # The M3 Pro model server (janpuc/mac-models): what it had installed when it joined the
         # dotfiles, so `brew bundle --force-cleanup` keeps it.
         brews:
-          - llama.cpp # llama-server behind llama-swap (mac-models)
           - mercurial
           - node_exporter
           - python@3.13 # the mac-models venvs (huggingface_hub)
           - tailscale # the CLI tailscaled system daemon (`sudo brew services start tailscale`), up before any GUI login
         casks:
           - orion
-          - osaurus
         vscode: []
   # The aether server (Ubuntu): only what mise cannot provide. Everything else is in
   # dot_config/mise/config.toml.

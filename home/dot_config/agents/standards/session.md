@@ -1,11 +1,13 @@
 # Session
 
 Validate PI_PROJECT, PI_PROJECT_ROOT and PI_PROJECT_DIR against the host registry.
-Aether's root is ~/Development. Children retain identity, namespace and context.
-Namespaces are platform-owned: personal/jan for personal facts, homelab for small
-shared infra facts, homelab/<project> for registered aether projects, work for phase 2.
-Tasks never get child namespaces. Unregistered sessions on aether and the Mac share
-homelab/scratch. Laptop ~/Work keeps its legacy work prefix until phase 2.
+Aether's root is ~/Development and sisyphus's is ~/Work. Children retain identity,
+namespace and context. Namespaces are platform-owned: personal/jan for personal
+facts, homelab for small shared infra facts, homelab/<project> for registered aether
+projects and work for Work sessions. Sisyphus uses its own memini key with MEMINI_HOME
+unset, never personal inheritance. Tasks never get child namespaces. They tag the
+project namespace with ticket:<ID> or task:<slug>. Other unregistered sessions on
+aether and the laptop share homelab/scratch. Work intake uses the fixed work namespace.
 
 Before work load all ordered standards/manifest.json files and verify every SHA-256.
 Then load notes/PROJECT.md and notes/STATE.md, or for tasks project PROJECT.md plus
