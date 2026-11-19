@@ -1,0 +1,11 @@
+{{- if eq .chezmoi.os "linux" -}}
+#!/bin/sh
+# Daily agent digest to ~/.local/state/agents/digest/<date>.md at 10:00 Warsaw, no model call.
+#   service {{ include ".system/agent-digest.service" | sha256sum }}
+#   timer   {{ include ".system/agent-digest.timer" | sha256sum }}
+set -eu
+src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
+sudo install -o root -g root -m 644 "$src/agent-digest.service" "$src/agent-digest.timer" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now agent-digest.timer
+{{- end }}

@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily agent digest: commits, pushes, merges, deploys and overrides per project
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+ExecStart=/usr/bin/python3 /home/ubuntu/.local/bin/agent-run --digest-daily
+UMask=0077

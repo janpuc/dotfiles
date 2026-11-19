@@ -68,6 +68,7 @@
 .pi/agent/trust.json
 Library/LaunchAgents/local.sisyphus-backup.plist
 Library/LaunchAgents/local.sisyphus-backup-watchdog.plist
+Library/LaunchAgents/local.agent-digest.plist
 {{ end }}
 {{ if ne .chezmoi.hostname "sisyphus" }}
 .ssh/authorized_keys

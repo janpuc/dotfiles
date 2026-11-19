@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily agent digest at 10:00 Warsaw
+
+[Timer]
+OnCalendar=*-*-* 10:00:00 Europe/Warsaw
+Persistent=true
+Unit=agent-digest.service
+
+[Install]
+WantedBy=timers.target

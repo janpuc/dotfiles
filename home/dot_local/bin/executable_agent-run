@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timedelta, timezone
 
 HOME = Path.home()
 ROOT = HOME / "Development"
@@ -34,6 +35,10 @@ Requests
   ask <project> <text>   Ask the system's owner                   agent ask main "Update the standards"
   reply <project> <id> <text>  Reply from the receiving project    agent reply home <id> "Verified"
 
+Overview
+  todo                  Open questions for Jan from every STATE.md   agent todo
+  digest [hours]        Commits, pushes, merges, deploys, overrides  agent digest 48
+
 Tasks
   task new [project] <TICKET|--slug slug> <brief>  Open a task      agent task new home --slug audit "Audit speakers"
   task ls [project]     List tasks and status                    agent task ls
@@ -42,7 +47,7 @@ Tasks
   task restart [project] <id>  Resume the same task session        agent task restart home audit
 
 Inside a project, task commands may omit the project. Close never deletes files.
-Pi commands: /rotate checkpoints a project, /inbox offers requests, /reload reloads Pi.
+Pi commands: /rotate checkpoints a project, /inbox lists requests, /reload reloads Pi.
 Guide: docs/agents.md in main's dotfiles checkout.
 """
 
@@ -76,7 +81,7 @@ def dispatch(config, args):
                 raise ValueError("Task commands need an explicit project outside a project")
             command.insert(2, sender)
     hosts = sorted({project_host(config, name) for name in projects}, key=lambda h: (h != "aether", h))
-    if command in (["ls"], ["up"], ["restart", "all"], ["task", "ls"]):
+    if command in (["ls"], ["up"], ["restart", "all"], ["task", "ls"], ["todo"]) or command[0] == "digest":
         targets = hosts
     else:
         index = 2 if command[0] == "task" else 1 if command[0] in ("ask", "reply", "restart", "adopt", "archive") else 0
@@ -93,7 +98,7 @@ def dispatch(config, args):
             remote += ["-u", "PI_PROJECT"]
         remote += ["fish", "-lc", shlex.join(["python3", ".local/bin/agent-run"]) + " " +
                    shlex.join((["--client-jan"] if command[0] == "ask" and not sender else []) + ["--launch", *command])]
-        if command in (["ls"], ["task", "ls"]):
+        if command in (["ls"], ["task", "ls"], ["todo"]) or command[0] == "digest":
             output = run("ssh", host, shlex.join(remote), stdout=subprocess.PIPE, text=True).stdout
             for line in output.splitlines():
                 print(f"{host} {line}")
@@ -305,6 +310,7 @@ def ask(projects, target, text, client_jan=False):
         remote_call("deliver", item)
     else:
         write_request(target, item)
+    log_action("a request", f"agent ask {target}: {text}")
     print(f"{target}: request {item['id']}")
 
 
@@ -340,6 +346,7 @@ def reply(projects, project, request, text):
         remote_call("deliver", item)
     else:
         write_request(target, item)
+    log_action("a reply", f"agent reply {project} {request}: {text}")
     print(f"{target}: reply {item['id']} to request {request}")
 
 
@@ -1115,6 +1122,86 @@ def task_command(projects, defaults, args):
     return 0
 
 
+ACTION_LOG = HOME / ".local/state/agents/actions.jsonl"
+DIGESTS = HOME / ".local/state/agents/digest"
+
+
+def log_action(what, detail):
+    """Append to the action log the guard also writes. A log failure never stops the command."""
+    try:
+        ACTION_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(os.open(ACTION_LOG, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600), "a") as log:
+            log.write(json.dumps({"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "host": HOST,
+                                  "project": os.environ.get("PI_PROJECT"), "kind": "action", "what": what,
+                                  "command": detail[:300]}) + "\n")
+    except OSError:
+        pass
+
+
+def pending_questions(folder):
+    """The bullets under STATE.md's Pending approvals heading, one string each."""
+    try:
+        lines = (folder / "notes/STATE.md").read_text().splitlines()
+    except OSError:
+        return []
+    questions, inside = [], False
+    for line in lines:
+        if line.startswith("## "):
+            inside = line[3:].strip().lower() == "pending approvals"
+        elif inside and line.startswith("- "):
+            questions.append(line[2:].strip())
+        elif inside and line.startswith("  ") and questions:
+            questions[-1] += " " + line.strip()
+    return questions
+
+
+def todo(projects):
+    for name, project in projects.items():
+        if lifecycle(name, project) != "active":
+            continue
+        for question in pending_questions(ROOT / name):
+            print(f"{name}: {question}")
+
+
+def digest(projects, hours=24):
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    actions = {}
+    try:
+        for line in ACTION_LOG.read_text().splitlines():
+            try:
+                entry = json.loads(line)
+                if datetime.fromisoformat(entry["ts"].replace("Z", "+00:00")) >= since:
+                    actions.setdefault(entry.get("project") or "-", []).append(entry)
+            except (ValueError, KeyError, TypeError):
+                continue
+    except OSError:
+        pass
+    out = [f"# {HOST} digest, last {hours} hours to {datetime.now().astimezone():%Y-%m-%d %H:%M %Z}", ""]
+    for name in [*projects, *sorted(set(actions) - set(projects))]:
+        folder, block = ROOT / name, []
+        repos = [(name, folder)]
+        if (folder / ".git").exists():
+            try:
+                repos += [(f"{name}/{m['path']}", folder / m["path"]) for m in members(folder)]
+            except ValueError:
+                pass
+        for label, path in repos:
+            if not (path / ".git").exists():
+                continue
+            log = subprocess.run(["git", "-C", str(path), "log", "--branches", f"--since={since.isoformat()}",
+                                  "--format=%h %s", "-n", "30"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True).stdout
+            block += [f"- commit {label} {line}" for line in log.splitlines()]
+        for entry in actions.get(name, []):
+            reason = f" (reason: {entry['reason']})" if entry.get("reason") else ""
+            failed = " FAILED" if entry.get("ok") is False else ""
+            block.append(f"- {entry['kind']} {entry.get('what')}{failed}{reason}: {entry.get('command', '')}")
+        if block:
+            out += [f"## {name}", *block, ""]
+    if len(out) == 2:
+        out.append("Nothing committed, pushed or overridden.")
+    return "\n".join(out).rstrip() + "\n"
+
+
 def list_projects(projects):
     sessions = rex("ls", "--json")["sessions"]
     for name, project in projects.items():
@@ -1177,12 +1264,18 @@ def main():
         return remote_inbox(config)
     if sys.argv[1:] == ["--fetch-replies"]:
         return fetch_replies()
+    if sys.argv[1:] == ["--digest-daily"]:
+        DIGESTS.mkdir(parents=True, exist_ok=True)
+        path = DIGESTS / f"{datetime.now():%Y-%m-%d}.md"
+        atomic_write(path, digest(projects))
+        print(path)
+        return 0
     client_jan = len(sys.argv) > 1 and sys.argv[1] == "--client-jan"
     if client_jan:
         sys.argv.pop(1)
         if sys.argv[1:3] != ["--launch", "ask"]:
             raise ValueError("--client-jan is only for laptop requests")
-    reserved = ("up", "ls", "archive", "adopt", "ask", "reply", "restart", "task", "jan", "open", "help")
+    reserved = ("up", "ls", "archive", "adopt", "ask", "reply", "restart", "task", "jan", "open", "help", "todo", "digest")
     if any(not valid_name(name) or name in reserved for name in projects):
         raise ValueError("Project names must be single path components and not reserved command names or jan")
     for name, project in projects.items():
@@ -1207,6 +1300,14 @@ def main():
             if sys.argv[3] not in projects:
                 raise ValueError("Replies must originate on this project's host")
             reply(config["projects"], sys.argv[3], sys.argv[4], " ".join(sys.argv[5:]))
+            return 0
+        if action == "todo" and len(sys.argv) == 3:
+            todo(projects)
+            return 0
+        if action == "digest" and len(sys.argv) in (3, 4):
+            if len(sys.argv) == 4 and not sys.argv[3].isdigit():
+                raise ValueError("Usage: agent digest [hours]")
+            print(digest(projects, int(sys.argv[3]) if len(sys.argv) == 4 else 24), end="")
             return 0
         if action == "restart":
             if len(sys.argv) != 4:
