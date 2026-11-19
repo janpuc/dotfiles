@@ -58,7 +58,7 @@ class WorkSafetyTests(unittest.TestCase):
     @staticmethod
     def authorized_keys_script(host, values):
         """Render the modifier's branch for one host without chezmoi."""
-        template = (BIN.parents[1] / "dot_ssh/modify_authorized_keys.tmpl").read_text()
+        template = (BIN.parents[1] / "private_dot_ssh/modify_authorized_keys.tmpl").read_text()
         head, rest = template.split('{{ if eq .chezmoi.hostname "aether" -}}\n')
         aether, rest = rest.split('{{ else if eq .chezmoi.hostname "sisyphus" -}}\n')
         sisyphus, tail = rest.split("{{ end -}}\n")
