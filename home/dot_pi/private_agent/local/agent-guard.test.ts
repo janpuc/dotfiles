@@ -24,6 +24,11 @@ for (const [command, profile = "personal", cwd = "/tmp"] of [
 	["osascript -e 'tell application \"Messages\" to send \"hi\" to buddy \"x\"'"],
 	["bash -c 'kubectl delete ns media'"], ["eval kubectl delete ns media"],
 	["export AGENT_OVERRIDE=yes; kubectl delete ns media"],
+	["git push --repo=origin +main"], ["git push --repo origin :main"], ["kubectl delete pod/x pvc/y"],
+	["bash -ce 'kubectl delete ns media'"], ["terraform -chdir /x/prod apply", "work"],
+	["AGENT_OVERRIDE=x bash -c 'kubectl delete ns a; kubectl delete ns b'"],
+	["talosctl reset --dry-run=false"], ["if true; then kubectl delete ns media; fi"],
+	["cd /x/prod && terraform apply", "work", "/tmp"],
 ] as [string, string?, string?][]) test(`refused: ${command}`, () => assert.ok(hardDeny(command, profile, cwd).denied));
 
 // Normal work runs without a question.
@@ -34,6 +39,7 @@ for (const command of [
 	"flux reconcile ks apps", "helm upgrade x y", "chezmoi apply", "terraform apply", "terraform plan",
 	"talosctl upgrade-k8s --to 1.36.0 --dry-run", "grep pool.dataset.delete plan.md", "zfs list -t snapshot",
 	"curl https://hass.janpuc.com/api/services/light/turn_on -d '{}'",
+	"curl -s https://mastodon.social/api/v1/statuses/123", "curl -s https://discord.com/api/v10/channels/1/messages",
 ]) test(`allowed: ${command}`, () => assert.equal(hardDeny(command, "personal", "/tmp").denied, undefined));
 
 test("terraform apply is only refused on production at work", () => {

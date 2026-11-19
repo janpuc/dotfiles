@@ -7,7 +7,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 // A command name, any options before the subcommand, then the subcommand.
 const OPTS = String.raw`(?:\s+-{1,2}[A-Za-z][\w-]*(?:[= ][^\s;&|-]\S*)?)*`;
@@ -75,6 +75,8 @@ function unwrap(words: string[], assignments: string[] = []): string[] {
 	while (words.length) {
 		if (assignment(words[0])) { assignments.push(words.shift()!); continue; }
 		const tool = basename(words[0]);
+		// Shell keywords open a compound command whose body is an ordinary command.
+		if (["if", "then", "else", "elif", "do", "while", "until", "!", "{"].includes(words[0])) { words.shift(); continue; }
 		if (!["env", "sudo", "command", "exec", "nohup", "time"].includes(tool)) break;
 		words.shift();
 		while (words[0]?.startsWith("-")) {
@@ -108,6 +110,11 @@ function homeAssistantWrite(tool: string, args: string[]): boolean {
 	const targets = args.map((word) => word.replace(/^--url=/, ""))
 		.filter((word) => /^(?:https?:\/\/hass\.janpuc\.com(?::\d+)?|\$HA_URL|\$\{HA_URL\})\/api\//i.test(word));
 	if (!targets.some((url) => !/\/api\/template\/?(?:[?#].*)?$/.test(url))) return false;
+	return httpWrite(tool, args);
+}
+
+/** Whether an HTTP client call sends data or uses a method other than GET, HEAD or OPTIONS. */
+function httpWrite(tool: string, args: string[]): boolean {
 	let method: string;
 	if (tool === "curl") {
 		const data = args.some((word) => /^-[sSfFLkv]*[dT]/.test(word)
@@ -141,7 +148,7 @@ function dryRun(tool: string, args: string[], what: string): boolean {
 			if (args[i] === "--dry-run") value = args[i + 1] === "none" ? "none" : "true";
 			else if (args[i].startsWith("--dry-run=")) value = args[i].slice(10);
 		}
-		return value !== undefined && value !== "none";
+		return value !== undefined && value !== "none" && value !== "false";
 	}
 	return (what === "git push" || tool === "chezmoi" && cmd("chezmoi", "apply").test([tool, ...args].join(" ")))
 		&& args.some((word) => word === "--dry-run" || word === "-n");
@@ -234,7 +241,8 @@ function forcePush(args: string[]): string | undefined {
 	const rest = args.slice(i + 1);
 	const flags = rest.filter((word) => word.startsWith("-"));
 	const positional = rest.filter((word, n) => !word.startsWith("-") && !/^(?:-o|--push-option|--repo|--receive-pack|--exec)$/.test(rest[n - 1] ?? ""));
-	const refspecs = positional.slice(1);
+	// With --repo the remote is not positional, so every positional word is a refspec.
+	const refspecs = rest.some((word) => word === "--repo" || word.startsWith("--repo=")) ? positional : positional.slice(1);
 	if (flags.some((flag) => flag === "--mirror")) return "a mirror push";
 	const deleting = flags.some((flag) => flag === "--delete" || /^-[^-]*d/.test(flag));
 	if (deleting && refspecs.some((ref) => DEFAULT_BRANCH.test(ref))) return "deleting a default branch";
@@ -253,14 +261,16 @@ function forcePush(args: string[]): string | undefined {
 function kubectlDelete(args: string[]): string | undefined {
 	const positional = args.filter((word, n) => !word.startsWith("-") && !/^(?:-n|--namespace|--context|--kubeconfig|-l|--selector|-o|--output)$/.test(args[n - 1] ?? ""));
 	if (positional[0] !== "delete") return;
-	const kinds = (positional[1] ?? "").split(",").map((kind) => kind.split("/")[0].toLowerCase());
+	// Both `delete pv,pvc name` and `delete pod/x pvc/y` name kinds.
+	const kinds = [positional[1] ?? "", ...positional.slice(2).filter((word) => word.includes("/"))]
+		.flatMap((word) => word.split(",")).map((kind) => kind.split("/")[0].toLowerCase());
 	if (kinds.some((kind) => /^(?:ns|namespaces?)$/.test(kind))) return "deleting a Kubernetes namespace";
 	if (kinds.some((kind) => /^(?:pvc?|persistentvolumes?|persistentvolumeclaims?)$/.test(kind))) return "deleting a persistent volume or claim";
 }
 
 function terraform(args: string[], profile: string, text: string, cwd: string): string | undefined {
 	const positional = args.filter((word) => !word.startsWith("-"));
-	const verb = positional[0] === "run-all" || positional[0] === "run" ? positional[1] : positional[0];
+	const verb = positional.find((word) => /^(?:apply|destroy)$/.test(word));
 	if (verb === "destroy" || verb === "apply" && args.some((word) => /^--?destroy$/.test(word))) return "a terraform destroy";
 	if (verb === "apply" && profile === "work" && (PROD.test(text) || PROD.test(cwd))) return "a terraform apply on production";
 }
@@ -282,7 +292,8 @@ function denied(words: string[], profile: string, cwd: string, env = ""): string
 	if (["sendmail", "msmtp", "swaks", "signal-cli", "matrix-commander", "toot", "twurl"].includes(tool)
 		|| ["mail", "mailx", "mutt", "neomutt"].includes(tool) && args.some((word) => word.includes("@"))) return "sending a message in Jan's name";
 	if (TEXT_TOOLS.has(tool)) return;
-	for (const [what, re] of TEXT_RULES) if (re.test(text)) return what;
+	const http = ["curl", "wget", "http", "https"].includes(tool);
+	for (const [what, re] of TEXT_RULES) if (re.test(text) && !(http && what.startsWith("sending") && !httpWrite(tool, args))) return what;
 }
 
 export interface Verdict { denied?: string; overrides: { what: string; reason: string }[] }
@@ -290,6 +301,7 @@ export interface Verdict { denied?: string; overrides: { what: string; reason: s
 /** The first hard-denied part of a command, and the refusals it lifted with AGENT_OVERRIDE. */
 export function hardDeny(command: string, profile = process.env.PI_GUARD_PROFILE ?? "personal", cwd = process.cwd(), canOverride = true): Verdict {
 	const verdict: Verdict = { overrides: [] };
+	let here = cwd;
 	const check = (source: string, override: string | undefined) => {
 		let commands: string[][];
 		try {
@@ -304,14 +316,16 @@ export function hardDeny(command: string, profile = process.env.PI_GUARD_PROFILE
 			const own = assignments.find((word) => word.startsWith("AGENT_OVERRIDE="))?.slice(15).trim();
 			const reason = own || override;
 			const tool = basename(words[0] ?? ""), args = words.slice(1);
+			if (tool === "cd" || tool === "pushd") { here = resolve(here, args.find((word) => !word.startsWith("-")) ?? homedir()); continue; }
 			if (["bash", "sh", "zsh", "dash", "fish"].includes(tool)) {
-				const c = args.findIndex((word) => /^-[^-]*c$/.test(word));
+				const c = args.findIndex((word) => /^-[^-]*c/.test(word));
 				if (c >= 0 && args[c + 1] !== undefined) { check(args[c + 1], reason); if (verdict.denied) return; continue; }
 			}
 			if (tool === "eval") { check(args.join(" "), reason); if (verdict.denied) return; continue; }
-			const what = denied(words, profile, cwd, assignments.join(" "));
+			const what = denied(words, profile, here, assignments.join(" "));
 			if (!what) continue;
-			if (reason && canOverride) verdict.overrides.push({ what, reason });
+			// One override lifts one refused command, even inside bash -c.
+			if (reason && canOverride && !verdict.overrides.length) verdict.overrides.push({ what, reason });
 			else { verdict.denied = what; return; }
 		}
 	};
