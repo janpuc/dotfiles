@@ -51,7 +51,7 @@ Sisyphus has a dedicated `~/.ssh/work-inbox` ed25519 key. Its public half goes i
 `home/.chezmoidata/work-inbox.yaml`. Aether's additive authorized_keys modifier
 preserves operator keys and manages only the line tagged `agents-work-inbox`.
 It pins sisyphus's tailnet source `100.103.124.32` and forces
-`/home/ubuntu/.local/bin/agent-run --remote-inbox`, with no PTY, forwarding or user rc.
+`/home/ubuntu/.local/bin/agent --remote-inbox`, with no PTY, forwarding or user rc.
 Pin aether's SSH host key independently on sisyphus before testing this connection.
 
 The endpoint accepts only `deliver` and `fetch`, never a shell. Delivery requires
@@ -74,7 +74,7 @@ host itself with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` before commi
 
 dotfiles reaches sisyphus with aether's `~/.ssh/main-sisyphus` key. On sisyphus the authorized_keys
 modifier adds it as the line tagged `agents-main`, from aether's tailnet address only, with no
-PTY, forwarding or user rc, forced to `agent-run --main-endpoint`. The endpoint accepts exactly
+PTY, forwarding or user rc, forced to `agent --main-endpoint`. The endpoint accepts exactly
 `agent ls`, `agent restart all` and `chezmoi update`, nothing else and no arguments. chezmoi
 runs without a TTY, so scripts needing sudo fail there and Jan runs `chezmoi apply` locally.
 The forced command is the only limit, the guard no longer asks.
@@ -242,7 +242,7 @@ this dotfiles change:
 9. Separately migrate Work. Freeze laptop Work sessions, rsync to a staging tree,
    verify counts and git fsck for all 17 checkouts, then `agent work` initializes the
    empty workspace. Move the repos into direct children and use
-   `agent-run --register work <name> <url>` for each existing checkout. Preserve dirty
+   `agent --register work <name> <url>` for each existing checkout. Preserve dirty
    trees. Put old task folders and loose files in untracked `history/`, index them
    in notes/knowledge/history.md and checkpoint explicitly. Add history/ to the
    workspace .gitignore during migration, it is not an initialization seed.
