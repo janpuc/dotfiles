@@ -54,8 +54,9 @@ def receive(profile, values):
 
 
 def send(profile):
+    # Only stdout carries credentials. stderr stays on the terminal so a failed login shows why.
     output = subprocess.run(["aws", "configure", "export-credentials", "--profile", profile, "--format", "env"],
-                            check=True, capture_output=True, text=True).stdout
+                            check=True, stdout=subprocess.PIPE, text=True).stdout
     values = {}
     for line in output.splitlines():
         words = shlex.split(line)
@@ -71,7 +72,7 @@ def send(profile):
     if not values.get("AWS_CREDENTIAL_EXPIRATION"):
         process = json.loads(subprocess.run(
             ["aws", "configure", "export-credentials", "--profile", profile, "--format", "process"],
-            check=True, capture_output=True, text=True).stdout)
+            check=True, stdout=subprocess.PIPE, text=True).stdout)
         if (process.get("AccessKeyId") != values.get("AWS_ACCESS_KEY_ID")
                 or process.get("SecretAccessKey") != values.get("AWS_SECRET_ACCESS_KEY")
                 or process.get("SessionToken") != values["AWS_SESSION_TOKEN"]):

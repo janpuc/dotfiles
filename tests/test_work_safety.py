@@ -90,7 +90,7 @@ class WorkSafetyTests(unittest.TestCase):
                         self.assertEqual(result.returncode, 0, result.stderr)
                         self.assertEqual(result.stdout.splitlines()[0], existing.splitlines()[0])
                         managed = result.stdout.splitlines()[1]
-                        for option in ('command="/home/ubuntu/.local/bin/agent-run --remote-inbox"',
+                        for option in ('command="/Users/jan.pucilowski/.local/bin/agent --remote-inbox"',
                                        'from="100.103.124.32"', "no-pty", "no-port-forwarding",
                                        "no-agent-forwarding", "no-X11-forwarding", "no-user-rc"):
                             self.assertIn(option, managed)
@@ -119,8 +119,7 @@ class WorkSafetyTests(unittest.TestCase):
             self.assertEqual(len(lines), 3)
             self.assertEqual(lines[0], "ssh-rsa operator-key mac-models")
             main = next(line for line in lines if line.endswith(" agents-main"))
-            for option in ('command="/opt/homebrew/bin/mise exec -- python3 /Users/jan.pucilowski/.local/bin/agent-run'
-                           ' --main-endpoint"', 'from="100.108.252.49"', "no-pty", "no-port-forwarding",
+            for option in ('command="/Users/jan.pucilowski/.local/bin/agent --main-endpoint"', 'from="100.108.252.49"', "no-pty", "no-port-forwarding",
                            "no-agent-forwarding", "no-X11-forwarding", "no-user-rc"):
                 self.assertIn(option, main)
             hermes = next(line for line in lines if line.endswith(" agents-hermes"))
