@@ -20,11 +20,20 @@ function k8s-sync --description "Discover EKS clusters and generate kubeconfigs"
     set -l SOURCES bolt_eks.json disco_eks.json hbo_eks.json
     set -l ROLE_PRIORITY GtSustainingEngineering
 
+    if not jq -e 'type == "array" and length > 0' "$AWS_INV" >/dev/null 2>&1
+        echo "Missing or empty $AWS_INV, run aws-sync on hermes and copy it here" >&2
+        return 1
+    end
+
     mkdir -p "$KUBE_CLUSTER_DIR"
     if not test -f "$PREFS"
         echo "{}" >"$PREFS"
     end
     echo "[]" >"$K8S_INV"
+    set -l TMP (mktemp)
+    # Kubeconfigs kept this run. Others are pruned only when every source was read.
+    set -l KEPT
+    set -l COMPLETE 1
 
     echo "Starting K8s Discovery & Config Generation..."
 
@@ -34,6 +43,7 @@ function k8s-sync --description "Discover EKS clusters and generate kubeconfigs"
 
         if test -z "$RAW_FILE_DATA" -o "$RAW_FILE_DATA" = "[]"
             echo "  ! Skipping $FILENAME (empty or not found)"
+            set COMPLETE 0
             continue
         end
 
@@ -64,7 +74,8 @@ function k8s-sync --description "Discover EKS clusters and generate kubeconfigs"
             else
                 # Check if we have a saved preference
                 set -l PREF (jq -r --arg eks "$EKS_NAME" '.[$eks]' "$PREFS")
-                if test "$PREF" != "null"
+                # A saved role is used only while it still exists
+                if test "$PREF" != "null"; and contains -- "$PREF" $PROFILES
                     set SELECTED_PROFILE "$PREF"
                 else
                     # Try priority roles
@@ -83,7 +94,7 @@ function k8s-sync --description "Discover EKS clusters and generate kubeconfigs"
                     end
 
                     if test -n "$SELECTED_PROFILE"
-                        jq --arg eks "$EKS_NAME" --arg prof "$SELECTED_PROFILE" '.[$eks] = $prof' "$PREFS" >tmp.json && mv tmp.json "$PREFS"
+                        jq --arg eks "$EKS_NAME" --arg prof "$SELECTED_PROFILE" '.[$eks] = $prof' "$PREFS" >"$TMP" && cp "$TMP" "$PREFS"
                     end
                 end
             end
@@ -101,6 +112,20 @@ function k8s-sync --description "Discover EKS clusters and generate kubeconfigs"
                 end
             end
 
+            # Generate kubeconfig for EKS clusters, and list only clusters that have one
+            set -l KUBE_PATH "$KUBE_CLUSTER_DIR/$EKS_NAME.yaml"
+            if test "$TYPE" = "eks"
+                if not test -f "$KUBE_PATH"
+                    echo "  > Creating config for $EKS_NAME..."
+                    aws eks update-kubeconfig --name "$EKS_NAME" --region "$REGION" --profile "$SELECTED_PROFILE" --kubeconfig "$KUBE_PATH" < /dev/null
+                    or echo "    FAILED to create config for $EKS_NAME"
+                end
+                if not test -f "$KUBE_PATH"
+                    continue
+                end
+                set -a KEPT "$EKS_NAME.yaml"
+            end
+
             # Add to inventory
             set -l NEW_ENTRY (jq -n \
                 --arg eks "$EKS_NAME" \
@@ -110,16 +135,22 @@ function k8s-sync --description "Discover EKS clusters and generate kubeconfigs"
                 --arg id "$ACC_ID" \
                 --arg type "$TYPE" \
                 '{cluster_name: $eks, aws_profile: $prof, region: $reg, account_name: $name, account_id: $id, cluster_type: $type}')
-            jq --argjson entry "$NEW_ENTRY" '. += [$entry]' "$K8S_INV" >tmp.json && mv tmp.json "$K8S_INV"
+            jq --argjson entry "$NEW_ENTRY" '. += [$entry]' "$K8S_INV" >"$TMP" && cp "$TMP" "$K8S_INV"
+        end
+    end
+    rm -f "$TMP"
 
-            # Generate kubeconfig for EKS clusters
-            set -l KUBE_PATH "$KUBE_CLUSTER_DIR/$EKS_NAME.yaml"
-            if test "$TYPE" = "eks" -a ! -f "$KUBE_PATH"
-                echo "  > Creating config for $EKS_NAME..."
-                aws eks update-kubeconfig --name "$EKS_NAME" --region "$REGION" --profile "$SELECTED_PROFILE" --kubeconfig "$KUBE_PATH" < /dev/null
-                or echo "    FAILED to create config for $EKS_NAME"
+    # Remove kubeconfigs of clusters that are gone or no longer reachable with any role
+    if test $COMPLETE -eq 1
+        for file in $KUBE_CLUSTER_DIR/*.yaml
+            set -l name (basename "$file")
+            if not contains -- "$name" $KEPT
+                echo "  - Removing stale $name"
+                rm -f "$file"
             end
         end
+    else
+        echo "  ! Not pruning stale kubeconfigs, a source was skipped"
     end
 
     set -l total (jq 'length' "$K8S_INV")
