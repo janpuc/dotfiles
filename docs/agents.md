@@ -24,13 +24,13 @@ is in [projects](projects.md), host details in [aether](aether.md) and
   Sisyphus backs up Work and agent state only after its separate NAS provisioning,
   enable marker and restore drill.
 
-## The platform coordinator
+## The platform owner
 
-`main` is an ordinary, always-on project on aether. Its workspace contains the
+`dotfiles` is an ordinary, always-on project on aether. Its workspace contains the
 `dotfiles` submodule from `https://github.com/janpuc/dotfiles.git`. It owns platform
 setup and migration, the registry, standards, runner and central AGENTS.md. Jan will
 give it its first brief separately. Other agents request platform work with
-`agent ask main "<outcome, reason, done check>"`. Nothing waits on a laptop agent.
+`agent ask dotfiles "<outcome, reason, done check>"`. Nothing waits on a laptop agent.
 
 ## Daily use
 
@@ -52,9 +52,9 @@ restarts running project and task sessions. `agent -h`, `agent --help`, `agent h
 and `agent task -h` show the same grouped help in fish and sh.
 
 Laptop requests from a registered `~/Development/<project>` path use that project
-as the sender. Outside one they come from `jan`, with replies delivered to `main`'s
-ordinary aether inbox. Registered Work paths dispatch as `work` to sisyphus.
-A project agent cannot send as `jan` or impersonate `main`.
+as the sender. Outside one they come from `jan`, with replies delivered to the ordinary
+aether inbox of `dotfiles`. Registered Work paths dispatch as `work` to sisyphus.
+A project agent cannot send as `jan` or impersonate `dotfiles`.
 
 | Command | What it does |
 |---|---|
@@ -77,7 +77,7 @@ system is changed by asking its owner.
 
 | Project | Owns |
 |---|---|
-| `main` (aether) | The platform, dotfiles, registry, standards, runner and central AGENTS.md |
+| `dotfiles` (aether) | The platform, dotfiles, registry, standards, runner and central AGENTS.md |
 | `work` (sisyphus) | All work projects, tasks, work credentials and work host coordination |
 | `network` | UniFi gateway, Wi-Fi, firewall, Tailscale, DNS |
 | `kubernetes` | home-ops, the cluster, Flux, Talos |
@@ -101,7 +101,7 @@ their status. A request that is not the owner's to do gets a reply saying so.
 Requests are plain JSON in `~/Development/<project>/.agent/inbox/`, outside git and
 inside the backup. Reading
 another aether project's notes and memini namespace on aether is allowed, changing
-them is not. Work agents read no personal material and main never reads Work.
+them is not. Work agents read no personal material and dotfiles never reads Work.
 
 ## Tasks
 
@@ -162,7 +162,7 @@ The aether-managed `~/.config/rex/init.lua` defines these keys:
 | Ctrl+Cmd+H | Go to home |
 | Ctrl+Cmd+N | Go to a waiting agent, blocked first, then done |
 
-`rex do go_project name=main` jumps to a named project. Sessions sort with `main`
+`rex do go_project name=dotfiles` jumps to a named project. Sessions sort with `dotfiles`
 first, then alphabetically. The project Pi tab has no forced title, so Pi's own title
 can show. Its window id is retained for reconciliation. Task tabs keep `task:<id>`.
 Rex's tab indicators are the activity signal (OSC 7501). The redundant
@@ -182,18 +182,18 @@ prompt is open. `agent ls` shows `restart=pending` until the restart happens.
 
 ## How to change the platform
 
-The platform and Jan's machine config live in one repo, janpuc/dotfiles. `main` owns it and
-works in its checkout on aether (`~/Development/main/dotfiles`).
+The platform and Jan's machine config live in one repo, janpuc/dotfiles. `dotfiles` owns it and
+works in its checkout on aether (`~/Development/dotfiles/dotfiles`).
 
-- Platform changes (a project, a standard, agent behaviour, Pi config): `agent ask main "..."`
-  from anywhere, or talk to `main` in its Rex tab. It branches, edits, tests and commits, and
-  asks Jan before every push. After the push it runs `chezmoi update` and `agent restart all`
+- Platform changes (a project, a standard, agent behaviour, Pi config): `agent ask dotfiles "..."`
+  from anywhere, or talk to `dotfiles` in its Rex tab. It branches, edits, tests, commits and
+  pushes, then reports. After the push it runs `chezmoi update` and `agent restart all`
   on aether, and on sisyphus with its three permitted commands.
-- Mac-only changes (Homebrew, macOS defaults, fish on the Mac) go through `main` the same way.
+- Mac-only changes (Homebrew, macOS defaults, fish on the Mac) go through `dotfiles` the same way.
   Jan then runs `chezmoi update` on the Mac.
 - Editing by hand in the Mac's `~/.local/share/chezmoi` is fine: pull first, commit and push
-  right away. `main` pulls before every change and never force-pushes.
-- Agents never edit dotfiles themselves. They ask `main`.
+  right away. `dotfiles` pulls before every change and never force-pushes.
+- Agents never edit dotfiles themselves. They ask `dotfiles`.
 
 ## Commands inside Pi
 
@@ -211,7 +211,7 @@ happens in the middle of a task.
 
 ## Adding a project
 
-Ask `main` to set up or migrate a project. It follows this procedure:
+Ask `dotfiles` to set up or migrate a project. It follows this procedure:
 
 1. Add an entry to `home/.chezmoidata/projects.yaml` in the dotfiles: lifecycle, optional
    seed repos, and secrets as 1Password references. Defaults (model, thinking, rotation
@@ -252,7 +252,7 @@ Pushover push. The restore runbook is the Restore section of [aether](aether.md)
 
 | Project | What | Repos |
 |---|---|---|
-| `main` | Always-on platform coordinator | `dotfiles` (janpuc/dotfiles) |
+| `dotfiles` | Always-on platform owner | `dotfiles` (janpuc/dotfiles) |
 | `home` | Jan's Home Assistant config and the DietPi AirPlay speaker nodes | `home-assistant` (janpuc/home-assistant), `dietpi/` as plain content |
 | `bigmouth` | BigMouth NAS storage and its off-site backup plan | none yet |
 | `thesis` | Jan's engineering thesis (AGH): multi-tier compute for games on handhelds, a Bevy voxel case study | none, the PoC code lives in the workspace |
@@ -272,9 +272,9 @@ need nothing set. `kubectx` still switches to the work clusters through `KUBECON
 
 The `work` project at `~/Work/work` coordinates work, with no seed repositories.
 Register the existing 17 checkouts during the separate migration, do not reclone.
-`main` may SSH there only for `agent ls`, `agent restart all` and `chezmoi update`,
-never read `~/Work`. Work asks main for platform changes through the restricted
-inbox endpoint on aether and pulls replies, main never connects to deliver one.
+`dotfiles` may SSH there only for `agent ls`, `agent restart all` and `chezmoi update`,
+never read `~/Work`. Work asks dotfiles for platform changes through the restricted
+inbox endpoint on aether and pulls replies, dotfiles never connects to deliver one.
 
 The work guard adds AWS writes, terraform changes and prod-profile assumptions to
 all existing rules. Work secrets come from its own Work-vault service account,

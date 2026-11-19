@@ -5,7 +5,7 @@ initial seed repos. Each host has one root, exported as PI_PROJECT_ROOT, and eac
 workspace is PI_PROJECT_DIR. Aether serves ~/Development/<project>, sisyphus serves
 ~/Work/work. Each execution host is authoritative for its projects unless Jan
 transfers ownership. Agents share the host account, not an isolation boundary.
-Work stays off aether. main coordinates platform setup and migration from dotfiles/,
+Work stays off aether. dotfiles owns platform setup and migration in its dotfiles/ checkout,
 work coordinates work on sisyphus. Nothing personal is read or written by Work agents.
 
 Seeds are consumed only at initialization. Afterward .gitmodules and committed

@@ -32,7 +32,8 @@ projects:
     # Jan fills this item before ai-sync. Existing checkouts are registered during migration.
     secrets:
       GH_TOKEN: op://Work/github/GH_TOKEN
-  main:
+  dotfiles:
+    # janpuc/dotfiles: machine config and the agent platform. Renamed from main 2026-11-19.
     host: aether
     lifecycle: active
     repos:

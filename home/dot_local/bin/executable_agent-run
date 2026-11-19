@@ -32,7 +32,7 @@ Projects
   archive <project>     Stop a project and retain all files      agent archive home
 
 Requests
-  ask <project> <text>   Ask the system's owner                   agent ask main "Update the standards"
+  ask <project> <text>   Ask the system's owner                   agent ask dotfiles "Update the standards"
   reply <project> <id> <text>  Reply from the receiving project    agent reply home <id> "Verified"
 
 Overview
@@ -48,7 +48,7 @@ Tasks
 
 Inside a project, task commands may omit the project. Close never deletes files.
 Pi commands: /rotate checkpoints a project, /inbox lists requests, /reload reloads Pi.
-Guide: docs/agents.md in main's dotfiles checkout.
+Guide: docs/agents.md in janpuc/dotfiles.
 """
 
 
@@ -275,7 +275,7 @@ def work_reply_queue():
 
 
 def write_request(target, item):
-    # Replies wait on aether. Only work can fetch them, main never connects to sisyphus.
+    # Replies wait on aether. Only work can fetch them, dotfiles never connects to sisyphus.
     folder = work_reply_queue() if target == "work" and HOST == "aether" else inbox(target)
     folder.mkdir(parents=True, exist_ok=True)
     atomic_write(folder / f"{item['id']}.json", json.dumps(item, ensure_ascii=False, indent=2) + "\n")
@@ -328,8 +328,8 @@ def reply(projects, project, request, text):
     if not isinstance(original, dict) or original.get("to") != project or original.get("id") != request:
         raise ValueError(f"{project}: no request {request} in its inbox")
     target = original.get("from")
-    # Jan has no laptop inbox. His replies wait in main's ordinary project inbox.
-    target = "main" if target == "jan" else target
+    # Jan has no laptop inbox. His replies wait in the dotfiles project's ordinary inbox.
+    target = "dotfiles" if target == "jan" else target
     request_target(REGISTRY["projects"] if REGISTRY else projects, target)
     text = text.strip()
     if not text:
@@ -364,7 +364,7 @@ MAIN_ENDPOINT = {"agent ls": ["--launch", "ls"], "agent restart all": ["--launch
 
 
 def main_endpoint():
-    """Forced SSH command for main's key on sisyphus. Exactly three operations, no arguments."""
+    """Forced SSH command for the dotfiles project's key (main-sisyphus) on sisyphus. Exactly three operations, no arguments."""
     operation = os.environ.get("SSH_ORIGINAL_COMMAND", "")
     if HOST != "sisyphus" or operation not in (*MAIN_ENDPOINT, "chezmoi update"):
         raise ValueError("main endpoint accepts only agent ls, agent restart all or chezmoi update on sisyphus")
@@ -773,7 +773,7 @@ def ensure(name, project):
         windows = rex("session", "inspect", sid, "--json")["windows"]
         if not unique(windows, "shell"):
             rex("window", "new", "-s", sid, "shell", "-c", folder, "--focus=false", "--json")
-    sessions = sorted(rex("ls", "--json")["sessions"], key=lambda s: (s.get("label") != "main", s.get("label", "")))
+    sessions = sorted(rex("ls", "--json")["sessions"], key=lambda s: (s.get("label") != "dotfiles", s.get("label", "")))
     for before, after in zip(reversed(sessions[:-1]), reversed(sessions[1:])):
         rex("api", "call", "session.move", json.dumps({
             "session_id": before["session_id"], "before_session_id": after["session_id"]}))
@@ -1122,15 +1122,16 @@ def task_command(projects, defaults, args):
     return 0
 
 
-ACTION_LOG = HOME / ".local/state/agents/actions.jsonl"
-DIGESTS = HOME / ".local/state/agents/digest"
+def action_log():
+    return HOME / ".local/state/agents/actions.jsonl"
 
 
 def log_action(what, detail):
     """Append to the action log the guard also writes. A log failure never stops the command."""
     try:
-        ACTION_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with open(os.open(ACTION_LOG, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600), "a") as log:
+        path = action_log()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600), "a") as log:
             log.write(json.dumps({"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), "host": HOST,
                                   "project": os.environ.get("PI_PROJECT"), "kind": "action", "what": what,
                                   "command": detail[:300]}) + "\n")
@@ -1167,7 +1168,7 @@ def digest(projects, hours=24):
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     actions = {}
     try:
-        for line in ACTION_LOG.read_text().splitlines():
+        for line in action_log().read_text().splitlines():
             try:
                 entry = json.loads(line)
                 if datetime.fromisoformat(entry["ts"].replace("Z", "+00:00")) >= since:
@@ -1265,8 +1266,9 @@ def main():
     if sys.argv[1:] == ["--fetch-replies"]:
         return fetch_replies()
     if sys.argv[1:] == ["--digest-daily"]:
-        DIGESTS.mkdir(parents=True, exist_ok=True)
-        path = DIGESTS / f"{datetime.now():%Y-%m-%d}.md"
+        digests = HOME / ".local/state/agents/digest"
+        digests.mkdir(parents=True, exist_ok=True)
+        path = digests / f"{datetime.now():%Y-%m-%d}.md"
         atomic_write(path, digest(projects))
         print(path)
         return 0

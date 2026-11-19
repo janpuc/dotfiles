@@ -8,7 +8,7 @@
   "files": [
     {
       "path": "platform.md",
-      "sha256": "cf6e660c94194f65e28850f40cbbb973a2d0f918c3d11a35dddfb1dc999cb3f3"
+      "sha256": "0046faf58ec1c41c552cdc3138ad4ef89dd6338bbee0030ba8cf3530369ed705"
     },
     {
       "path": "tasks.md",
@@ -16,7 +16,7 @@
     },
     {
       "path": "workspace.md",
-      "sha256": "d1e575957c046956d0c12e38f592ee3704ea831573e493ce5468832207078d36"
+      "sha256": "0645160bb5c9f3ca14d3721c1774a05e23f7ce5ead98e0b4563662c228057f14"
     },
     {
       "path": "session.md",
@@ -48,7 +48,7 @@
     },
     {
       "path": "requests.md",
-      "sha256": "56a37a16fb52b500cc89e87565c8ed9d8dafc884d46f457cc7ec69d2e9b614ba"
+      "sha256": "3776aa75c7f598015333cf28861a3be68617fcd903b9d99c07a37b8fb37b23b4"
     },
     {
       "path": "wipe.md",

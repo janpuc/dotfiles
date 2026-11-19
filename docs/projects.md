@@ -3,7 +3,7 @@
 Aether is Jan's always-on personal execution host, an Ubuntu ARM VM running every
 project agent as ubuntu. The Mac is a Rex client. Work repositories stay off aether.
 There is no isolation layer. docs/isolation-gvisor.md is a deferred alternative.
-The registry assigns aether to personal projects and sisyphus to work. main is an ordinary
+The registry assigns aether to personal projects and sisyphus to work. dotfiles is an ordinary
 always-on aether project with a dotfiles/ seed submodule, not a laptop sender or a
 special inbox. It owns platform setup, migration, registry, standards, runner and
 AGENTS.md. Jan supplies its first brief separately.
@@ -17,8 +17,8 @@ dispatcher, fixed memini namespaces and managed Rex navigation. Phase 2 adds the
 work host, guard, credentials, keep-awake, gated model retirement, disabled backup
 and safe wipe. The Work migration remains separate, as do /delegate and automated
 migration commands. See [sisyphus](sisyphus.md) for setup and the deployment order.
-main may SSH there only for agent ls, agent restart all and chezmoi update, never
-read ~/Work. Work asks main through a restricted aether endpoint and pulls replies.
+dotfiles may SSH there only for agent ls, agent restart all and chezmoi update, never
+read ~/Work. Work asks dotfiles through a restricted aether endpoint and pulls replies.
 
 Validation is offline, with read-only host discovery. No live changes, GitHub,
 1Password, memini or chezmoi apply are part of this build. Deployment, restore drills
@@ -74,8 +74,8 @@ the new launcher.
 Project and member names are single directory components beginning with a letter or
 digit and containing only letters, digits, dots, underscores and hyphens. Project
 names up, ls, open, help, archive, adopt, ask, reply, restart, task and jan are reserved.
-main is an ordinary registered project. jan is a laptop-only request sender, refused
-inside project sessions. Replies for jan land in main's ordinary inbox. Member paths notes,
+dotfiles is an ordinary registered project. jan is a laptop-only request sender, refused
+inside project sessions. Replies for jan land in the dotfiles project's ordinary inbox. Member paths notes,
 plans, scripts and tasks are reserved. Names and paths must be unique, relative and contained
 without symlink escapes. Members remain direct children of the workspace.
 
@@ -189,7 +189,7 @@ validation have one implementation. agent -h, --help, help and task -h list grou
 commands, examples and Pi commands. On hermes it is a dispatcher only: every supported
 command goes over SSH to registry-resolved hosts. ls and task ls prefix each line
 with its host. Outside a registered laptop project, ask sends as jan and routes replies
-to main on aether. Inside one it sends as that project, never as main.
+to dotfiles on aether. Inside one it sends as that project, never as dotfiles.
 
 The project operations are:
 
@@ -221,7 +221,7 @@ Each project has a Rex session with its exact label and Pi and shell tabs at the
 workspace root, created together in session.create with initial_windows. Pi uses
 --keep-open. Its tab has no explicit window label so the program title can show.
 .agent/rex-window records the stable window id and migrates the former pi label.
-Task tabs keep their task:<id> labels. Sessions sort main first, then alphabetically. Repeated launches create only missing resources.
+Task tabs keep their task:<id> labels. Sessions sort dotfiles first, then alphabetically. Repeated launches create only missing resources.
 A stopped or idle-shell pi terminal is replaced within its existing tab. Multiple
 panes or a live unmanaged process are left alone. The external project lock prevents
 concurrent launches from duplicating initialization or Rex resources. The runner's
@@ -263,7 +263,7 @@ transaction, but finalization can be retried without duplicating an accepted fol
 
 The Linux allowlist installs ~/.config/rex/init.lua on aether. Ctrl+Cmd+A toggles
 Activity, F filters, G opens Go to Anything, V views Activity, H jumps to home and N
-selects a waiting agent, blocked before done. rex do go_project name=main jumps by
+selects a waiting agent, blocked before done. rex do go_project name=dotfiles jumps by
 name. rex config check validates locally. rex config reload must run on aether,
 not through a remote Rex connection. The app-side focus behavior of the scan and
 the title presentation need an interactive smoke check after deployment.

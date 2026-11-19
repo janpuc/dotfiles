@@ -3,11 +3,11 @@
 Sisyphus is Jan's macOS 26.6 M3 Pro with 18 GB RAM, hostname `sisyphus`. It runs the
 single `work` project at `~/Work/work` and at most five project and task agents.
 Hermes is the laptop dispatcher and Rex client. Aether runs personal projects and
-`main`, the platform coordinator. Work never moves to aether.
+`dotfiles`, the platform owner. Work never moves to aether.
 
-`main` may SSH to sisyphus only for `agent ls`, `agent restart all` and
+`dotfiles` may SSH to sisyphus only for `agent ls`, `agent restart all` and
 `chezmoi update`. It never reads `~/Work`. Jan or the work agent performs all
-other sisyphus setup in its own tab. Work asks `agent ask main` for platform changes.
+other sisyphus setup in its own tab. Work asks `agent ask dotfiles` for platform changes.
 The Work migration is a separate operation after this build, not part of deployment.
 
 ## Host setup and identities
@@ -72,12 +72,12 @@ All three hosts pin each other's ED25519 host keys in `~/.ssh/known_hosts_agents
 `HostKeyAlias`, rendered from `home/.chezmoidata/agent-ssh.yaml`. Verify a host key on the
 host itself with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` before committing it.
 
-main reaches sisyphus with aether's `~/.ssh/main-sisyphus` key. On sisyphus the authorized_keys
+dotfiles reaches sisyphus with aether's `~/.ssh/main-sisyphus` key. On sisyphus the authorized_keys
 modifier adds it as the line tagged `agents-main`, from aether's tailnet address only, with no
 PTY, forwarding or user rc, forced to `agent-run --main-endpoint`. The endpoint accepts exactly
 `agent ls`, `agent restart all` and `chezmoi update`, nothing else and no arguments. chezmoi
 runs without a TTY, so scripts needing sudo fail there and Jan runs `chezmoi apply` locally.
-main's guard asks Jan before any ssh to sisyphus other than `agent ls`.
+The forced command is the only limit, the guard no longer asks.
 
 Jan's hermes dispatcher needs a login shell, so it is Jan's identity, never an agent key. Until
 `agentSsh.hermesSisyphus.publicKey` and the sisyphus host key are filled it keeps the old
@@ -205,7 +205,7 @@ successful snapshot and restore drill.
 Nothing in this build deploys live changes. In order, after Jan reviews and publishes
 this dotfiles change:
 
-1. On aether, main asks kubernetes to retire all LiteLLM routes and fallbacks to
+1. On aether, dotfiles asks kubernetes to retire all LiteLLM routes and fallbacks to
    sisyphus and create the dedicated sisyphus memini key without a home namespace.
    Ask ai to record mac-models retirement. Track the replies, do not infer completion.
 2. Jan creates the Work-only 1Password service account, fills the Work GitHub token
@@ -221,7 +221,7 @@ this dotfiles change:
 4. Jan checks `sudo launchctl print system/local.caffeinate` and `pmset -g custom`.
    Once the daemon is active with the intended settings, stop the old manual
    caffeinate pane. No need to keep the display awake.
-5. Jan supplies the work-inbox public key to main. Fill workInbox.publicKey in
+5. Jan supplies the work-inbox public key to dotfiles. Fill workInbox.publicKey in
    dotfiles, verify sourceAddress remains sisyphus's tailnet IP, publish and update
    aether. Verify the forced-command authorized_keys line, preserve all operator
    keys. Independently pin aether's host key on sisyphus. Do not grant a shell key.
@@ -229,7 +229,7 @@ this dotfiles change:
    sisyphus. Verify only work.env is generated there, its GH_TOKEN comes from Work,
    and the shared credential cache uses MEMINI_API_KEY_sisyphus. Inspect permissions,
    not values. A missing Work item must fail without replacing a good project env.
-7. From Work once initialized, or via main with Jan relaying the public key first,
+7. From Work once initialized, or via dotfiles with Jan relaying the public key first,
    ask bigmouth to provision Vault/Backups/sisyphus, the restricted SFTP user,
    authorized backup public key and NAS snapshots. The key handed over is
    `~/.ssh/sisyphus-backup.pub`, not work-inbox.pub. Jan verifies the NAS host key
@@ -248,7 +248,7 @@ this dotfiles change:
    workspace .gitignore during migration, it is not an initialization seed.
 10. Copy the 18 old session files into agent-history/work/sessions with their source
     folder names. Verify the fixed work namespace and `/memini:status` with no home
-    leg. Test a request to main and its pulled reply. Configure WBD SSO and test one
+    leg. Test a request to dotfiles and its pulled reply. Configure WBD SSO and test one
     temporary SAML profile with `work-creds` from hermes. Supply AWS inventory, run
     k8s-sync in the Work tab with Jan's approval for the target operations.
 11. Run `sisyphus-backup`, verify `status`, restore and diff notes and verify Git and

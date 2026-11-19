@@ -1,12 +1,12 @@
 # Platform
 
-main is the always-on aether project owning dotfiles/, the registry, standards,
-runner and central AGENTS.md. Ask it to set up or migrate projects and change the
-platform. Jan supplies its first brief. The laptop is optional and has no inbox.
-work is the single coordinator on sisyphus at ~/Work/work. main may SSH to sisyphus
+dotfiles is the aether project owning janpuc/dotfiles: machine config, the registry,
+standards, runner and central AGENTS.md. It takes platform requests like any owner.
+Ask it to set up or migrate projects and change the platform. Jan supplies its first brief. The laptop is optional and has no inbox.
+work is the single coordinator on sisyphus at ~/Work/work. dotfiles may SSH to sisyphus
 only for agent ls, agent restart all and chezmoi update, never read ~/Work.
-Work platform requests use agent ask main. A restricted work-only key delivers them
-to aether and pulls replies. main never connects to sisyphus to deliver a reply.
+Work platform requests use agent ask dotfiles. A restricted work-only key delivers them
+to aether and pulls replies. dotfiles never connects to sisyphus to deliver a reply.
 
 agent commands, with a project optional in task commands inside its session:
 
@@ -28,7 +28,7 @@ agent commands, with a project optional in task commands inside its session:
 On aether, before asking another aether owner, read its PROJECT.md, STATE.md and
 indexed topic pages under PI_PROJECT_ROOT and recall homelab/<owner> read-only.
 This does not permit reading Work. Work agents never read personal files or memory.
-Ask main for platform help without reading its workspace first. Never change another
+Ask dotfiles for platform help without reading its workspace first. Never change another
 owner's files or memory. Delegate with agent ask, never terminal input.
 Requests, replies and folds reach the agent by themselves. Laptop requests outside registered projects come
-from jan. Their replies go to main's ordinary inbox on aether, not the laptop.
+from jan. Their replies go to the dotfiles project's ordinary inbox on aether, not the laptop.
