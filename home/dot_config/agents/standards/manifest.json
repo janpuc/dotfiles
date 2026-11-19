@@ -1,22 +1,30 @@
 {
   "schemaVersion": 1,
-  "version": "2.1.0",
+  "version": "2.2.1",
   "compatibility": {
     "contextSchemaVersion": 1,
-    "bootstrapMaxBytes": 24576
+    "bootstrapMaxBytes": 49152
   },
   "files": [
     {
+      "path": "platform.md",
+      "sha256": "973cce49f73fd9bfa4d8f9407af353dc6abfe141b2da8c08a4ee93b38aadb527"
+    },
+    {
+      "path": "tasks.md",
+      "sha256": "e37f23369189474611ff1209e3310985e00b5666af56f02cc2ad741c6ccb9f89"
+    },
+    {
       "path": "workspace.md",
-      "sha256": "366687de2a4ff10262b7657bd7d8fc94edcbfbf78991924939e55dcfc3320932"
+      "sha256": "d13f8984aac1e3540e3af824f1896ee16f6972846fbdcc0ff6fbb83097c54d14"
     },
     {
       "path": "session.md",
-      "sha256": "386469f5b9b3b425f856a3eb326650744b26c7585f527981bf0888d0f7676bcb"
+      "sha256": "eacbdad4c426fa8cd8b32dd9be8b686c3dba3cf5ab18ca27b1b280afe60e5f72"
     },
     {
       "path": "knowledge.md",
-      "sha256": "f24d95f1d1a93b44ded85414f0ddcef6ed54517715402add4614b4a163ca4ba6"
+      "sha256": "393a8ee75bbb8037292c263ed43c3bd6f8d2cc388a98b8c1417437a01003c63f"
     },
     {
       "path": "git.md",
@@ -40,7 +48,7 @@
     },
     {
       "path": "requests.md",
-      "sha256": "cf4211ff3cffb2eea63cd5756f6bfe514fd4ee523bddf787d5eac830f8dc45f9"
+      "sha256": "aadb47f45f078c2006f6dea8fb4637d1733c940ad498ab89e03c7e6f56d888b5"
     }
   ]
 }

@@ -20,6 +20,14 @@ Jan talks to through Rex. This page is how to use it. The design behind it is in
 - Everything under `~/Development`, the Pi sessions and the agent history is backed up
   every hour to BigMouth.
 
+## The platform coordinator
+
+`main` is an ordinary, always-on project on aether. Its workspace contains the
+`dotfiles` submodule from `https://github.com/janpuc/dotfiles.git`. It owns platform
+setup and migration, the registry, standards, runner and central AGENTS.md. Jan will
+give it its first brief separately. Other agents request platform work with
+`agent ask main "<outcome, reason, done check>"`. Nothing waits on a laptop agent.
+
 ## Daily use
 
 Connect the Rex app to aether, pick the project's session and talk to the agent in the
@@ -33,11 +41,19 @@ those commands outright.
 
 ## Commands on aether
 
-Run these in any aether shell (fish).
+Run these in any aether shell, or on the hermes laptop. The laptop reads the registry
+and dispatches over SSH to the project's host, without a local agent or inbox.
+`agent ls` and `agent task ls` prefix laptop output with the host. `agent restart all`
+restarts running project and task sessions. `agent -h`, `agent --help`, `agent help`
+and `agent task -h` show the same grouped help in fish and sh.
+
+Laptop requests from a registered `~/Development/<project>` path use that project
+as the sender. Outside one they come from `jan`, with replies delivered to `main`'s
+ordinary aether inbox. A project agent cannot send as `jan` or impersonate `main`.
 
 | Command | What it does |
 |---|---|
-| `agent <project>` | Open the project. Creates its Rex session and tabs if missing, starts Pi in the `pi` tab if it is not running. A brand new project folder is created the first time |
+| `agent <project>` or `agent open <project>` | Open the project. Creates its Rex session and tabs if missing, starts Pi in the `pi` tab if it is not running. A brand new project folder is created the first time |
 | `agent up` | The same for every active project. Run it after a reboot or a Rex upgrade: Rex brings back tabs and scrollback but not the programs in them |
 | `agent ls` | One line per project: lifecycle, folder, Rex session, whether Pi runs, generation, open requests, a pending restart, and each repo's branch, dirty state and unpushed commits |
 | `agent adopt <project>` | Take over a folder that already exists but was never set up by the platform. It only inspects and records, it changes nothing |
@@ -56,6 +72,7 @@ system is changed by asking its owner.
 
 | Project | Owns |
 |---|---|
+| `main` | The platform, dotfiles, registry, standards, runner and central AGENTS.md |
 | `network` | UniFi gateway, Wi-Fi, firewall, Tailscale, DNS |
 | `kubernetes` | home-ops, the cluster, Flux, Talos |
 | `agh` | Jan's studies at AGH: numerical methods, algorithms, networks lab, exam prep | local-only `wypozyczalnia-samochodow` (its GitHub copy is gone) |
@@ -81,6 +98,72 @@ Requests are plain JSON in `~/Development/<project>/.agent/inbox/`, outside git 
 inside the backup. Print, JSON and RPC modes never accept or answer for you. Reading
 another project's notes and memini namespace is allowed, changing them is not.
 
+## Tasks
+
+Tasks are bounded work inside a registered project, not new projects. From the laptop
+or aether:
+
+```sh
+agent task new home --slug speaker-audit "Audit the speaker configuration"
+agent task new home HA-123 "Investigate ticket HA-123"
+agent task ls
+agent task ticket home speaker-audit HA-124
+agent task restart home speaker-audit
+agent task close home speaker-audit
+```
+
+Inside a project session, omit `home` from task commands. Ticket ids match
+`^[A-Z][A-Z0-9]{1,9}-[0-9]{1,7}$`, slugs match `^[a-z0-9][a-z0-9-]{1,39}$`.
+Attaching a ticket never renames the id, folder, branch or session. Closed ids are
+never reused. Four tasks may be open by default, including a close in progress.
+
+A task runs in Rex tab `task:<id>` of the project, in Pi session `<project>-task-<id>`.
+Its cwd is `tasks/<id>/`, which separates its Pi history from the project history.
+`PI_PROJECT_DIR` still names the workspace. BRIEF.md contains id, ticket, opened and
+status front matter. STATE.md is the task's state, with project facts and central
+standards injected alongside both. Needed code worktrees go in
+`.worktrees/<repo>/<id>/` on branch `task/<id>`, created by the task agent only when
+needed. Task sessions do not rotate. Restart resumes the same task conversation.
+
+Close waits for the task's next idle boundary, asks it to write RESULT.md with Outcome,
+Changes, Verification, Learned and Open, then sends a `fold` request to the project
+inbox. Jan accepts the fold before the project agent updates shared notes. A close
+that fails stays `closing` and counts toward the limit. Resolve its blocker and repeat
+close. Nothing is deleted: folders, branches, worktrees, sessions and drafts remain.
+Tasks may write their own folder, new knowledge evidence pages and their worktrees,
+not project PROJECT.md, STATE.md or other tasks. Close all open tasks before archiving
+the project.
+
+## Fixed memini namespaces
+
+The platform owns namespace names. `personal/jan` holds personal facts, `homelab`
+small shared infrastructure facts and `homelab/<project>` every registered aether
+project. Tasks use their project's namespace with `ticket:<ID>` or `task:<slug>`
+tags and project, task id and ticket metadata, never a task child namespace.
+Outside a registered project, aether and the Mac use `homelab/scratch`, including
+unknown Git repos. Laptop `~/Work` retains the legacy `work` prefix until phase 2.
+Phase 2's work project uses `work`. No new namespace is derived from a directory.
+
+## Rex navigation
+
+The aether-managed `~/.config/rex/init.lua` defines these keys:
+
+| Keys | Action |
+|---|---|
+| Ctrl+Cmd+A | Toggle Activity sidebar |
+| Ctrl+Cmd+F | Focus sidebar filter |
+| Ctrl+Cmd+G | Go to Anything |
+| Ctrl+Cmd+V | View Activity |
+| Ctrl+Cmd+H | Go to home |
+| Ctrl+Cmd+N | Go to a waiting agent, blocked first, then done |
+
+`rex do go_project name=main` jumps to a named project. Sessions sort with `main`
+first, then alphabetically. The project Pi tab has no forced title, so Pi's own title
+can show. Its window id is retained for reconciliation. Task tabs keep `task:<id>`.
+After changing the Lua config, run `rex config reload` **on aether**. Remote reload
+is refused, and a Mac-local config does not control aether sessions. The scan action's
+app focus behavior still needs an interactive smoke check.
+
 ## Loading new config
 
 After a dotfiles change to AGENTS.md, the standards, the extensions or the Pi
@@ -105,9 +188,12 @@ happens in the middle of a task.
 
 ## Adding a project
 
+Ask `main` to set up or migrate a project. It follows this procedure:
+
 1. Add an entry to `home/.chezmoidata/projects.yaml` in the dotfiles: lifecycle, optional
    seed repos, and secrets as 1Password references. Defaults (model, thinking, rotation
-   limits) can be overridden per project.
+   limits) can be overridden per project. Host defaults to `aether`, providers preserve
+   the existing personal model choices, and `tasks.maxOpen` defaults to four.
 2. Push the dotfiles, then on aether `chezmoi update` and `ai-sync` (it writes the project's
    secrets to `~/.local/state/ai/projects/<project>.env`, which the project's `mise.toml`
    loads).
@@ -122,7 +208,7 @@ setup in the dotfiles.
 
 | Path on aether | What |
 |---|---|
-| `~/Development/<project>/` | The workspace: `notes/`, `plans/`, `scripts/`, `mise.toml`, code repos as submodules, `.worktrees/` for task branches |
+| `~/Development/<project>/` | The workspace, including retained `tasks/<id>/` folders: `notes/`, `plans/`, `scripts/`, `mise.toml`, code repos as submodules, `.worktrees/` for task branches |
 | `~/Development/<project>/.agent/` | Runner state: current generation, handoffs, locks. Not in git, but backed up |
 | `~/.config/agents/standards/` | The central standards, versioned in `manifest.json` |
 | `~/.config/agents/projects.json` | The rendered project registry |
@@ -143,6 +229,7 @@ Pushover push. The restore runbook is the Restore section of [aether](aether.md)
 
 | Project | What | Repos |
 |---|---|---|
+| `main` | Always-on platform coordinator | `dotfiles` (janpuc/dotfiles) |
 | `home` | Jan's Home Assistant config and the DietPi AirPlay speaker nodes | `home-assistant` (janpuc/home-assistant), `dietpi/` as plain content |
 | `bigmouth` | BigMouth NAS storage and its off-site backup plan | none yet |
 | `thesis` | Jan's engineering thesis (AGH): multi-tier compute for games on handhelds, a Bevy voxel case study | none, the PoC code lives in the workspace |
@@ -157,6 +244,13 @@ kubeconfig and `~/.talos/config` the talosconfig, so `kubectl`, `k9s`, `flux` an
 need nothing set. `kubectx` still switches to the work clusters through `KUBECONFIG`, and
 `kubectx -u` returns to the homelab. On aether the same two files live untracked in
 `~/Development/kubernetes/home-ops/`.
+
+## Phase 2 boundary
+
+No sisyphus changes are part of phase 1. Its future `work` project coordinates work.
+`main` may SSH there only for `agent ls`, `agent restart all` and `chezmoi update`,
+never read `~/Work`. Work migrations, `/delegate`, model removal and work credentials
+are deferred. Existing Mac model instructions remain until that phase.
 
 ## Limits to know
 

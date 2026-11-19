@@ -1,12 +1,26 @@
-# Projects on aether v2
+# Multi-host agent platform, phase 1
 
 Aether is Jan's always-on personal execution host, an Ubuntu ARM VM running every
 project agent as ubuntu. The Mac is a Rex client. Work repositories stay off aether.
 There is no isolation layer. docs/isolation-gvisor.md is a deferred alternative.
+The registry now assigns hosts, but phase 1 serves only aether. main is an ordinary
+always-on aether project with a dotfiles/ seed submodule, not a laptop sender or a
+special inbox. It owns platform setup, migration, registry, standards, runner and
+AGENTS.md. Jan supplies its first brief separately.
 Aether is the authoritative workspace writer unless Jan explicitly transfers ownership.
 Do not run divergent authoritative copies on the Mac and aether.
 
-## Build status
+## Phase 1 additions
+
+This build adds registry hosts and providers, main, task sessions, a hermes SSH
+dispatcher, fixed memini namespaces, standards 2.2.0 and managed Rex navigation.
+Validation is offline. No live state, GitHub, memini, SSH or chezmoi apply is part of
+the build. Deployment and interactive Rex title, close and fold checks remain manual.
+Phase 2 alone will add work on sisyphus. main may SSH there only for agent ls,
+agent restart all and chezmoi update, never read ~/Work. /delegate, work migration,
+work credentials and model removal are deferred.
+
+## Previous build status
 
 This change implements build-plan steps 1 to 6: data contracts, local workspace
 bootstrap, safe repository registration and recovery, launcher lifecycle, central
@@ -30,9 +44,14 @@ until an isolated restore drill actually succeeds.
 home/.chezmoidata/projects.yaml renders to ~/.config/agents/projects.json on Linux
 and Mac.
 
-Defaults remain model claude-bridge/claude-opus-5-5, thinking high, meminiPrefix
-homelab, and rotation sizeMB 100, compactions 5, days 30. A project may override these
-values and individual rotation thresholds. Keep secrets as environment names mapped
+hosts.aether defines root ~/Development, meminiPrefix homelab, meminiHome personal/jan
+and guard personal. Each project has host (default aether), providers and tasks.maxOpen
+(default four). The render resolves these fields into projects.json. Defaults retain
+model claude-bridge/claude-opus-5-5, thinking high and rotation sizeMB 100, compactions 5,
+days 30. Providers preserve today's claude-bridge, openai, minimax, opencode-go, alibaba
+and litellm choices. The runner removes cached and plain provider keys when disallowed,
+not all PI_* identity variables. This is configuration, not network isolation or a
+sandbox. A project may override model, thinking and individual rotation thresholds. Keep secrets as environment names mapped
 to op:// references. The optional apt list extends the platform package layer.
 
 Project lifecycle is active or archived, defaulting to active. Optional repos entries
@@ -46,8 +65,10 @@ the new launcher.
 
 Project and member names are single directory components beginning with a letter or
 digit and containing only letters, digits, dots, underscores and hyphens. Project
-names up, ls, archive, adopt, ask, reply and restart are reserved. Member paths notes,
-plans and scripts are reserved. Names and paths must be unique, relative and contained
+names up, ls, open, help, archive, adopt, ask, reply, restart, task and jan are reserved.
+main is an ordinary registered project. jan is a laptop-only request sender, refused
+inside project sessions. Replies and declines for jan land in main's ordinary inbox. Member paths notes,
+plans, scripts and tasks are reserved. Names and paths must be unique, relative and contained
 without symlink escapes. Members remain direct children of the workspace.
 
 ## Local workspace and initialization
@@ -66,7 +87,8 @@ without symlink escapes. Members remain direct children of the workspace.
 ├── scripts/
 ├── <repository>/                 Git submodule
 ├── <non-git-folder>/              Ordinary tracked workspace content
-├── .worktrees/<repo>/<task>/      Linked task worktrees
+├── tasks/<id>/                   BRIEF.md, STATE.md and RESULT.md at close
+├── .worktrees/<repo>/<task>/      Linked task worktrees, branch task/<id>
 └── .agent/
     ├── generation
     ├── handoff-<N>.md
@@ -74,6 +96,7 @@ without symlink escapes. Members remain direct children of the workspace.
     ├── restart-requested
     ├── context.json              Derived context revision, digests and hashes
     ├── inbox/<id>.json           Cross-project requests and replies
+    ├── tasks/<id>/               Task metadata, close/restart markers, context and lock
     └── run.lock
 ```
 
@@ -151,9 +174,18 @@ a standalone .git directory, the supported old-form submodule layout.
 
 ## Launcher and Rex
 
-The Linux-only fish function delegates to ~/.local/bin/agent-run:
+Both the fish function and sh agent script delegate to ~/.local/bin/agent-run.
+The runner resolves its own hostname in hosts, exports PI_PROJECT_ROOT and serves
+only projects assigned to that host. Unknown execution hosts fail closed. Help and
+validation have one implementation. agent -h, --help, help and task -h list grouped
+commands, examples and Pi commands. On hermes it is a dispatcher only: every supported
+command goes over SSH to registry-resolved hosts. ls and task ls prefix each line
+with its host. Outside a registered laptop project, ask sends as jan and routes replies
+to main on aether. Inside one it sends as that project, never as main.
 
-- agent <project> initializes if genuinely new, safely checks members and reconciles Rex
+The project operations are:
+
+- agent <project> or agent open <project> initializes if genuinely new, safely checks members and reconciles Rex
 - agent up starts only active projects with the same idempotent reconciliation
 - agent ls prints lifecycle, initialization state, folder, Rex ID, runner liveness and
   generation, then member branch, dirty and ahead summaries. No upstream means ahead
@@ -163,7 +195,7 @@ The Linux-only fish function delegates to ~/.local/bin/agent-run:
   reply <project> <id> <text> answers the original sender's inbox from a request in
   the current project's inbox. Unknown, archived and self targets are refused
 - agent restart <project>|all writes an atomic .agent/restart-requested marker so each
-  agent loads updated central config. all means active projects with a running Pi
+  agent loads updated central config. all includes active running project and task agents
 - agent ls also counts open requests and shows restart=pending while a marker waits
 - agent archive <project> stops the managed Pi block and writes a local archived record,
   without deleting or moving files. It matches the Rex child PID against the live
@@ -177,17 +209,55 @@ unarchive command. Archived projects remain in backup scope. `aether-backup stat
 prints the last successful backup from a local record on aether, written only after a run
 succeeds.
 
-Each project has a Rex session with its exact label and pi and shell tabs at the
-workspace root. Pi uses --keep-open. Repeated launches create only missing resources.
+Each project has a Rex session with its exact label and Pi and shell tabs at the
+workspace root, created together in session.create with initial_windows. Pi uses
+--keep-open. Its tab has no explicit window label so the program title can show.
+.agent/rex-window records the stable window id and migrates the former pi label.
+Task tabs keep their task:<id> labels. Sessions sort main first, then alphabetically. Repeated launches create only missing resources.
 A stopped or idle-shell pi terminal is replaced within its existing tab. Multiple
 panes or a live unmanaged process are left alone. The external project lock prevents
 concurrent launches from duplicating initialization or Rex resources. The runner's
 .agent/run.lock spans startup, model execution and rotation.
 
 If exactly one Rex app is connected, select that session. With several apps do not
-choose for Jan. Remote Control must be enabled by Jan. The Mac has the registry but
-no project launcher or Linux standards installation. For remote inspection use
+choose for Jan. Remote Control must be enabled by Jan. The Mac has the registry and dispatcher but
+no local project runner or Linux standards installation. For remote inspection use
 rex -S aether ls --json and rex -S aether client ls.
+
+## Tasks
+
+agent task new [project] <TICKET-ID|--slug slug> "<brief>" creates a retained task
+folder and starts its Rex tab in the project's session. The project is optional only
+when PI_PROJECT or a registered laptop path identifies it. agent task ls [project],
+ticket [project] <slug> <TICKET>, close [project] <id> and restart [project] <id> manage it.
+Ticket ids match ^[A-Z][A-Z0-9]{1,9}-[0-9]{1,7}$ and slugs ^[a-z0-9][a-z0-9-]{1,39}$.
+The id is immutable and never reused. Ticket attachment updates BRIEF front matter
+and runtime metadata without renaming paths, task/<id> branches or sessions.
+
+Cwd is tasks/<id>/, giving each task a separate Pi history directory and session id
+<project>-task-<id>. PI_PROJECT_DIR stays the project root. STATE.md belongs to the
+task, while project facts come from notes/PROJECT.md. Tasks create code worktrees
+only as needed under .worktrees/<repo>/<id>/. No task rotation is implemented.
+
+.agent/tasks/<id>/meta.json records id, ticket, opened and status open, closing or
+closed. A close-requested marker triggers an idle-boundary message to the task agent
+asking it to write RESULT.md with Outcome, Changes, Verification, Learned and Open.
+After TASK_CLOSE_READY the extension validates headings and calls the runner to
+finalize. It writes an idempotent fold request to the project inbox before closing
+metadata and the closed marker, then gracefully stops Pi. The fold waits for Jan.
+Failed closes retain data and stay closing, counting toward maxOpen. Repeat close
+after resolving the blocker. Closed ids, folders, worktrees, branches and sessions
+are never deleted or reused. Runtime metadata and result writes are not one atomic
+transaction, but finalization can be retried without duplicating an accepted fold.
+
+## Rex navigation
+
+The Linux allowlist installs ~/.config/rex/init.lua on aether. Ctrl+Cmd+A toggles
+Activity, F filters, G opens Go to Anything, V views Activity, H jumps to home and N
+selects a waiting agent, blocked before done. rex do go_project name=main jumps by
+name. rex config check validates locally. rex config reload must run on aether,
+not through a remote Rex connection. The app-side focus behavior of the scan and
+the title presentation need an interactive smoke check after deployment.
 
 ## Tools and credentials
 
@@ -219,19 +289,23 @@ paths and never invoke ai-sync against real user state.
 
 home/dot_pi/private_agent/AGENTS.md.tmpl is the only platform-maintained AGENTS.md.
 Its Linux preamble refers to the mandatory standards under ~/.config/agents/standards.
-The Mac render is unchanged. The manifest has schemaVersion 1, version 2.1.0, ordered
+The Mac render is unchanged. The manifest has schemaVersion 1, version 2.2.0, ordered
 mandatory file paths with per-file SHA-256 digests computed during this build, and
 compatibility metadata. Recompute digests whenever standard content changes.
 
 The standards cover workspace, session, knowledge, git, tools, approvals, handoff,
-recovery and requests between projects. requests.md fixes project ownership, the ask
+recovery, requests between projects, platform commands and task lifecycle. requests.md fixes project ownership, the ask
 and reply flow and the rule that another project's notes and memini namespace may be
 read but not changed. They are mandatory documents, not optional skills. knowledge.md
 defines the fixed headings and evidence rules for PROJECT, STATE and topic pages. The
 agent owns routine knowledge upkeep. Jan reviews decisions and approvals, not routine
 edits.
-memini remains supplementary searchable recall in homelab/<project>, inherited by
-children. It must not be the only copy of recovery-critical facts.
+memini remains supplementary searchable recall in the platform-owned homelab/<project>
+namespace, inherited by children. personal/jan holds personal facts and homelab small
+shared infrastructure facts. Tasks never create child namespaces: entries use tags
+ticket:<ID> or task:<slug> plus project, task id and ticket metadata. Unregistered
+sessions on aether and the Mac share homelab/scratch, never a new cwd-derived name.
+The legacy laptop ~/Work prefix remains until phase 2's work project uses work. It must not be the only copy of recovery-critical facts.
 
 Agents may edit, test and commit locally. Pushes, merges, PR creation, deployments,
 cluster changes and every HA write require Jan. There are no light, scene or reload
@@ -250,7 +324,7 @@ semicolons and no ellipses.
 
 home/dot_pi/private_agent/local/project-context.ts is registered in the Pi settings for
 both renders but returns immediately when PI_PROJECT is unset, so the Mac is unaffected.
-It validates PI_PROJECT_DIR as ~/Development/<PI_PROJECT>, requires the project in
+It validates PI_PROJECT_DIR as PI_PROJECT_ROOT/<PI_PROJECT>, requires the project in
 ~/.config/agents/projects.json and reads the ordered manifest. It builds one message
 from the standards, notes/PROJECT.md and notes/STATE.md and returns it from
 before_agent_start. The bridge forwards that custom message as literal prompt text,
@@ -261,12 +335,13 @@ The message is rebuilt before a turn when any loaded file's content hash changes
 again after a compaction or a new, resumed or forked session. Each message carries the
 standards version, the combined standards digest and a context revision, and states
 that it supersedes any earlier context message. It also carries a one-line summary of
-the new cross-project requests waiting in the inbox. Children inherit PI_PROJECT and
-PI_PROJECT_DIR and receive the same context.
+the new cross-project requests waiting in the inbox. Children inherit PI_PROJECT, PI_PROJECT_ROOT and PI_PROJECT_DIR and receive the same
+context. For PI_TASK it loads project PROJECT.md plus tasks/<id>/BRIEF.md and STATE.md,
+not project STATE.md. Task context records go in .agent/tasks/<id>/context.json.
 
 Content input is the registry, the standards manifest and files, notes/PROJECT.md and
 notes/STATE.md. The knowledge index is in PROJECT.md, and detailed topic pages are read
-as needed rather than injected. The budget is 24 KiB of UTF-8 for the standards plus
+as needed rather than injected. The budget is 48 KiB of UTF-8 for the standards plus
 PROJECT and STATE, taken from the manifest compatibility block. An oversized block, a
 missing manifest or listed standards file, and a manifest digest mismatch are reported
 in the message and in an error notification. Nothing is truncated. A missing PROJECT
@@ -282,7 +357,7 @@ is not sufficient for bridge context refresh.
 ## Generation loop and rotation
 
 The runner still launches Pi with --session-id <project>-<N> and --model
-<model>:<thinking>, exporting PI_PROJECT, PI_PROJECT_DIR and MEMINI_NAMESPACE.
+<model>:<thinking>, exporting PI_PROJECT, PI_PROJECT_ROOT, PI_PROJECT_DIR and exact MEMINI_NAMESPACE.
 Handoffs are sent only if that generation has no existing Pi session file. Ordinary
 restarts resume without replaying the handoff.
 

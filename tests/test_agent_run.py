@@ -64,10 +64,15 @@ class AgentRunTests(unittest.TestCase):
                 return {"sessions": sessions}
             if args[:2] == ("session", "inspect"):
                 return {"windows": windows}
-            if args[0] == "new":
+            if args[:3] == ("api", "call", "session.create"):
+                layout = json.loads(args[3])
+                self.assertEqual(len(layout["initial_windows"]), 2)
+                self.assertNotIn("window_label", layout["initial_windows"][0])
+                self.assertEqual(layout["initial_windows"][0]["layout"]["block"]["options"]["command"][0], "fish")
                 sessions.append({"label": "home", "session_id": "session:home"})
-                windows.append({"label": "pi", "layers": [{"blocks": [{"block_id": "block:pi"}]}]})
-                return {"session_id": "session:home"}
+                windows.extend([{"window_id": "window:pi", "layers": [{"blocks": [{"block_id": "block:pi"}]}]},
+                                {"window_id": "window:shell", "label": "shell", "layers": []}])
+                return {"session_id": "session:home", "initial_windows": [{"window_id": "window:pi"}, {"window_id": "window:shell"}]}
             if args[:2] == ("window", "new"):
                 windows.append({"label": args[4], "layers": []})
                 return {}
@@ -88,8 +93,8 @@ class AgentRunTests(unittest.TestCase):
             agent.ensure("home", {"workspace": "janpuc/home-workspace"})
             alive = True
             agent.ensure("home", {"workspace": "janpuc/home-workspace"})
-            self.assertEqual([w["label"] for w in windows], ["pi", "shell"])
-            self.assertEqual(sum(c[0] == "new" for c in calls), 1)
+            self.assertEqual([w.get("label") for w in windows], [None, "shell"])
+            self.assertEqual(sum(c[:3] == ("api", "call", "session.create") for c in calls), 1)
             self.assertEqual(sum(c[0] == "run" for c in calls), 0)
             alive = False
             agent.ensure("home", {"workspace": "janpuc/home-workspace"})
@@ -217,6 +222,64 @@ class AgentRunTests(unittest.TestCase):
         result = subprocess.run(["sh", str(SOURCE.parents[2] / "dot_pi/private_agent/local/bin/executable_pi"), "--session-id", "home-1"],
                                 env=env, capture_output=True, text=True, check=True)
         self.assertEqual(result.stdout.splitlines(), [env["PATH"], "--session-id home-1"])
+
+    def test_task_close_never_deletes_task_worktree_or_session_data(self):
+        folder = agent.bootstrap("empty", {})
+        projects = {"empty": {}}
+        with patch.object(agent, "ensure"), patch.object(agent, "start_task"):
+            agent.task_command(projects, {}, ["new", "empty", "--slug", "safe-close", "Keep all artifacts"])
+        task = folder / "tasks/safe-close"
+        state = agent.task_state(folder, "safe-close")
+        worktree = folder / ".worktrees/code/safe-close"
+        worktree.mkdir(parents=True)
+        (worktree / "uncommitted").write_text("must survive")
+        session = self.home / ".pi/agent/sessions/task.jsonl"
+        session.parent.mkdir(parents=True)
+        session.write_text("session history")
+        (task / "draft.csv").write_text("irreplaceable data")
+        before = {path: path.read_bytes() for path in (worktree / "uncommitted", session, task / "draft.csv", task / "STATE.md")}
+        with patch.object(agent, "ensure"), patch.object(agent, "start_task"):
+            agent.task_command(projects, {}, ["close", "empty", "safe-close"])
+        self.assertEqual(agent.read_task(folder, "safe-close")["status"], "closing")
+        with self.assertRaises(OSError):
+            agent.finalize_task("empty", "safe-close")
+        self.assertFalse((state / "closed").exists())
+        result = "# safe-close\n\n" + "\n".join(f"## {h}\nVerified.\n" for h in ("Outcome", "Changes", "Verification", "Learned", "Open"))
+        (task / "RESULT.md").write_text(result)
+        agent.finalize_task("empty", "safe-close")
+        request = next(agent.inbox("empty").glob("*.json"))
+        item = json.loads(request.read_text())
+        self.assertEqual(item["kind"], "fold")
+        self.assertEqual(item["status"], "new")
+        request.write_text(json.dumps(dict(item, status="accepted")))
+        agent.finalize_task("empty", "safe-close")
+        self.assertEqual(len(list(agent.inbox("empty").glob("*.json"))), 1)
+        self.assertEqual(json.loads(request.read_text())["status"], "accepted")
+        self.assertEqual(agent.read_task(folder, "safe-close")["status"], "closed")
+        self.assertIn("status: closed", (task / "BRIEF.md").read_text())
+        self.assertEqual((task / "RESULT.md").read_text(), result)
+        for path, content in before.items():
+            self.assertEqual(path.read_bytes(), content)
+
+    def test_memini_namespace_never_derives_an_unregistered_name(self):
+        path = SOURCE.parents[2] / "dot_pi/private_agent/local/memini-namespace.py"
+        namespace_loader = importlib.machinery.SourceFileLoader("memini_namespace", str(path))
+        namespace_spec = importlib.util.spec_from_loader(namespace_loader.name, namespace_loader)
+        module = importlib.util.module_from_spec(namespace_spec)
+        namespace_loader.exec_module(module)
+        registry = self.home / ".config/agents/projects.json"
+        registry.parent.mkdir(parents=True)
+        registry.write_text(json.dumps({"projects": {"home": {"host": "aether"}}}))
+        for cwd, expected in [("Development/home", "homelab/home"),
+                              ("Development/home/tasks/audit", "homelab/home"),
+                              ("Development/unknown/repo", "homelab/scratch"),
+                              ("Development", "homelab/scratch"),
+                              ("outside/repo", "homelab/scratch"), (".", "homelab/scratch"),
+                              ("Work/draft", "work")]:
+            with self.subTest(cwd=cwd):
+                self.assertEqual(module.namespace(self.home, self.home / cwd), expected)
+        registry.write_text("invalid JSON")
+        self.assertEqual(module.namespace(self.home, self.home / "Development/home"), "homelab/scratch")
 
     def bare_remote(self):
         source = self.home / "source"

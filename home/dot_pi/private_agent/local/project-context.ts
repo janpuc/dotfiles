@@ -76,10 +76,11 @@ function render(
 		"",
 		`- Project: ${project}`,
 		`- Workspace: ${workspace}`,
+		...(process.env.PI_TASK ? [`- Task: ${process.env.PI_TASK}`] : []),
 		`- Standards version: ${manifest.version ?? "unknown"}, context schema ${manifest.compatibility?.contextSchemaVersion ?? 1}`,
 		`- Standards digest: ${standardsDigest}`,
 		`- Context revision: ${revision}`,
-		`- Content size: ${contentBytes} of ${budget} UTF-8 bytes for the standards, PROJECT and STATE`,
+		`- Content size: ${contentBytes} of ${budget} UTF-8 bytes for the standards and loaded project or task knowledge`,
 		`- Open cross-project requests: ${open.length}${open.length ? ` (${open.join(", ")})` : ""}. They wait for Jan, do not act on them.`,
 	].join("\n");
 	const warnings = problems.length ? `\n\n## Problems\n\n${problems.map((problem) => `- ${problem}`).join("\n")}` : "";
@@ -135,7 +136,12 @@ function build(project: string, workspace: string): Context {
 		}
 		return { ...file, path: entry.path };
 	});
-	const notes = ["notes/PROJECT.md", "notes/STATE.md"].map((path) => ({ ...load(join(workspace, path)), path }));
+	const task = process.env.PI_TASK;
+	const paths = task ? ["notes/PROJECT.md", `tasks/${task}/BRIEF.md`, `tasks/${task}/STATE.md`] : ["notes/PROJECT.md", "notes/STATE.md"];
+	const notes = paths.map((path) => ({ ...load(join(workspace, path)), path }));
+	for (const file of notes) {
+		if (task && file.path.startsWith("tasks/") && !file.text) problems.push(`mandatory task context ${file.path} is missing. Restore it before work.`);
+	}
 	const open = openRequests(workspace, project);
 	const standardsDigest = digest(JSON.stringify(standards.map((file) => [file.path, file.sha256])));
 	const revision = digest(JSON.stringify({
@@ -155,11 +161,11 @@ function build(project: string, workspace: string): Context {
 			: "Missing. Do not start project work until the standards are restored."}`),
 		...notes.map((file) => `## ${file.path}\n\n${file.text
 			? `sha256 ${file.sha256}, ${file.bytes} bytes.\n\n${file.text}`
-			: MISSING_NOTE[file.path as keyof typeof MISSING_NOTE]}`),
+			: MISSING_NOTE[file.path as keyof typeof MISSING_NOTE] ?? "Missing task context. Restore BRIEF.md and STATE.md before work."}`),
 	].join("\n\n");
 	const contentBytes = Buffer.byteLength(body, "utf8");
 	if (contentBytes > budget) {
-		problems.push(`the standards, PROJECT and STATE total ${contentBytes} UTF-8 bytes, over the ${budget} byte budget. Nothing is truncated and the full content is injected. Move history from notes/STATE.md into dated notes/knowledge/ pages and keep the mandatory context within budget, per knowledge.md.`);
+		problems.push(`the standards and loaded knowledge total ${contentBytes} UTF-8 bytes, over the ${budget} byte budget. Nothing is truncated and the full content is injected. Move history from ${task ? `tasks/${task}/STATE.md` : "notes/STATE.md"} into dated notes/knowledge/ pages and keep the mandatory context within budget, per knowledge.md.`);
 	}
 	const text = render(project, workspace, manifest, standardsDigest, revision, budget, contentBytes, problems, open, body);
 	const record = {
@@ -196,7 +202,11 @@ export default function (pi: ExtensionAPI) {
 		const folder = process.env.PI_PROJECT_DIR;
 		if (!folder) return { error: `${project} has PI_PROJECT but no PI_PROJECT_DIR` };
 		const workspace = resolve(folder);
-		const expected = join(homedir(), "Development", project);
+		const root = process.env.PI_PROJECT_ROOT;
+		if (!root) return { error: `${project} has no PI_PROJECT_ROOT` };
+		const expected = join(resolve(root), project);
+		const task = process.env.PI_TASK;
+		if (task && !/^(?:[A-Z][A-Z0-9]{1,9}-[0-9]{1,7}|[a-z0-9][a-z0-9-]{1,39})$/.test(task)) return { error: "Invalid PI_TASK" };
 		if (workspace !== expected) return { error: `PI_PROJECT_DIR ${workspace} is not ${expected}` };
 		if (!existsSync(workspace)) return { error: `workspace ${workspace} is missing, run the launcher first` };
 		try {
@@ -223,8 +233,9 @@ export default function (pi: ExtensionAPI) {
 		if (context.revision === injected) return;
 		injected = context.revision;
 		try {
-			mkdirSync(join(known.workspace, ".agent"), { recursive: true });
-			atomicWrite(join(known.workspace, ".agent/context.json"), `${JSON.stringify(context.record, null, 2)}\n`);
+			const state = process.env.PI_TASK ? join(known.workspace, ".agent/tasks", process.env.PI_TASK) : join(known.workspace, ".agent");
+			mkdirSync(state, { recursive: true });
+			atomicWrite(join(state, "context.json"), `${JSON.stringify(context.record, null, 2)}\n`);
 		} catch (error) {
 			ctx.ui.notify(`project-context: cannot record ${join(known.workspace, ".agent/context.json")}: ${error}`, "warning");
 		}

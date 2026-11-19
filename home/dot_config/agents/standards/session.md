@@ -1,30 +1,24 @@
 # Session
 
-Validate PI_PROJECT and PI_PROJECT_DIR against the registry and expected workspace.
-Use the inherited MEMINI_NAMESPACE, normally homelab/<project>. Children must retain
-validated project identity and the same mandatory context as their parent.
+Validate PI_PROJECT, PI_PROJECT_ROOT and PI_PROJECT_DIR against the host registry.
+Aether's root is ~/Development. Children retain identity, namespace and context.
+Namespaces are platform-owned: personal/jan for personal facts, homelab for small
+shared infra facts, homelab/<project> for registered aether projects, work for phase 2.
+Tasks never get child namespaces. Unregistered sessions on aether and the Mac share
+homelab/scratch. Laptop ~/Work keeps its legacy work prefix until phase 2.
 
-Before work, load all ordered files in standards/manifest.json, notes/PROJECT.md
-and notes/STATE.md. Check the manifest version and each SHA-256 digest. Missing,
-invalid or oversized mandatory context is an actionable error, not an invitation to
-proceed with partial instructions. Do not silently truncate safety information.
+Before work load all ordered standards/manifest.json files and verify every SHA-256.
+Then load notes/PROJECT.md and notes/STATE.md, or for tasks project PROJECT.md plus
+task BRIEF.md and STATE.md. The UTF-8 budget is 48 KiB. Missing, invalid or oversized
+context is an actionable error, never silently truncated. Move history to indexed
+knowledge pages, which are read as needed.
 
-The project-context extension injects this as a persistent context message before
-the first model turn, after compaction, session switching and rotation. It detects
-content hash changes before the next turn and injects the new revision, which
-supersedes the prior one. A compaction in the middle of a run is covered at the start
-of the next run, so after a compaction mid-task re-read notes/STATE.md yourself. Include the knowledge index, not all detailed pages. The initial
-UTF-8 budget is 24 KiB for standards plus PROJECT and STATE. Move history to dated
-knowledge pages when this limit is reached.
+project-context injects before the first run, after compaction or session switching,
+and on content hash changes. Its revision supersedes earlier context. After mid-run
+compaction re-read your STATE.md. Derived .agent/context.json is not an authority.
+Central AGENTS.md, extension and settings changes need a runner restart or project
+rotation, not merely /reload. Content-only standards changes inject on the next run.
 
-Derived .agent/context.json may record hashes and the loaded revision. It is not
-an authority and must be regenerable.
-
-Central AGENTS.md, extension code and settings updates require a clean runner
-restart or generation rotation. /reload alone does not reliably refresh bridge
-context. Content-only standards changes use next-turn injection once implemented.
-
-Inspect workspace and member status before editing. Never repair dirty or detached
-repositories by resetting them. Report missing local-only members as restore needed.
-Keep the existing Rex session and unrelated tabs. When rotation is due, finish or
-checkpoint the task and offer /rotate. There is no backup pause or barrier protocol.
+Inspect workspace and members before editing. Preserve dirty and detached trees.
+Missing local-only members require restore. Keep unrelated Rex tabs. Finish current
+work before offering /rotate when due. There is no backup pause or barrier protocol.

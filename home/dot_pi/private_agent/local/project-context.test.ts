@@ -27,11 +27,12 @@ function fixture(state: string) {
 	fs.mkdirSync(join(workspace, "notes"), { recursive: true });
 	fs.writeFileSync(join(workspace, "notes/PROJECT.md"), "# Home\n\n## Facts\n\nOne cluster.\n");
 	fs.writeFileSync(join(workspace, "notes/STATE.md"), state);
-	const keys = ["HOME", "PI_PROJECT", "PI_PROJECT_DIR"];
+	const keys = ["HOME", "PI_PROJECT", "PI_PROJECT_DIR", "PI_PROJECT_ROOT"];
 	const saved = keys.map((key) => process.env[key]);
 	process.env.HOME = home;
 	process.env.PI_PROJECT = "home";
 	process.env.PI_PROJECT_DIR = workspace;
+	process.env.PI_PROJECT_ROOT = join(home, "Development");
 	return {
 		workspace,
 		restore() {

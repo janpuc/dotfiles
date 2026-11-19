@@ -26,6 +26,8 @@
 !.config/agents/projects.json
 !.config/agents/standards
 !.config/agents/standards/**
+!.config/rex
+!.config/rex/init.lua
 !.config/git
 !.config/git/**
 !.config/aether-backup
@@ -56,13 +58,17 @@
 .chezmoiscripts/*-linux-*.sh
 .config/mise
 .config/mise/**
+{{ if ne .chezmoi.hostname "hermes" }}
 .config/fish/functions/agent.fish
+.local/bin/agent-run
+.local/bin/agent
+{{ end }}
+.config/rex
+.config/rex/**
 .config/agents/standards
 .config/agents/standards/**
 .config/aether-backup
 .config/aether-backup/**
-.local/bin/agent-run
-.local/bin/agent
 .pi/agent/trust.json
 {{- end }}
 **/__pycache__

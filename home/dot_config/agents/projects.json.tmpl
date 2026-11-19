@@ -1,1 +1,9 @@
-{{ dict "defaults" .defaults "projects" .projects | toPrettyJson }}
+{{- $projects := dict -}}
+{{- range $name, $project := .projects -}}
+{{- $resolved := deepCopy $project -}}
+{{- $_ := set $resolved "host" (default $.defaults.host (get $project "host")) -}}
+{{- $_ := set $resolved "providers" (default $.defaults.providers (get $project "providers")) -}}
+{{- $_ := set $resolved "tasks" (merge (deepCopy (default dict (get $project "tasks"))) $.defaults.tasks) -}}
+{{- $_ := set $projects $name $resolved -}}
+{{- end -}}
+{{ dict "hosts" .hosts "defaults" .defaults "projects" $projects | toPrettyJson }}

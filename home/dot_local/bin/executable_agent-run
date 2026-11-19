@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import socket
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,90 @@ import time
 HOME = Path.home()
 ROOT = HOME / "Development"
 CONFIG = HOME / ".config/agents/projects.json"
+HOST = socket.gethostname().split(".")[0].lower()
+HOST_CONFIG = {}
+
+HELP = """agent: project agents on aether, dispatched over SSH from hermes
+
+Projects
+  ls                    List projects and status                 agent ls
+  <project> | open       Open or start a project                  agent open home
+  up                    Start every active project               agent up
+  restart <project>|all Reload running agents on their sessions  agent restart all
+  adopt <project>       Record an existing workspace             agent adopt home
+  archive <project>     Stop a project and retain all files      agent archive home
+
+Requests
+  ask <project> <text>   Ask the system's owner                   agent ask main "Update the standards"
+  reply <project> <id> <text>  Reply from the receiving project    agent reply home <id> "Verified"
+
+Tasks
+  task new [project] <TICKET|--slug slug> <brief>  Open a task      agent task new home --slug audit "Audit speakers"
+  task ls [project]     List tasks and status                    agent task ls
+  task ticket [project] <slug> <TICKET>  Attach a ticket            agent task ticket home audit HA-123
+  task close [project] <id>    Request a result and knowledge fold agent task close home audit
+  task restart [project] <id>  Resume the same task session        agent task restart home audit
+
+Inside a project, task commands may omit the project. Close never deletes files.
+Pi commands: /rotate checkpoints a project, /inbox offers requests, /reload reloads Pi.
+Guide: docs/agents.md in main's dotfiles checkout.
+"""
+
+
+def project_host(config, project):
+    return config["projects"][project].get("host", config["defaults"].get("host", "aether"))
+
+
+def dispatch(config, args):
+    """Hermes is a client only. Quote one remote command for the login shell."""
+    if not args or args[0] != "--launch" or len(args) < 2:
+        raise ValueError("The laptop only dispatches agent commands")
+    command = args[1:]
+    if command[:1] == ["open"] and len(command) == 2:
+        command = command[1:]
+    projects = config["projects"]
+    sender = os.environ.get("PI_PROJECT")
+    if not sender:
+        try:
+            candidate = Path.cwd().resolve().relative_to(HOME / "Development").parts[0]
+            if candidate in projects:
+                sender = candidate
+        except (ValueError, IndexError):
+            pass
+    if sender and sender not in projects:
+        raise ValueError(f"Unknown sender project: {sender}")
+    if command[0] == "task" and len(command) >= 2 and command[1] != "ls":
+        if len(command) < 3 or command[2] not in projects:
+            if not sender:
+                raise ValueError("Task commands need an explicit project outside a project")
+            command.insert(2, sender)
+    hosts = sorted({project_host(config, name) for name in projects}, key=lambda h: (h != "aether", h))
+    if command in (["ls"], ["up"], ["restart", "all"], ["task", "ls"]):
+        targets = hosts
+    else:
+        index = 2 if command[0] == "task" else 1 if command[0] in ("ask", "reply", "restart", "adopt", "archive") else 0
+        if len(command) <= index or command[index] not in projects:
+            raise ValueError("Use agent ls, <project>, ask, reply, restart all or task with a registered project")
+        targets = [project_host(config, command[index])]
+    for host in targets:
+        if host not in config["hosts"] or not valid_name(host):
+            raise ValueError(f"Unknown host: {host}")
+        remote = ["env"]
+        if sender:
+            remote.append(f"PI_PROJECT={sender}")
+        else:
+            remote += ["-u", "PI_PROJECT"]
+        remote += ["python3", ".local/bin/agent-run"]
+        if command[0] == "ask" and not sender:
+            remote += ["--client-jan"]
+        remote += ["--launch", *command]
+        if command in (["ls"], ["task", "ls"]):
+            output = run("ssh", host, shlex.join(remote), stdout=subprocess.PIPE, text=True).stdout
+            for line in output.splitlines():
+                print(f"{host} {line}")
+        else:
+            run("ssh", host, shlex.join(remote))
+    return 0
 
 
 def run(*args, **kwargs):
@@ -68,8 +153,12 @@ def consume_rotation(folder, recovering=False):
     return True
 
 
-def running(folder):
-    path = folder / ".agent/run.lock"
+def task_state(folder, task):
+    return folder / ".agent/tasks" / task
+
+
+def running(folder, task=None):
+    path = (task_state(folder, task) if task else folder / ".agent") / "run.lock"
     if not path.exists():
         return False
     with path.open("a") as lock:
@@ -88,8 +177,14 @@ def runner_pid(folder):
         return None
 
 
-def pi_window(session):
-    return unique(rex("session", "inspect", session, "--json")["windows"], "pi")
+def pi_window(session, folder=None):
+    windows = rex("session", "inspect", session, "--json")["windows"]
+    if folder and (folder / ".agent/rex-window").is_file():
+        wid = (folder / ".agent/rex-window").read_text().strip()
+        matches = [window for window in windows if window.get("window_id") == wid]
+        if matches:
+            return matches[0]
+    return unique(windows, "pi")
 
 
 def valid_name(name):
@@ -170,13 +265,19 @@ def write_request(target, item):
     atomic_write(folder / f"{item['id']}.json", json.dumps(item, ensure_ascii=False, indent=2) + "\n")
 
 
-def ask(projects, target, text):
+def ask(projects, target, text, client_jan=False):
     request_target(projects, target)
     sender = os.environ.get("PI_PROJECT", "")
+    if client_jan:
+        if sender:
+            raise ValueError("A project session cannot send as jan")
+        sender = "jan"
     if not sender:
         raise ValueError("agent ask must run inside a project agent, PI_PROJECT is unset")
-    if sender not in projects:
+    if sender != "jan" and sender not in projects:
         raise ValueError(f"Unknown sender project: {sender}")
+    if sender == "jan" and not client_jan:
+        raise ValueError("jan is reserved for the laptop client")
     if sender == target:
         raise ValueError("Cannot ask your own project, do the work yourself")
     if not initialization(target) or not (ROOT / target).is_dir():
@@ -204,6 +305,8 @@ def reply(projects, project, request, text):
     if not isinstance(original, dict) or original.get("to") != project or original.get("id") != request:
         raise ValueError(f"{project}: no request {request} in its inbox")
     target = original.get("from")
+    # Jan has no laptop inbox. His replies wait in main's ordinary project inbox.
+    target = "main" if target == "jan" else target
     request_target(projects, target)
     text = text.strip()
     if not text:
@@ -240,6 +343,13 @@ def restart(projects, action):
         state = ROOT / name / ".agent"
         state.mkdir(parents=True, exist_ok=True)
         atomic_write(state / "restart-requested", f"{request_time()}\n")
+    if action == "all":
+        for name, project in projects.items():
+            if lifecycle(name, project) != "active":
+                continue
+            for meta in task_records(ROOT / name):
+                if meta["status"] != "closed" and running(ROOT / name, meta["id"]):
+                    atomic_write(task_state(ROOT / name, meta["id"]) / "restart-requested", request_time() + "\n")
     print("restart requested: " + (", ".join(targets) if targets else "no running project agents"))
 
 
@@ -255,7 +365,7 @@ def require_git_root(folder):
 
 
 def member_path(folder, name):
-    if not valid_name(name) or name in ("notes", "plans", "scripts"):
+    if not valid_name(name) or name in ("notes", "plans", "scripts", "tasks"):
         raise ValueError(f"Invalid or reserved member name: {name}")
     target = folder / name
     if target.is_symlink() or target.resolve().parent != folder.resolve():
@@ -464,14 +574,30 @@ def ensure(name, project):
         command = ["--shell=none", "--keep-open", "--", "fish", "-lc",
                    f"exec python3 {shlex.quote(str(HOME / '.local/bin/agent-run'))} {shlex.quote(name)}"]
         if not session:
-            created = rex("new", name, "--window", "pi", "-c", folder, "--json", *command)
+            terminal = {"block": {"flavor": "com.superlogical.terminal.shell", "options": {
+                "cwd": str(folder), "shell": "none", "command": command[3:],
+                "exit": {"on_completion": False}}}}
+            created = rex("api", "call", "session.create", json.dumps({
+                "label": name, "initial_windows": [
+                    {"layout": terminal},
+                    {"window_label": "shell", "layout": {"block": {
+                        "flavor": "com.superlogical.terminal.shell", "options": {"cwd": str(folder)}}}}]}))
             sid = created["session_id"]
+            atomic_write(state / "rex-window", created["initial_windows"][0]["window_id"] + "\n")
         else:
             sid = session["session_id"]
-            window = pi_window(sid)
+            window = pi_window(sid, folder)
             if not window:
-                rex("window", "new", "-s", sid, "pi", "-c", folder, "--json", *command)
-            elif not running(folder):
+                created = rex("window", "new", "-s", sid, "pi", "-c", folder, "--json", *command)
+                atomic_write(state / "rex-window", created["window_id"] + "\n")
+                rex("api", "call", "session.set_window_label", json.dumps({
+                    "session_id": sid, "window_id": created["window_id"], "label": ""}))
+            else:
+                atomic_write(state / "rex-window", window["window_id"] + "\n")
+                if window.get("label") == "pi":
+                    rex("api", "call", "session.set_window_label", json.dumps({
+                        "session_id": sid, "window_id": window["window_id"], "label": ""}))
+            if window and not running(folder):
                 blocks = [block for layer in window["layers"] for block in layer.get("blocks", [])]
                 if len(blocks) != 1:
                     raise ValueError(f"{name}: pi tab has multiple blocks, leaving it alone")
@@ -490,18 +616,25 @@ def ensure(name, project):
         windows = rex("session", "inspect", sid, "--json")["windows"]
         if not unique(windows, "shell"):
             rex("window", "new", "-s", sid, "shell", "-c", folder, "--focus=false", "--json")
+    sessions = sorted(rex("ls", "--json")["sessions"], key=lambda s: (s.get("label") != "main", s.get("label", "")))
+    for before, after in zip(reversed(sessions[:-1]), reversed(sessions[1:])):
+        rex("api", "call", "session.move", json.dumps({
+            "session_id": before["session_id"], "before_session_id": after["session_id"]}))
     clients = [c for c in rex("client", "ls", "--json")["clients"]
                if c.get("info", {}).get("kind") == "app" and c.get("connection_state") == "connected"]
     if len(clients) == 1:
-        run("rex", "-C", clients[0]["client_id"], "do", "session.select", f"session_id={sid}")
+        run("rex", "-C", clients[0]["client_id"], "do", "session.select", f"session_id={sid}",
+            f"window_id={(folder / '.agent/rex-window').read_text().strip()}")
     elif clients:
         print(f"{name}: several Rex apps connected, not choosing one", file=sys.stderr)
 
 
-def loop(name, project, defaults):
+def loop(name, project, defaults, task=None):
     folder = ROOT / name
+    if task:
+        read_task(folder, task)
     os.chdir(folder)
-    state = folder / ".agent"
+    state = task_state(folder, task) if task else folder / ".agent"
     state.mkdir(exist_ok=True)
     with (state / "run.lock").open("a") as lock:
         try:
@@ -516,9 +649,20 @@ def loop(name, project, defaults):
         env = dict(os.environ)
         # Load workspace plain env too (HA_URL is in mise.toml), then retain shims first.
         env.update(json.loads(run("mise", "env", "--json", stdout=subprocess.PIPE, text=True).stdout))
-        env.update(PI_PROJECT=name, PI_PROJECT_DIR=str(folder),
-                   MEMINI_NAMESPACE=f"{project.get('meminiPrefix', defaults['meminiPrefix'])}/{name}")
-        env.pop("MEMINI_NAMESPACE_PREFIX", None)
+        env.update(PI_PROJECT=name, PI_PROJECT_DIR=str(folder), PI_PROJECT_ROOT=str(ROOT),
+                   PI_GUARD_PROFILE=HOST_CONFIG.get("guard", "personal"),
+                   MEMINI_NAMESPACE=f"{HOST_CONFIG.get('meminiPrefix', 'homelab')}/{name}",
+                   MEMINI_HOME=HOST_CONFIG.get("meminiHome", "personal/jan"))
+        for key in ("MEMINI_NAMESPACE_PREFIX", "PI_TASK", "PI_TASK_DIR", "PI_TASK_STATE_DIR"):
+            env.pop(key, None)
+        cwd = folder
+        if task:
+            meta = read_task(folder, task)
+            if meta["status"] == "closed":
+                raise ValueError(f"{task}: closed")
+            cwd = task_folder(folder, task)
+            env.update(PI_TASK=task, PI_TASK_DIR=str(cwd), PI_TASK_STATE_DIR=str(state))
+            os.chdir(cwd)
         secrets = HOME / f".local/state/ai/projects/{name}.env"
         if project.get("secrets"):
             # ai-sync writes JSON-quoted dotenv values with dollars escaped against expansion.
@@ -531,6 +675,22 @@ def loop(name, project, defaults):
                 loaded.add(key)
             if any(key not in loaded for key in project["secrets"]):
                 raise ValueError(f"Missing project secrets, run ai-sync: {secrets}")
+        providers = project.get("providers", defaults.get("providers", "all"))
+        provider_keys = {
+            "claude-bridge": ("PI_CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"),
+            "openai": ("PI_OPENAI_API_KEY", "OPENAI_API_KEY"),
+            "opencode-go": ("PI_OPENCODE_API_KEY", "OPENCODE_API_KEY"),
+            "minimax": ("PI_MINIMAX_API_KEY", "MINIMAX_API_KEY"),
+            "alibaba": ("PI_ALIBABA_API_KEY", "ALIBABA_API_KEY"),
+            "litellm": ("LITELLM_API_KEY",),
+        }
+        if providers != "all":
+            if not isinstance(providers, list) or any(provider not in provider_keys for provider in providers):
+                raise ValueError("Invalid providers policy")
+            for provider, keys in provider_keys.items():
+                if provider not in providers:
+                    for key in keys:
+                        env.pop(key, None)
         # Equivalent to `mise activate bash --shims`. Unlike real tool bin paths, a shim
         # resolves tools and [env] from each bash command's cwd, including nested repos.
         shims = Path(env.get("MISE_DATA_DIR", HOME / ".local/share/mise")) / "shims"
@@ -538,23 +698,30 @@ def loop(name, project, defaults):
         model = project.get("model", defaults["model"])
         thinking = project.get("thinking", defaults["thinking"])
         # Recover either side of the generation commit after a runner crash or reboot.
-        consume_rotation(folder, recovering=True)
+        if not task:
+            consume_rotation(folder, recovering=True)
         while True:
+            if task and (state / "closed").exists():
+                return 0
             # A restart marker left before this launch is stale. The extension or the CLI
             # writes one during a run, and the check after Pi exits relaunches it.
             (state / "restart-requested").unlink(missing_ok=True)
-            n = generation(folder)
-            if not (state / "generation").exists():
+            n = 1 if task else generation(folder)
+            if not task and not (state / "generation").exists():
                 atomic_write(state / "generation", f"{n}\n")
-            sid = f"{name}-{n}"
+            sid = f"{name}-task-{task}" if task else f"{name}-{n}"
             # Pi escapes cwd as --home-ubuntu-Development-home-- in its sessions tree.
-            session_dir = HOME / ".pi/agent/sessions" / ("--" + re.sub(r"[/\\:]", "-", str(folder).lstrip("/\\")) + "--")
+            session_dir = HOME / ".pi/agent/sessions" / ("--" + re.sub(r"[/\\:]", "-", str(cwd).lstrip("/\\")) + "--")
             handoff = state / f"handoff-{n}.md"
             args = [HOME / ".pi/agent/local/bin/pi", "--session-id", sid, "--model", f"{model}:{thinking}"]
-            if handoff.exists() and not list(session_dir.glob(f"*_{sid}.jsonl")):
-                args.append(handoff.read_text())
+            if not list(session_dir.glob(f"*_{sid}.jsonl")):
+                if task:
+                    args.append(f"Work on task {task}. Read BRIEF.md and STATE.md. Follow tasks.md. "
+                                f"Use branch task/{task} and .worktrees/<repo>/{task} only for repositories you need.")
+                elif handoff.exists():
+                    args.append(handoff.read_text())
             result = subprocess.run([str(arg) for arg in args], env=env)
-            if consume_rotation(folder):
+            if not task and consume_rotation(folder):
                 continue
             # A restart keeps the generation and session so the conversation resumes.
             if (state / "restart-requested").exists():
@@ -565,9 +732,11 @@ def loop(name, project, defaults):
 def archive(name):
     with project_lock(name) as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        if any(meta["status"] != "closed" for meta in task_records(ROOT / name)):
+            raise ValueError(f"{name}: close open tasks before archiving")
         session = unique(rex("ls", "--json")["sessions"], name)
         if session:
-            window = pi_window(session["session_id"])
+            window = pi_window(session["session_id"], ROOT / name)
             if window:
                 blocks = [b for layer in window["layers"] for b in layer.get("blocks", [])]
                 if len(blocks) > 1:
@@ -598,10 +767,204 @@ def archive(name):
         atomic_write(path, "archived\n")
 
 
+TICKET = re.compile(r"[A-Z][A-Z0-9]{1,9}-[0-9]{1,7}")
+SLUG = re.compile(r"[a-z0-9][a-z0-9-]{1,39}")
+STATE_PAGE = "# State\n\n## Current work\n\n## Verified state\n\n## Open threads\n\n## Pending approvals\n\n## Next actions\n"
+
+
+def task_folder(folder, task):
+    if not isinstance(task, str) or not (TICKET.fullmatch(task) or SLUG.fullmatch(task)):
+        raise ValueError(f"Invalid task identity: {task}")
+    path = folder / "tasks" / task
+    if path.is_symlink() or path.resolve().parent != folder.resolve() / "tasks" or (folder / "tasks").is_symlink():
+        raise ValueError(f"Task path escapes workspace: {path}")
+    state = task_state(folder, task)
+    if state.is_symlink() or state.resolve().parent != folder.resolve() / ".agent/tasks":
+        raise ValueError(f"Task state escapes workspace: {state}")
+    return path
+
+
+def read_task(folder, task):
+    path = task_folder(folder, task)
+    meta = json.loads((task_state(folder, task) / "meta.json").read_text())
+    if not isinstance(meta, dict) or meta.get("id") != task or meta.get("status") not in ("open", "closing", "closed") or not path.is_dir():
+        raise ValueError(f"{task}: invalid task state, restore needed")
+    return meta
+
+
+def task_records(folder):
+    state = folder / ".agent/tasks"
+    if not state.exists():
+        return []
+    return [read_task(folder, path.name) for path in sorted(state.iterdir()) if path.is_dir()]
+
+
+def save_task(folder, meta):
+    atomic_write(task_state(folder, meta["id"]) / "meta.json", json.dumps(meta, indent=2) + "\n")
+
+
+def update_brief(folder, meta):
+    path = task_folder(folder, meta["id"]) / "BRIEF.md"
+    text = path.read_text()
+    if not text.startswith("---\n") or "\n---\n" not in text[4:]:
+        raise ValueError(f"{path}: missing task front matter")
+    _, body = text[4:].split("\n---\n", 1)
+    atomic_write(path, "---\n" + "\n".join(f"{key}: {meta.get(key) or 'none'}" for key in
+                 ("id", "ticket", "opened", "status")) + "\n---\n" + body)
+
+
+def start_task(name, task):
+    folder = ROOT / name
+    meta = read_task(folder, task)
+    if meta["status"] == "closed":
+        raise ValueError(f"{task}: closed")
+    if running(folder, task):
+        return
+    session = unique(rex("ls", "--json")["sessions"], name)
+    if not session:
+        raise ValueError(f"{name}: start the project first")
+    sid = session["session_id"]
+    window = unique(rex("session", "inspect", sid, "--json")["windows"], f"task:{task}")
+    command = ["--shell=none", "--keep-open", "--", "fish", "-lc",
+               "exec " + shlex.join(["python3", str(HOME / ".local/bin/agent-run"), "--task-run", name, task])]
+    if not window:
+        rex("window", "new", "-s", sid, f"task:{task}", "-c", task_folder(folder, task), "--focus=false", "--json", *command)
+        return
+    blocks = [block for layer in window["layers"] for block in layer.get("blocks", [])]
+    if len(blocks) != 1:
+        raise ValueError(f"{task}: ambiguous tab, leaving it alone")
+    block = blocks[0]["block_id"]
+    process = rex("block", "call", "-s", sid, "-b", block, "process")
+    child, foreground = process.get("child"), process.get("foreground")
+    if child and not (child.get("name") in ("fish", "bash", "sh", "zsh")
+                      and (foreground or {}).get("pid") == child.get("pid")):
+        raise ValueError(f"{task}: unmanaged process, leaving it alone")
+    rex("run", "-s", sid, "-b", block, "--split=right", "-c", task_folder(folder, task), "--json", *command)
+    run("rex", "block", "close", "-s", sid, block)
+
+
+def finalize_task(name, task):
+    """Idempotent close commit. No task, worktree or session data is ever deleted."""
+    folder = ROOT / name
+    meta = read_task(folder, task)
+    state = task_state(folder, task)
+    result = task_folder(folder, task) / "RESULT.md"
+    if meta["status"] == "open" or not (state / "close-requested").exists():
+        raise ValueError("Close was not requested")
+    text = result.read_text()
+    if any(not re.search(rf"^## {heading}\s*$", text, re.M) for heading in
+           ("Outcome", "Changes", "Verification", "Learned", "Open")):
+        raise ValueError("RESULT.md needs Outcome, Changes, Verification, Learned and Open headings")
+    item = {"id": meta["foldRequest"], "from": name, "to": name, "kind": "fold", "task": task,
+            "text": f"Fold task {task} from {result} into notes/PROJECT.md and notes/STATE.md. "
+                    "Reconcile learned facts and open threads. Do not assume pending approvals were granted.",
+            "created": request_time(), "status": "new"}
+    if not (inbox(name) / f"{item['id']}.json").exists():
+        write_request(name, item)
+    meta["status"] = "closed"
+    save_task(folder, meta)
+    update_brief(folder, meta)
+    atomic_write(state / "closed", request_time() + "\n")
+
+
+def task_command(projects, defaults, args):
+    if not args:
+        raise ValueError("Usage: agent task new|ls|ticket|close|restart [project] ...")
+    action, *rest = args
+    if action == "ls" and not rest:
+        for name in projects:
+            for meta in task_records(ROOT / name):
+                print(f"{name} {meta['id']} status={meta['status']} ticket={meta.get('ticket') or 'none'} "
+                      f"pi={'yes' if running(ROOT / name, meta['id']) else 'no'} host={HOST}")
+        return 0
+    if rest and rest[0] in projects:
+        name = rest.pop(0)
+    else:
+        name = os.environ.get("PI_PROJECT", "")
+    request_target(projects, name)
+    if action == "ls":
+        if rest:
+            raise ValueError("Usage: agent task ls [project]")
+        return task_command({name: projects[name]}, defaults, ["ls"])
+    if action == "new":
+        ticket = None
+        if len(rest) == 3 and rest[0] == "--slug" and SLUG.fullmatch(rest[1]):
+            task, brief = rest[1:]
+        elif len(rest) == 2 and TICKET.fullmatch(rest[0]):
+            task, brief = rest
+            ticket = task
+        else:
+            raise ValueError("Usage: agent task new [project] <TICKET-ID|--slug slug> <brief>")
+        if not brief.strip():
+            raise ValueError("A task needs a brief")
+        ensure(name, projects[name])
+        folder = ROOT / name
+        with project_lock(name) as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            target = task_folder(folder, task)
+            if target.exists() or task_state(folder, task).exists():
+                raise ValueError(f"{task}: task identity already used, folders are never reused")
+            limit = projects[name].get("tasks", {}).get("maxOpen", defaults.get("tasks", {}).get("maxOpen", 4))
+            if sum(meta["status"] != "closed" for meta in task_records(folder)) >= limit:
+                raise ValueError(f"{name}: maxOpen={limit}, close an existing task first")
+            target.mkdir(parents=True)
+            task_state(folder, task).mkdir(parents=True)
+            meta = {"id": task, "ticket": ticket, "opened": request_time(), "status": "open"}
+            (target / "BRIEF.md").write_text("---\nid: " + task + "\n---\n\n" + brief.strip() + "\n")
+            (target / "STATE.md").write_text(STATE_PAGE)
+            save_task(folder, meta)
+            update_brief(folder, meta)
+            start_task(name, task)
+        print(f"{name}: task {task} opened")
+        return 0
+    if action not in ("ticket", "close", "restart", "finalize") or len(rest) != (2 if action == "ticket" else 1):
+        raise ValueError("Usage: agent task ticket|close|restart [project] <id> [TICKET]")
+    task = rest[0]
+    folder = ROOT / name
+    if action in ("close", "restart") and read_task(folder, task)["status"] != "closed":
+        ensure(name, projects[name])
+    with project_lock(name) as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        meta = read_task(folder, task)
+        state = task_state(folder, task)
+        if action == "finalize":
+            if os.environ.get("PI_PROJECT") != name or os.environ.get("PI_TASK") != task:
+                raise ValueError("Only the task session may finalize its close")
+            finalize_task(name, task)
+        elif meta["status"] == "closed":
+            if action != "close":
+                raise ValueError(f"{task}: closed")
+            finalize_task(name, task)
+        elif action == "ticket":
+            if not TICKET.fullmatch(rest[1]):
+                raise ValueError("Invalid ticket identity")
+            if meta.get("ticket") and meta["ticket"] != rest[1]:
+                raise ValueError("A ticket is already attached")
+            meta["ticket"] = rest[1]
+            save_task(folder, meta)
+            update_brief(folder, meta)
+        elif action == "close":
+            meta["status"] = "closing"
+            meta.setdefault("foldRequest", request_id())
+            save_task(folder, meta)
+            update_brief(folder, meta)
+            atomic_write(state / "close-requested", request_id() + "\n")
+            start_task(name, task)
+        elif action == "restart":
+            if running(folder, task):
+                atomic_write(state / "restart-requested", request_time() + "\n")
+            else:
+                start_task(name, task)
+    print(f"{name}: task {task} {action}, folder retained")
+    return 0
+
+
 def list_projects(projects):
     sessions = rex("ls", "--json")["sessions"]
     for name, project in projects.items():
         folder = ROOT / name
+        providers = project.get("providers", [])
+        provider_status = ','.join(providers) if isinstance(providers, list) else str(providers)
         record = initialization(name)
         init = (record["state"] if folder.is_dir() else "restore-needed") if record else (
             "needs-adopt" if folder.exists() else "new")
@@ -611,7 +974,9 @@ def list_projects(projects):
               f"folder={'yes' if folder.is_dir() else 'no'} "
               f"rex={session['session_id'] if session else 'no'} "
               f"pi={'yes' if running(folder) else 'no'} generation={generation(folder)} "
-              f"requests={len(open_requests(name))}{restart_marker}")
+              f"requests={len(open_requests(name))}{restart_marker} "
+              f"host={HOST} providers={provider_status} "
+              f"tasks={sum(meta['status'] != 'closed' for meta in task_records(folder))}")
         if folder.is_dir():
             for status in repository_status(folder):
                 print(f"  {status}")
@@ -622,15 +987,41 @@ def list_projects(projects):
 
 
 def main():
+    global ROOT, HOST_CONFIG
+    args = sys.argv[1:]
+    if not args or args in (["--launch"], ["--launch", "help"], ["--launch", "-h"], ["--launch", "--help"],
+                            ["--launch", "task"], ["--launch", "task", "-h"], ["--launch", "task", "--help"],
+                            ["-h"], ["--help"], ["help"]):
+        print(HELP)
+        return 0
+    if args[:2] == ["--launch", "open"]:
+        if len(args) != 3:
+            print(HELP)
+            return 2
+        sys.argv[2:] = [args[2]]
     config = json.loads(CONFIG.read_text())
-    projects = config["projects"]
-    reserved = ("up", "ls", "archive", "adopt", "ask", "reply", "restart")
+    if sys.platform == "darwin" and HOST == "hermes":
+        return dispatch(config, sys.argv[1:])
+    if HOST not in config["hosts"]:
+        raise ValueError(f"Host {HOST} is not registered as an execution host")
+    HOST_CONFIG = config["hosts"][HOST]
+    ROOT = Path(HOST_CONFIG["root"]).expanduser().resolve()
+    projects = {name: project for name, project in config["projects"].items()
+                if project_host(config, name) == HOST}
+    client_jan = len(sys.argv) > 1 and sys.argv[1] == "--client-jan"
+    if client_jan:
+        sys.argv.pop(1)
+        if sys.argv[1:3] != ["--launch", "ask"]:
+            raise ValueError("--client-jan is only for laptop requests")
+    reserved = ("up", "ls", "archive", "adopt", "ask", "reply", "restart", "task", "jan", "open", "help")
     if any(not valid_name(name) or name in reserved for name in projects):
-        raise ValueError("Project names must be single path components other than up, ls, archive, adopt, ask, reply or restart")
+        raise ValueError("Project names must be single path components and not reserved command names or jan")
     for name, project in projects.items():
         lifecycle(name, project)
     if len(sys.argv) >= 3 and sys.argv[1] == "--launch":
         action = sys.argv[2]
+        if action == "task":
+            return task_command(projects, config["defaults"], sys.argv[3:])
         if action in ("archive", "adopt"):
             if len(sys.argv) != 4 or sys.argv[3] not in projects:
                 raise ValueError(f"Usage: agent {action} <registered-project>")
@@ -639,7 +1030,7 @@ def main():
         if action == "ask":
             if len(sys.argv) < 5:
                 raise ValueError("Usage: agent ask <project> <text>")
-            ask(projects, sys.argv[3], " ".join(sys.argv[4:]))
+            ask(projects, sys.argv[3], " ".join(sys.argv[4:]), client_jan=client_jan)
             return 0
         if action == "reply":
             if len(sys.argv) < 6:
@@ -673,6 +1064,10 @@ def main():
                 raise ValueError(f"{name}: initialization or restore needed")
             register_repository(ROOT / name, name, member, sys.argv[4] if len(sys.argv) == 5 else None)
         return 0
+    if len(sys.argv) == 4 and sys.argv[1] == "--task-run":
+        name, task = sys.argv[2:]
+        request_target(projects, name)
+        return loop(name, projects[name], config["defaults"], task=task)
     if len(sys.argv) != 2 or sys.argv[1] not in projects:
         raise ValueError("Usage: agent-run <registered-project>")
     name = sys.argv[1]
@@ -689,4 +1084,6 @@ if __name__ == "__main__":
         sys.exit(main())
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f"agent: {error}", file=sys.stderr)
+        if isinstance(error, ValueError):
+            print(HELP, file=sys.stderr)
         sys.exit(1)

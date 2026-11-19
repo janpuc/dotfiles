@@ -1,44 +1,33 @@
 # Requests between projects
 
-Each project agent owns its systems and changes only its own. Work in another
-project's system goes through a request in that project's inbox. Never edit another
-project's workspace notes, its memini namespace, its repositories or its systems.
-
-## Ownership
+Change only your own project's systems. Read other owners' notes and memini read-only,
+never change their workspaces, repositories, memory or systems. Ask the owner instead.
 
 | Project | Owns |
 |---|---|
+| main | the platform, dotfiles, registry, standards, runner, central AGENTS.md |
 | network | UniFi gateway, Wi-Fi, firewall, Tailscale, DNS |
 | kubernetes | home-ops, the cluster, Flux, Talos |
-| home | Home Assistant and the DietPi speakers |
+| home | Home Assistant and DietPi speakers |
 | bigmouth | the NAS |
 | renplay | renplay-org repositories and deploys |
-| gaming | the BC250, the Steam Deck and the game ports |
+| gaming | BC250, Steam Deck, game ports |
 | thesis | the thesis |
 
-Reading another project's notes/ pages and its memini namespace is allowed and
-encouraged. Changing them is not. Ask the owner instead.
+Phase 2: work on sisyphus coordinates work. main may SSH there only for agent ls,
+agent restart all and chezmoi update, never read ~/Work. No work host in phase 1.
 
-## Asking
+agent ask <owner> "<text>" states outcome, reason and done check. One request per
+outcome, to an active project other than yourself. Jan decides in its tab whether
+it reaches the agent. Do not repeat requests or use another channel.
 
-Run `agent ask <project> <text>`. State what you need, why you need it, and what done
-looks like. One request per outcome. The target must be active and must not be your
-own project. Jan sees the request in the target's tab and decides whether it reaches
-that agent. Do not repeat a request or send it through another channel.
+On acceptance, plan, ask Jan for shared changes, execute, then answer with
+agent reply <your-project> <request-id> "<text>". Report changes, verification, open
+work and pending approvals. Never type into another agent's tab or claim unchecked
+completion. A decline sends an automatic reply. Do not argue, bring new evidence.
+Laptop requests outside registered projects come from reserved sender jan. Replies
+and declines for jan go to main's ordinary aether inbox, never a laptop inbox.
 
-## Answering
-
-When Jan accepts a request in your tab, plan it, ask Jan for anything that changes a
-system, then do the work. Answer in the same inbox with
-`agent reply <project> <id> <text>`: what changed, what you verified, what remains and
-any approval still pending. Never type into another agent's Rex tab. Never report
-work complete that you did not verify.
-
-Jan can decline a request, which sends you an automatic reply. Do not argue with a
-decline. Bring new evidence to Jan instead.
-
-## Tracking
-
-Keep accepted requests and their state in notes/STATE.md under Open threads, with the
-request id. A request is not done until the reply is sent and any follow-up is
-answered.
+Track accepted request ids under notes/STATE.md Open threads until replied and all
+follow-up answered. Fold requests are task close-outs for the project owner to
+reconcile, not instructions to reply to yourself. They also wait for Jan.

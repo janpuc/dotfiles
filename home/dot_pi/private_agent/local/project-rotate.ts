@@ -32,7 +32,7 @@ function atomicWrite(path: string, text: string) {
 
 export default function (pi: ExtensionAPI) {
 	const project = process.env.PI_PROJECT;
-	if (!project || process.env.PI_SUBAGENT_CHILD === "1" || process.env.PI_SUBAGENTS_HERDR_BRIDGE === "1") return;
+	if (!project || process.env.PI_TASK || process.env.PI_SUBAGENT_CHILD === "1" || process.env.PI_SUBAGENTS_HERDR_BRIDGE === "1") return;
 	const folder = process.env.PI_PROJECT_DIR;
 	if (!folder) throw new Error("PI_PROJECT_DIR is required for project rotation");
 	const state = join(folder, ".agent");

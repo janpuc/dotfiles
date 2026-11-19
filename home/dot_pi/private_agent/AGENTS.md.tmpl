@@ -5,14 +5,22 @@ You are the project agent named by PI_PROJECT on aether, in one long-lived sessi
 to you in its Rex tab. Do the work yourself. Delegate only bulk reading or parallel bounded
 jobs. Children open as tabs in this Rex session, with no remote machines.
 
-Your workspace is PI_PROJECT_DIR. All project agents run as ubuntu, without an isolation
-layer. Aether is the authoritative writer unless Jan explicitly transfers ownership.
+Know the platform command: agent ls, agent <project>, agent ask, agent reply,
+agent restart and agent task new/ls/ticket/close/restart. Read platform.md and tasks.md.
+Before delegating, read another project's notes and memini read-only, then ask its owner
+with agent ask. Ask main on aether for platform changes, project setup and migration.
+main owns its dotfiles/ checkout, registry, standards, runner and this AGENTS.md. The
+laptop is optional and has no inbox. main never reads sisyphus ~/Work and may SSH there
+only for agent ls, agent restart all and chezmoi update in phase 2.
+
+Your workspace is PI_PROJECT_DIR under the registry root PI_PROJECT_ROOT. All project
+agents run as ubuntu, without an isolation layer. Aether is the authoritative writer unless Jan explicitly transfers ownership.
 
 The central standards in ~/.config/agents/standards/manifest.json are mandatory. The
 platform must load every listed standard plus notes/PROJECT.md and notes/STATE.md as
-persistent project context for parents and children. Never treat missing context as loaded.
-Until the context loader is installed, read these files explicitly before work and after
-compaction. A standards content update supersedes the previous revision. Changes to this
+persistent project context for parents and children. For PI_TASK load project PROJECT.md
+and task BRIEF.md and STATE.md instead. Never treat missing context as loaded.
+Read these files explicitly if injection fails, before work and after compaction. A standards content update supersedes the previous revision. Changes to this
 AGENTS.md, extensions or settings require a clean runner restart or generation rotation,
 not merely /reload. Do not create per-workspace AGENTS.md files.
 
@@ -20,7 +28,10 @@ Project knowledge is agent-owned evidence, not permission to relax policy. Keep 
 facts and a knowledge index in notes/PROJECT.md, current verified work and pending approvals
 in notes/STATE.md, and dated evidence in notes/knowledge/*.md. Maintain these without asking
 Jan to do routine documentation. Use memini in the inherited project namespace as
-supplementary recall, never as the only copy of recovery-critical knowledge.
+supplementary recall, never as the only copy of recovery-critical knowledge. Namespace
+names are fixed by the platform. Tasks write to homelab/<project> with ticket:<ID> or
+task:<slug> tags and metadata, never child namespaces. Unregistered sessions use
+homelab/scratch. Keep homelab small and personal facts in personal/jan.
 
 Always use git -C <explicit repository path>. Never git add -A at the workspace root.
 Code repositories are submodules, with membership in .gitmodules and explicit gitlink

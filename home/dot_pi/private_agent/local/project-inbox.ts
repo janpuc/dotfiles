@@ -111,16 +111,20 @@ function message(item: InboxItem, project: string) {
 	const head = item.inReplyTo
 		? `Reply ${item.id} from ${item.from} to your request ${item.inReplyTo}. Jan accepted it in the inbox prompt.`
 		: `Request ${item.id} from ${item.from}. Jan accepted it in the inbox prompt.`;
-	const tail = item.inReplyTo ? "" : `\n\nWhen done, answer with: agent reply ${project} ${item.id} <text>`;
+	const tail = item.inReplyTo || item.from === project ? "" : `\n\nWhen done, answer with: agent reply ${project} ${item.id} <text>`;
 	return `${head}\n\n${item.text}${tail}`;
 }
 
 // A declined request gets an automatic reply. A declined reply gets none, so two projects
 // cannot bounce declines between their inboxes.
 function replyDecline(item: InboxItem, project: string) {
-	const target = inbox(join(homedir(), "Development", item.from));
+	const root = process.env.PI_PROJECT_ROOT;
+	if (!root) throw new Error("PI_PROJECT_ROOT is required for inbox replies");
+	const recipient = item.from === "jan" ? "main" : item.from;
+	if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(recipient)) throw new Error("Invalid inbox sender");
+	const target = inbox(join(root, recipient));
 	const reply: InboxItem = {
-		id: requestId(), from: project, to: item.from, text: DECLINE_TEXT,
+		id: requestId(), from: project, to: recipient, text: DECLINE_TEXT,
 		created: new Date().toISOString(), status: "new", inReplyTo: item.id,
 	};
 	mkdirSync(target, { recursive: true });
@@ -185,7 +189,7 @@ function requestRestart(project: string, folder: string, ctx: ExtensionContext, 
 export default function (pi: ExtensionAPI) {
 	const project = process.env.PI_PROJECT;
 	// A child inherits PI_PROJECT but must never answer for the project it runs in.
-	if (!project || process.env.PI_SUBAGENT_CHILD === "1" || process.env.PI_SUBAGENTS_HERDR_BRIDGE === "1") return;
+	if (!project || process.env.PI_TASK || process.env.PI_SUBAGENT_CHILD === "1" || process.env.PI_SUBAGENTS_HERDR_BRIDGE === "1") return;
 	const folder = process.env.PI_PROJECT_DIR;
 	if (!folder) throw new Error("PI_PROJECT_DIR is required for the project inbox");
 	const state: InboxState = { offered: new Set(), busy: false, promptOpen: false };

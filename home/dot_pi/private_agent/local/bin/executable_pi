@@ -27,6 +27,19 @@ if [ -n "${PI_PROJECT:-}" ]; then
 	exec "$(mise which pi)" "$@"
 fi
 
+# Non-project starts use the same registry lookup as fish, never a cwd-derived name.
+case "$PWD" in
+    "$HOME/Work"|"$HOME/Work/"*)
+        export MEMINI_NAMESPACE_PREFIX=work
+        unset MEMINI_NAMESPACE
+        ;;
+    *)
+        unset MEMINI_NAMESPACE_PREFIX
+        MEMINI_NAMESPACE=$(python3 "$HOME/.pi/agent/local/memini-namespace.py")
+        export MEMINI_NAMESPACE
+        ;;
+esac
+
 # The real Pi is the next `pi` on PATH after this directory.
 here=$(cd "$(dirname "$0")" && pwd -P)
 IFS=:

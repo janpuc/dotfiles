@@ -1,41 +1,38 @@
 # Workspace
 
-The workspace is a local Git repository at ~/Development/<project>. Aether is the
-writer unless Jan explicitly transfers ownership. Every agent runs as ubuntu. This
-is not an isolation boundary. Work repositories stay off aether.
+The registry owns host, root, identity, lifecycle, defaults, secret references and
+initial seed repos. Phase 1 serves aether at ~/Development/<project>, exported as
+PI_PROJECT_ROOT and PI_PROJECT_DIR. Aether is authoritative unless Jan transfers
+ownership. All agents run as ubuntu, not an isolation boundary. Work stays off aether.
+main coordinates platform setup and migration from its dotfiles/ submodule.
 
-The registry owns identity, lifecycle, defaults, secret references and optional seed
-repositories. Seeds are used only at first initialization. After that .gitmodules
-and committed gitlinks own membership, URLs and selected committed revisions.
-Removing a seed or registry entry never removes files.
+Seeds are consumed only at initialization. Afterward .gitmodules and committed
+gitlinks own membership, URLs and revisions. Removing registry entries never deletes.
 
-Standard layout:
+Layout:
 
-- notes/PROJECT.md holds facts, constraints, systems and the knowledge index
-- notes/STATE.md holds current work and pending approvals
-- notes/knowledge/*.md holds detailed evidence-backed knowledge
-- plans/ and scripts/ hold ordinary workspace content
-- mise.toml holds project tools, tasks and non-secret environment
-- Direct child code repositories are submodules
-- Non-Git folders such as ha-inventory/ are ordinary tracked content
-- .worktrees/<repo>/<task>/ holds linked task worktrees
-- .agent/ holds runtime generation, handoff, rotation, context and lock files
+- notes/PROJECT.md: facts, constraints, systems, knowledge index
+- notes/STATE.md: current work and pending approvals
+- notes/knowledge/*.md: dated evidence
+- plans/ and scripts/: ordinary tracked content
+- mise.toml: project tools, tasks, non-secret env
+- Direct child code repos: submodules, ordinary non-Git folders stay tracked content
+- tasks/<id>/: retained brief, state, result
+- .worktrees/<repo>/<id>/: task worktrees
+- .agent/: generation, handoffs, requests, task metadata, context, locks
 
-Ignore .agent/ and .worktrees/ in workspace Git, not code members. Runtime state
-must not be rewound by Git checkout. The hourly backup includes runtime recovery state
-and worktrees but excludes the two runtime locks.
+Ignore .agent/ and .worktrees/ in Git, not code members. Runtime recovery state must
+not be rewound by checkout. Backup includes it and worktrees, excluding runtime locks.
+Never create a workspace AGENTS.md or instruction file. Central standards are policy,
+knowledge is evidence.
 
-Do not create a workspace AGENTS.md or another project instruction file. Central
-standards are mandatory. Knowledge files are evidence, not platform policy.
+agent-run --register <project> <member> [url] registers and stages .gitmodules and the
+gitlink. Without a URL it creates or records a local-only repo. Review and commit
+explicit paths afterward. Member names and paths are unique single components,
+contained without symlink escapes. notes, plans, scripts and tasks are reserved.
 
-Use agent-run --register <project> <member> [url] to register a repository and stage
-its gitlink and .gitmodules. Without a URL it creates or registers a local-only
-repository. Review and commit explicit workspace paths afterward. Member names and
-paths must be unique single directory components, contained without symlink escapes.
-Never repurpose notes, plans or scripts as member paths.
-
-An external initialization record prevents recreating a lost workspace. Existing
-workspaces require explicit inspection with agent adopt <project>. Adoption does
-not migrate legacy members or consume seeds. Archiving stops the managed Pi runner
-and records local lifecycle state. It never moves or deletes the workspace. Archived
-projects are excluded from agent up and remain in backup scope.
+External initialization records prevent recreating lost workspaces. agent adopt
+<project> inspects an existing Git workspace before recording it, without migrating
+members or consuming seeds. Archive stops the managed project runner and records
+lifecycle, never moves or deletes files. Archived projects stay backed up and are
+excluded from agent up.

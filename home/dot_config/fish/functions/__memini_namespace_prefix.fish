@@ -1,39 +1,20 @@
-function __memini_namespace_prefix --on-variable PWD --description "Keep memini namespaces inside the homelab/work trees automatically"
-    set -l dev_root "$HOME/Development"
-    set -l work_root "$HOME/Work"
-
-    # MEMINI_NAMESPACE_PREFIX is prepended to the DERIVED name, giving
-    # <prefix>/<repo>. A server-side pin still beats it, so the explicit pins
-    # for home-ops / miroir / dotfiles keep winning where they exist; this is
-    # what stops a NEW repo landing in a flat, orphaned namespace that inherits
-    # nothing.
-    #
-    # Shells spawned by a Work Pi session (AI_PROFILE=work) keep the work
-    # namespace the pi launcher chose, even after cd-ing out of the tree.
-    if test "$AI_PROFILE" = work
+function __memini_namespace_prefix --on-variable PWD --description "Select a registered project namespace or the shared scratch namespace"
+    # Runner identity wins even when a task or child changes directories.
+    if set -q PI_PROJECT; and set -q MEMINI_NAMESPACE
+        set -e MEMINI_NAMESPACE_PREFIX
         return
     end
-    if test "$PWD" = "$work_root"; or string match -q -- "$work_root/*" "$PWD"
+    # Laptop Work intake keeps the legacy work prefix until phase 2.
+    if test "$PWD" = "$HOME/Work"; or string match -q -- "$HOME/Work/*" "$PWD"
         set -gx MEMINI_NAMESPACE_PREFIX work
         set -e MEMINI_NAMESPACE
-    else if test "$PWD" = "$dev_root"; or string match -q -- "$dev_root/*" "$PWD"
-        if test (uname) = Linux; and test "$PWD" != "$dev_root"
-            set -l project (string split / -- (string sub -s (math (string length "$dev_root") + 2) -- "$PWD"))[1]
-            set -gx MEMINI_NAMESPACE "homelab/$project"
-            set -e MEMINI_NAMESPACE_PREFIX
-        else
-            set -gx MEMINI_NAMESPACE_PREFIX homelab
-            set -e MEMINI_NAMESPACE
-        end
-    else if test -n (git rev-parse --show-toplevel 2>/dev/null; or echo "")
-        # A repo outside ~/Development: let it derive its own name unprefixed.
-        set -e MEMINI_NAMESPACE_PREFIX
-        set -e MEMINI_NAMESPACE
+        return
+    end
+    set -e MEMINI_NAMESPACE_PREFIX
+    set -l selected (python3 "$HOME/.pi/agent/local/memini-namespace.py" 2>/dev/null)
+    if test $status -eq 0; and test -n "$selected"
+        set -gx MEMINI_NAMESPACE "$selected"
     else
-        # Not a repo at all (e.g. an ad-hoc session in ~). Without this the
-        # opencode plugin falls back to a flat "opencode" namespace that
-        # inherits nothing; park those in one scratch child of homelab instead.
-        set -e MEMINI_NAMESPACE_PREFIX
         set -gx MEMINI_NAMESPACE homelab/scratch
     end
 end

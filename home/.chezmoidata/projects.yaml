@@ -1,4 +1,13 @@
+hosts:
+  aether:
+    root: ~/Development
+    meminiPrefix: homelab
+    meminiHome: personal/jan
+    guard: personal
 defaults:
+  host: aether
+  providers: [claude-bridge, openai, minimax, opencode-go, alibaba, litellm]
+  tasks: {maxOpen: 4}
   model: claude-bridge/claude-opus-5-5
   thinking: high
   meminiPrefix: homelab
@@ -7,6 +16,12 @@ defaults:
     compactions: 5
     days: 30
 projects:
+  main:
+    host: aether
+    lifecycle: active
+    repos:
+      - name: dotfiles
+        url: https://github.com/janpuc/dotfiles.git
   home:
     lifecycle: active
     repos:
