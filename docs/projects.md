@@ -161,8 +161,10 @@ Without a URL, a new repository gets an initial local commit before registration
 [submodule "example"]
     path = example
     url = local-only://project/example
-    aether-local-only = true
+    agent-local-only = true
 ```
+
+Workspaces created before the Go runner carry aether-local-only, which is still read.
 
 The marker is intentionally non-resolvable. A missing local-only member fails with
 restore needed, never a clone attempt or an empty replacement. Publishing later

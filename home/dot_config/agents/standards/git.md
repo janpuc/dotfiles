@@ -20,8 +20,10 @@ gets an initial commit before registration. Its .gitmodules entry contains:
 [submodule "example"]
     path = example
     url = local-only://project/example
-    aether-local-only = true
+    agent-local-only = true
 ```
+
+Workspaces created before the Go runner carry aether-local-only, which is still read.
 
 This marker is a recovery requirement, never a cloneable remote. A missing local-only
 member must be restored from backup. Publishing later needs Jan's approval and an

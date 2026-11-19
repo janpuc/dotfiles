@@ -557,7 +557,7 @@ def members(folder):
         if not entry:
             continue
         key, _, value = entry.partition("\n")
-        match = re.fullmatch(r"submodule\.(.+)\.(path|url|aether-local-only)", key)
+        match = re.fullmatch(r"submodule\.(.+)\.(path|url|agent-local-only|aether-local-only)", key)
         if not match:
             continue
         name, field = match.groups()
@@ -574,7 +574,8 @@ def members(folder):
             raise ValueError(f"Duplicate member path: {entry['path']}")
         paths.add(entry["path"])
         entry["name"] = name
-        marker = entry.get("aether-local-only", "false")
+        # The Go runner writes agent-local-only. Older workspaces carry aether-local-only.
+        marker = entry.get("agent-local-only", entry.get("aether-local-only", "false"))
         if marker not in ("true", "false"):
             raise ValueError(f"Invalid local-only marker: {name}")
         entry["localOnly"] = marker == "true"
