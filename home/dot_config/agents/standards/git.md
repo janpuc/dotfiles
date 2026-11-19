@@ -34,4 +34,5 @@ only, even when their HEAD differs from the recorded revision.
 
 Use named task branches and clear local commits. Keep linked worktrees contained at
 .worktrees/<repo>/<task>/. Do not move an archived workspace or break worktree links.
-Pushes, merges and PR creation require Jan. Never push as an automatic checkpoint.
+Push, open and merge your own PRs and report what you merged. Never force-push or
+rewrite a default branch. Never push a workspace as an automatic checkpoint.

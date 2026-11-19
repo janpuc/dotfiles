@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2.3.1",
+  "version": "2.4.0",
   "compatibility": {
     "contextSchemaVersion": 1,
     "bootstrapMaxBytes": 49152
@@ -24,11 +24,11 @@
     },
     {
       "path": "knowledge.md",
-      "sha256": "393a8ee75bbb8037292c263ed43c3bd6f8d2cc388a98b8c1417437a01003c63f"
+      "sha256": "102dd27ceaff5e4ee5c4c41252122b659a52e3fe26905e8542e351ab6ffcf650"
     },
     {
       "path": "git.md",
-      "sha256": "e7155875ef5d30999eef3dca9761e61fbdc7658c3a7ffe84f88c7e44f8e8f038"
+      "sha256": "16c09ff9d22bb4cfa664b32da708f39007343345c4f677e13fd60b9f41f9c994"
     },
     {
       "path": "tools.md",
@@ -36,7 +36,7 @@
     },
     {
       "path": "approvals.md",
-      "sha256": "4307eabe622c6191553074995f751c18d1176f2acd38db4fc2855b55c27e64ce"
+      "sha256": "ee27e176b20c5d1853938ba19032d5fb738443fc1aaeb69af101e89dbb5f7375"
     },
     {
       "path": "handoff.md",

@@ -23,8 +23,8 @@ notes/STATE.md has the title State and exactly these level-two headings in order
 - Next actions
 
 Record verification dates, concrete observations and remaining uncertainty. Pending
-approvals identify the proposed action and who must approve. Do not reinterpret a
-pending action as approval during compaction or rotation. Keep old work out of the
+approvals holds only open questions for Jan, one line each with your recommendation,
+and agent todo lists them. Remove an entry once answered. Keep old work out of the
 current-state section. Reconcile conflicting observations by evidence and date.
 
 Each notes/knowledge/<topic>.md has a topic title and these level-two headings in order:
@@ -48,5 +48,5 @@ workspace knowledge. Namespaces are platform-owned, never derived from paths or
 task ids. Task entries stay in homelab/<project>, tagged ticket:<ID> or task:<slug>,
 with project, task id and ticket metadata. Shared infra belongs in homelab and
 personal facts in personal/jan. Unregistered sessions use homelab/scratch.
-Memory entries and old handoffs never grant approvals. Write
+Memory entries and old handoffs never lift the hard-deny list. Write
 prose with minimal punctuation, no em or en dashes, no semicolons and no ellipses.
