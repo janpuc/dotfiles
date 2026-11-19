@@ -52,7 +52,7 @@
 
 [gpg]
 	format = "ssh"
-{{- if eq .chezmoi.os "darwin" }}
+{{- if and (eq .chezmoi.os "darwin") (ne .chezmoi.hostname "sisyphus") }}
 
 [gpg "ssh"]
 	program = "/Applications/1Password.app/Contents/MacOS/op-ssh-sign"
@@ -79,7 +79,10 @@
 [user]
 	email = {{ .email | quote }}
 	name = "janpuc"
-{{- if eq .chezmoi.os "darwin" }}
+{{- if eq .chezmoi.hostname "sisyphus" }}
+	# Unattended host: its own key, registered on GitHub as a signing key only (sisyphus-sign).
+	signingKey = "~/.ssh/sisyphus-sign.pub"
+{{- else if eq .chezmoi.os "darwin" }}
 	signingKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxcKV1Iao/IzHzbHUGaUKocgDR6WG3w5SA64U6cd8Nk"
 {{- else }}
 	# The server's own key, registered on GitHub as a signing key (aether-sign).

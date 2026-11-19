@@ -1,0 +1,5 @@
+{{- range $host, $key := .agentSsh.hostKeys }}
+{{- if $key }}
+{{ $host }} {{ $key }}
+{{- end }}
+{{- end }}

@@ -16,6 +16,8 @@ mise install
 install -m 755 "$src/.system/sisyphus-backup" "$HOME/.local/bin/sisyphus-backup"
 [ -f "$HOME/.ssh/sisyphus-backup" ] || ssh-keygen -q -t ed25519 -N '' -C sisyphus-backup -f "$HOME/.ssh/sisyphus-backup"
 [ -f "$HOME/.ssh/work-inbox" ] || ssh-keygen -q -t ed25519 -N '' -C sisyphus-work-inbox -f "$HOME/.ssh/work-inbox"
+# Commit signing only. Register it on GitHub under Signing keys, never Authentication keys.
+[ -f "$HOME/.ssh/sisyphus-sign" ] || ssh-keygen -q -t ed25519 -N '' -C sisyphus-sign -f "$HOME/.ssh/sisyphus-sign"
 for label in local.sisyphus-backup local.sisyphus-backup-watchdog; do
     launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
     launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/$label.plist"

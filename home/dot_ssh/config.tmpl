@@ -1,3 +1,24 @@
+{{- if eq .chezmoi.os "linux" -}}
+# aether: main's restricted key to sisyphus, host key pinned. GitHub is HTTPS only.
+Host sisyphus
+  HostName 100.103.124.32
+  User jan.pucilowski
+  HostKeyAlias sisyphus
+  IdentityFile ~/.ssh/main-sisyphus
+  IdentitiesOnly yes
+  IdentityAgent none
+  BatchMode yes
+  RequestTTY no
+  ForwardAgent no
+  ControlMaster no
+  ControlPath none
+  StrictHostKeyChecking yes
+  UserKnownHostsFile ~/.ssh/known_hosts_agents
+
+Host *
+  ForwardAgent no
+  HashKnownHosts no
+{{- else -}}
 # Include ~/.orbstack/ssh/config
 
 Host ext-bastion.i.dsc.tv
@@ -23,6 +44,8 @@ Host lg
 # connection (one 1Password approval per 4 h), sisyphus uses the mac-models key.
 Host aether
   User ubuntu
+  HostKeyAlias aether
+  UserKnownHostsFile ~/.ssh/known_hosts_agents ~/.ssh/known_hosts
   ControlMaster auto
   ControlPersist 4h
 
@@ -44,3 +67,4 @@ Host *
   ControlPath ~/.ssh/master-%r@%n:%p
   ControlPersist no
   IdentityAgent ~/.1password/agent.sock
+{{- end }}

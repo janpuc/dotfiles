@@ -15,7 +15,8 @@ function ai-sync --description "Fetch AI credentials from 1Password into a local
     # service account cannot read the Private vault, so the servers use the Kubernetes copy.
     # Like the keys below, re-run after a rotation.
     set -l gh_ref "op://Private/GitHub Personal Access Token/token"
-    set -q OP_SERVICE_ACCOUNT_TOKEN; and set gh_ref "op://Kubernetes/aether/GH_TOKEN"
+    # Each server has its own token: aether's writes dotfiles, sisyphus's only reads the Pi packages.
+    set -q OP_SERVICE_ACCOUNT_TOKEN; and set gh_ref "op://Kubernetes/{{ .chezmoi.hostname }}/GH_TOKEN"
     if op read "$gh_ref" 2>/dev/null | command gh auth login --with-token 2>/dev/null
         echo "Logged gh into GitHub."
     else

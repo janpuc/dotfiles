@@ -23,6 +23,8 @@
 !.local/bin/agent
 !.ssh
 !.ssh/authorized_keys
+!.ssh/config
+!.ssh/known_hosts_agents
 !.config
 !.config/agents
 !.config/agents/projects.json
@@ -67,7 +69,9 @@
 Library/LaunchAgents/local.sisyphus-backup.plist
 Library/LaunchAgents/local.sisyphus-backup-watchdog.plist
 {{ end }}
+{{ if ne .chezmoi.hostname "sisyphus" }}
 .ssh/authorized_keys
+{{ end }}
 {{ if and (ne .chezmoi.hostname "hermes") (ne .chezmoi.hostname "sisyphus") }}
 .config/fish/functions/agent.fish
 .local/bin/agent-run

@@ -51,6 +51,27 @@ class AgentRunTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "only deliver or fetch"):
                         agent.remote_inbox({"projects": {}})
 
+    def test_main_endpoint_runs_only_three_exact_commands_on_sisyphus(self):
+        for host, command in [("sisyphus", ""), ("sisyphus", "bash"), ("sisyphus", "agent ls; id"),
+                              ("sisyphus", "agent ls "), ("sisyphus", "chezmoi apply"),
+                              ("sisyphus", "agent restart main"), ("aether", "agent ls")]:
+            with self.subTest(host=host, command=command), patch.object(agent, "HOST", host), \
+                    patch.dict(os.environ, {"SSH_ORIGINAL_COMMAND": command}), \
+                    patch.object(agent.subprocess, "run") as run:
+                with self.assertRaisesRegex(ValueError, "main endpoint accepts only"):
+                    agent.main_endpoint()
+                run.assert_not_called()
+        expected = {"agent ls": ["--launch", "ls"], "agent restart all": ["--launch", "restart", "all"],
+                    "chezmoi update": ["chezmoi", "--no-tty", "update"]}
+        for command, tail in expected.items():
+            with self.subTest(command=command), patch.object(agent, "HOST", "sisyphus"), \
+                    patch.dict(os.environ, {"SSH_ORIGINAL_COMMAND": command}), patch.object(agent.os, "chdir"), \
+                    patch.object(agent.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
+                self.assertEqual(agent.main_endpoint(), 0)
+                args, kwargs = run.call_args
+                self.assertEqual(args[0][-len(tail):], tail)
+                self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
+
     def test_aether_projects_queue_replies_to_work(self):
         config = {"defaults": {"host": "aether"}, "projects": {
             "main": {}, "home": {}, "work": {"host": "sisyphus"}}}

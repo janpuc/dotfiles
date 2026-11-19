@@ -5,6 +5,7 @@ import importlib.machinery
 import importlib.util
 import io
 import json
+import re
 import os
 from pathlib import Path
 import subprocess
@@ -54,18 +55,30 @@ class WorkSafetyTests(unittest.TestCase):
             self.assertNotEqual(empty.returncode, 0)
             self.assertIn("nonempty HOME", empty.stderr)
 
-    def test_authorized_keys_preserves_invalid_or_empty_key_and_restricts_valid_key(self):
+    @staticmethod
+    def authorized_keys_script(host, values):
+        """Render the modifier's branch for one host without chezmoi."""
         template = (BIN.parents[1] / "dot_ssh/modify_authorized_keys.tmpl").read_text()
+        head, rest = template.split('{{ if eq .chezmoi.hostname "aether" -}}\n')
+        aether, rest = rest.split('{{ else if eq .chezmoi.hostname "sisyphus" -}}\n')
+        sisyphus, tail = rest.split("{{ end -}}\n")
+        script = head + {"aether": aether, "sisyphus": sisyphus}.get(host, "") + tail
+        script = script.replace("{{ .chezmoi.homeDir }}", "/Users/jan.pucilowski")
+        return re.sub(r"\{\{ (\S+) \| toJson \| toJson \}\}",
+                      lambda match: json.dumps(json.dumps(values[match.group(1)])), script)
+
+    def run_authorized_keys(self, host, values, existing, home):
+        return subprocess.run(["python3", "-c", self.authorized_keys_script(host, values)], input=existing,
+                              capture_output=True, text=True, env=dict(os.environ, HOME=home))
+
+    def test_authorized_keys_preserves_invalid_or_empty_key_and_restricts_valid_key(self):
         blob = b"\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20" + bytes(range(32))
         valid = "ssh-ed25519 " + base64.b64encode(blob).decode() + " work-inbox"
         existing = "ssh-ed25519 operator-key jan\nold-restricted-key agents-work-inbox\n"
         with tempfile.TemporaryDirectory() as home:
             for key in ("", "not a key", "ssh-ed25519 AAAA", valid):
-                script = template.replace('{{ if eq .chezmoi.hostname "aether" -}}', '').replace('{{ end -}}', '')
-                script = script.replace('{{ .workInbox.publicKey | toJson | toJson }}', json.dumps(json.dumps(key)))
-                script = script.replace('{{ .workInbox.sourceAddress | toJson | toJson }}', json.dumps(json.dumps("100.103.124.32")))
-                result = subprocess.run(["python3", "-c", script], input=existing, capture_output=True,
-                                        text=True, env=dict(os.environ, HOME=home))
+                result = self.run_authorized_keys("aether", {
+                    ".workInbox.publicKey": key, ".workInbox.sourceAddress": "100.103.124.32"}, existing, home)
                 with self.subTest(key=key):
                     if not key:
                         self.assertEqual(result.returncode, 0)
@@ -82,6 +95,40 @@ class WorkSafetyTests(unittest.TestCase):
                                        "no-agent-forwarding", "no-X11-forwarding", "no-user-rc"):
                             self.assertIn(option, managed)
                         self.assertEqual(len(result.stdout.splitlines()), 2)
+
+    def test_authorized_keys_on_sisyphus_forces_main_endpoint_and_keeps_operator_keys(self):
+        blob = b"\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20" + bytes(range(32))
+        valid = "ssh-ed25519 " + base64.b64encode(blob).decode()
+        existing = "ssh-rsa operator-key mac-models\nstale agents-main\n"
+        keys = {".agentSsh.mainSisyphus.sourceAddress": "100.108.252.49",
+                ".agentSsh.hermesSisyphus.sourceAddress": "100.68.4.107"}
+        with tempfile.TemporaryDirectory() as home:
+            empty = self.run_authorized_keys("sisyphus", dict(keys, **{
+                ".agentSsh.mainSisyphus.publicKey": "", ".agentSsh.hermesSisyphus.publicKey": ""}), existing, home)
+            self.assertEqual((empty.returncode, empty.stdout), (0, existing))
+            bad = self.run_authorized_keys("sisyphus", dict(keys, **{
+                ".agentSsh.mainSisyphus.publicKey": "ssh-rsa AAAA", ".agentSsh.hermesSisyphus.publicKey": ""}),
+                existing, home)
+            self.assertNotEqual(bad.returncode, 0)
+            self.assertEqual(bad.stdout, "")
+            result = self.run_authorized_keys("sisyphus", dict(keys, **{
+                ".agentSsh.mainSisyphus.publicKey": valid + " main", ".agentSsh.hermesSisyphus.publicKey": valid}),
+                existing, home)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = result.stdout.splitlines()
+            self.assertEqual(len(lines), 3)
+            self.assertEqual(lines[0], "ssh-rsa operator-key mac-models")
+            main = next(line for line in lines if line.endswith(" agents-main"))
+            for option in ('command="/opt/homebrew/bin/mise exec -- python3 /Users/jan.pucilowski/.local/bin/agent-run'
+                           ' --main-endpoint"', 'from="100.108.252.49"', "no-pty", "no-port-forwarding",
+                           "no-agent-forwarding", "no-X11-forwarding", "no-user-rc"):
+                self.assertIn(option, main)
+            hermes = next(line for line in lines if line.endswith(" agents-hermes"))
+            self.assertIn('from="100.68.4.107"', hermes)
+            self.assertNotIn("command=", hermes)
+            self.assertNotIn("stale", result.stdout)
+            other = self.run_authorized_keys("hermes", {}, existing, home)
+            self.assertEqual((other.returncode, other.stdout), (0, existing))
 
     def test_work_creds_refuses_without_session_token_before_ssh(self):
         creds = load("work-creds-send")

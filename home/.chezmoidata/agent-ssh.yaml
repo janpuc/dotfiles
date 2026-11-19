@@ -1,0 +1,17 @@
+# SSH between the agent hosts. Public halves only, private keys stay on their hosts.
+# Empty keys change nothing: the authorized_keys modifier keeps the file as it is.
+agentSsh:
+  # Host keys pinned in ~/.ssh/known_hosts_agents on every host (HostKeyAlias names).
+  # Verify each with ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub on the host itself.
+  hostKeys:
+    aether: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICWufpRYHdxDMIIxqwCqC6hqAtl7kifkS+RhmsNd0Clb
+    sisyphus: ""
+  # main on aether runs only agent ls, agent restart all and chezmoi update on sisyphus,
+  # through agent-run --main-endpoint. Key: aether ~/.ssh/main-sisyphus.pub.
+  mainSisyphus:
+    publicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILGTVmOggO5gTZmbOfahCjUrwasgQ6LJedvwhZG7i+1F
+    sourceAddress: 100.108.252.49
+  # Jan's own 1Password SSH key, used by the hermes dispatcher (needs a login shell).
+  hermesSisyphus:
+    publicKey: ""
+    sourceAddress: 100.68.4.107

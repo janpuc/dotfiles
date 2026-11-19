@@ -1,27 +1,45 @@
 #!/usr/bin/env python3
-# Preserve operator keys and manage only the restricted work inbox identity on aether.
+# Preserve operator keys and manage only the tagged agent identities: the restricted work inbox
+# on aether, main's restricted endpoint and Jan's hermes key on sisyphus.
 import base64
 import ipaddress
 import json
 import re
 import sys
 
-text = sys.stdin.read()
-{{ if eq .chezmoi.hostname "aether" -}}
-key = json.loads({{ .workInbox.publicKey | toJson | toJson }})
-address = json.loads({{ .workInbox.sourceAddress | toJson | toJson }})
-if key:
+RESTRICT = "no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-user-rc"
+
+
+def managed(text, key, address, tag, options):
+    if not key:
+        return text
     if not re.fullmatch(r"ssh-ed25519 [A-Za-z0-9+/=]+(?: [^\r\n]+)?", key):
-        raise ValueError("workInbox.publicKey must be an ed25519 public key")
+        raise ValueError(f"{tag} must be an ed25519 public key")
     blob = base64.b64decode(key.split()[1], validate=True)
     if len(blob) != 51 or blob[:19] != b"\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20":
-        raise ValueError("workInbox.publicKey must contain a valid ed25519 key blob")
+        raise ValueError(f"{tag} must contain a valid ed25519 key blob")
     address = str(ipaddress.IPv4Address(address))
-    lines = [line for line in text.splitlines() if not line.endswith(" agents-work-inbox")]
-    options = ('command="/home/ubuntu/.local/bin/agent-run --remote-inbox",'
-               'no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-user-rc,'
-               f'from="{address}"')
-    lines.append(options + " " + " ".join(key.split()[:2]) + " agents-work-inbox")
-    text = "\n".join(lines) + ("\n" if lines else "")
+    lines = [line for line in text.splitlines() if not line.endswith(" " + tag)]
+    lines.append(f'{options},from="{address}" ' + " ".join(key.split()[:2]) + " " + tag)
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def value(data):
+    return json.loads(data)
+
+
+text = sys.stdin.read()
+{{ if eq .chezmoi.hostname "aether" -}}
+text = managed(text, value({{ .workInbox.publicKey | toJson | toJson }}),
+               value({{ .workInbox.sourceAddress | toJson | toJson }}), "agents-work-inbox",
+               'command="/home/ubuntu/.local/bin/agent-run --remote-inbox",' + RESTRICT)
+{{ else if eq .chezmoi.hostname "sisyphus" -}}
+text = managed(text, value({{ .agentSsh.mainSisyphus.publicKey | toJson | toJson }}),
+               value({{ .agentSsh.mainSisyphus.sourceAddress | toJson | toJson }}), "agents-main",
+               'command="/opt/homebrew/bin/mise exec -- python3 {{ .chezmoi.homeDir }}/.local/bin/agent-run'
+               ' --main-endpoint",' + RESTRICT)
+text = managed(text, value({{ .agentSsh.hermesSisyphus.publicKey | toJson | toJson }}),
+               value({{ .agentSsh.hermesSisyphus.sourceAddress | toJson | toJson }}), "agents-hermes",
+               "no-port-forwarding,no-agent-forwarding,no-X11-forwarding")
 {{ end -}}
 sys.stdout.write(text)

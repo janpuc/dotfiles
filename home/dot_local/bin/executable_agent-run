@@ -353,6 +353,21 @@ def remote_call(operation, payload):
     return json.loads(output)
 
 
+MAIN_ENDPOINT = {"agent ls": ["--launch", "ls"], "agent restart all": ["--launch", "restart", "all"]}
+
+
+def main_endpoint():
+    """Forced SSH command for main's key on sisyphus. Exactly three operations, no arguments."""
+    operation = os.environ.get("SSH_ORIGINAL_COMMAND", "")
+    if HOST != "sisyphus" or operation not in (*MAIN_ENDPOINT, "chezmoi update"):
+        raise ValueError("main endpoint accepts only agent ls, agent restart all or chezmoi update on sisyphus")
+    os.chdir(HOME)
+    # No TTY: chezmoi scripts that need sudo fail and wait for Jan's local chezmoi apply.
+    command = (["chezmoi", "--no-tty", "update"] if operation == "chezmoi update"
+               else [sys.executable, str(Path(__file__).resolve()), *MAIN_ENDPOINT[operation]])
+    return subprocess.run(command, stdin=subprocess.DEVNULL).returncode
+
+
 def remote_inbox(config):
     """Forced SSH command. No shell, arbitrary paths or other operations are accepted."""
     operation = os.environ.get("SSH_ORIGINAL_COMMAND", "")
@@ -1147,6 +1162,8 @@ def main():
             str(HOME / ".local/share/mise/shims"), "/opt/homebrew/bin",
             "/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS",
             os.environ.get("PATH", "/usr/bin:/bin")])
+    if sys.argv[1:] == ["--main-endpoint"]:
+        return main_endpoint()
     if sys.platform == "darwin" and HOST == "hermes":
         return dispatch(config, sys.argv[1:])
     if HOST not in config["hosts"]:
