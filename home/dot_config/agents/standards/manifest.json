@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2.3.0",
+  "version": "2.3.1",
   "compatibility": {
     "contextSchemaVersion": 1,
     "bootstrapMaxBytes": 49152
@@ -32,7 +32,7 @@
     },
     {
       "path": "tools.md",
-      "sha256": "d6c9c512d8c43fb771a4a4a56f8613a411a524a93bcd5116baa67c3f3d9ad717"
+      "sha256": "210abfc0fe6e397ad8fef621544fed59cabcf2dbcd8d0b24f07ed0beb046a52c"
     },
     {
       "path": "approvals.md",

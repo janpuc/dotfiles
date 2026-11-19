@@ -19,6 +19,12 @@ ai-sync. Never put credentials in task commands, registry values, notes or commi
 configuration. Missing required secrets must fail startup. Only run credential refresh
 when intended, never as a smoke test against real user state.
 
+Never print the environment or secret values into a session. Agent environments hold
+provider and memory keys, and tool output is stored in session files and backups. Do
+not run env, printenv, set or export -p, and do not cat env files, credential caches
+or token files. Check a variable by name only, for example env | cut -d= -f1 or
+test -n. Report an accidental print to Jan and propose rotating the exposed keys.
+
 Retain shim-first PATH so mise resolves tools for each command's current directory.
 The runner loads workspace environment once. Shims cannot update a parent shell's
 environment after cd. For an ordinary system command needing nested mise environment,
