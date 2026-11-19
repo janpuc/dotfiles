@@ -1,0 +1,15 @@
+{{ if eq .chezmoi.hostname "sisyphus" -}}
+#!/bin/sh
+# Keep-awake for the work host. It needs sudo, so it re-runs only when the plist changes and then
+# needs a local chezmoi apply. Every other host step is in 20-sisyphus-host, which works over SSH.
+# Caffeinate: {{ include ".system/local.caffeinate.plist" | sha256sum }}
+set -eu
+src={{ .chezmoi.sourceDir | quote }}
+# Already installed by an earlier apply, nothing needs sudo.
+cmp -s "$src/.system/local.caffeinate.plist" /Library/LaunchDaemons/local.caffeinate.plist && exit 0
+sudo install -o root -g wheel -m 644 "$src/.system/local.caffeinate.plist" /Library/LaunchDaemons/local.caffeinate.plist
+sudo launchctl bootout system/local.caffeinate 2>/dev/null || true
+sudo launchctl bootstrap system /Library/LaunchDaemons/local.caffeinate.plist
+sudo pmset -c sleep 0 disksleep 0 womp 1
+printf '%s\n' 'Keep-awake installed, Jan can now stop the manual caffeinate pane.'
+{{ end -}}

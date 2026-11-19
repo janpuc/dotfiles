@@ -1,6 +1,6 @@
 {{ if eq .chezmoi.hostname "sisyphus" -}}
 #!/bin/sh
-# Caffeinate: {{ include ".system/local.caffeinate.plist" | sha256sum }}
+# User-level host setup, safe for chezmoi update over SSH. The sudo steps are in 21-sisyphus-keepawake.
 # Backup: {{ include ".system/sisyphus-backup" | sha256sum }}
 # Hourly agent: {{ include "Library/LaunchAgents/local.sisyphus-backup.plist.tmpl" | sha256sum }}
 # Watchdog: {{ include "Library/LaunchAgents/local.sisyphus-backup-watchdog.plist.tmpl" | sha256sum }}
@@ -23,10 +23,5 @@ for label in local.sisyphus-backup local.sisyphus-backup-watchdog local.agent-di
     launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
     launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/$label.plist"
 done
-sudo install -o root -g wheel -m 644 "$src/.system/local.caffeinate.plist" /Library/LaunchDaemons/local.caffeinate.plist
-sudo launchctl bootout system/local.caffeinate 2>/dev/null || true
-sudo launchctl bootstrap system /Library/LaunchDaemons/local.caffeinate.plist
-sudo pmset -c sleep 0 disksleep 0 womp 1
-printf '%s\n' 'Keep-awake installed, Jan can now stop the manual caffeinate pane.'
 printf '%s\n' 'Backup remains disabled until the NAS handoff, pinned known_hosts and enabled marker exist.'
 {{ end -}}
