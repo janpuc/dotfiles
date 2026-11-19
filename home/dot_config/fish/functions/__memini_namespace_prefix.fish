@@ -5,10 +5,12 @@ function __memini_namespace_prefix --on-variable PWD --description "Select a reg
         return
     end
     set -e MEMINI_NAMESPACE_PREFIX
-    set -l selected (python3 "$HOME/.pi/agent/local/memini-namespace.py" 2>/dev/null)
+    set -l selected ("$HOME/.local/bin/agent" namespace 2>/dev/null)
     if test $status -eq 0; and test -n "$selected"
         set -gx MEMINI_NAMESPACE "$selected"
     else
-        set -gx MEMINI_NAMESPACE homelab/scratch
+        # No guess: on the work host any fallback could be a personal namespace.
+        set -e MEMINI_NAMESPACE
+        echo "memini: agent namespace failed, MEMINI_NAMESPACE unset" >&2
     end
 end

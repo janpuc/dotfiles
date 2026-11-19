@@ -355,26 +355,6 @@ class AgentRunTests(unittest.TestCase):
         for path, content in before.items():
             self.assertEqual(path.read_bytes(), content)
 
-    def test_memini_namespace_never_derives_an_unregistered_name(self):
-        path = SOURCE.parents[2] / "dot_pi/private_agent/local/memini-namespace.py"
-        namespace_loader = importlib.machinery.SourceFileLoader("memini_namespace", str(path))
-        namespace_spec = importlib.util.spec_from_loader(namespace_loader.name, namespace_loader)
-        module = importlib.util.module_from_spec(namespace_spec)
-        namespace_loader.exec_module(module)
-        registry = self.home / ".config/agents/projects.json"
-        registry.parent.mkdir(parents=True)
-        registry.write_text(json.dumps({"projects": {"home": {"host": "aether"}}}))
-        for cwd, expected in [("Development/home", "homelab/home"),
-                              ("Development/home/tasks/audit", "homelab/home"),
-                              ("Development/unknown/repo", "homelab/scratch"),
-                              ("Development", "homelab/scratch"),
-                              ("outside/repo", "homelab/scratch"), (".", "homelab/scratch"),
-                              ("Work/draft", "work")]:
-            with self.subTest(cwd=cwd):
-                self.assertEqual(module.namespace(self.home, self.home / cwd), expected)
-        registry.write_text("invalid JSON")
-        self.assertEqual(module.namespace(self.home, self.home / "Development/home"), "homelab/scratch")
-
     def bare_remote(self):
         source = self.home / "source"
         agent.git(self.home, "init", "--initial-branch=main", source)

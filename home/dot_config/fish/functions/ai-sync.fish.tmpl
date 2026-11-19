@@ -21,7 +21,11 @@ function ai-sync --description "Fetch AI credentials from 1Password into a local
         set gh_ref "op://Kubernetes/aether/GH_TOKEN"
         op read "op://Kubernetes/{{ .chezmoi.hostname }}/GH_TOKEN" >/dev/null 2>&1; and set gh_ref "op://Kubernetes/{{ .chezmoi.hostname }}/GH_TOKEN"
     end
-    if op read "$gh_ref" 2>/dev/null | command gh auth login --with-token 2>/dev/null
+    # Servers keep it in gh's 0600 file instead: the macOS keychain is locked in an SSH session,
+    # so chezmoi update over SSH could not fetch the private Pi packages on sisyphus.
+    set -l storage
+    set -q OP_SERVICE_ACCOUNT_TOKEN; and set storage --insecure-storage
+    if op read "$gh_ref" 2>/dev/null | command gh auth login --with-token $storage 2>/dev/null
         echo "Logged gh into GitHub."
     else
         echo "  ! could not log gh in with $gh_ref; gh keeps its old token" >&2

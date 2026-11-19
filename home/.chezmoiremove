@@ -6,4 +6,5 @@
 .pi/agent/local/agent-guard-child.ts
 # Replaced by the agent command from janpuc/agent, see .chezmoidata/agent.yaml.
 .config/fish/functions/agent.fish
+.pi/agent/local/memini-namespace.py
 {{- end }}

@@ -29,7 +29,8 @@ fi
 
 # Non-project starts use the same registry lookup as fish, never a cwd-derived name.
 unset MEMINI_NAMESPACE_PREFIX
-MEMINI_NAMESPACE=$(python3 "$HOME/.pi/agent/local/memini-namespace.py")
+# A failed lookup stops Pi, it never falls back to a namespace that could be personal.
+MEMINI_NAMESPACE=$("$HOME/.local/bin/agent" namespace) || { echo "pi: agent namespace failed" >&2; exit 1; }
 export MEMINI_NAMESPACE
 
 # The real Pi is the next `pi` on PATH after this directory.
