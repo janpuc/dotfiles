@@ -18,10 +18,10 @@
 !.chezmoiscripts/*-linux-backup.sh
 !.chezmoiscripts/*-linux-digest.sh
 !.chezmoiscripts/*-pi-git-packages.sh
+!.chezmoiscripts/*-agent.sh
 !.local
 !.local/bin
 !.local/bin/agent-run
-!.local/bin/agent
 !.ssh
 !.ssh/authorized_keys
 !.ssh/config
@@ -75,9 +75,8 @@ Library/LaunchAgents/local.agent-digest.plist
 .ssh/authorized_keys
 {{ end }}
 {{ if and (ne .chezmoi.hostname "hermes") (ne .chezmoi.hostname "sisyphus") }}
-.config/fish/functions/agent.fish
+.chezmoiscripts/*-agent.sh
 .local/bin/agent-run
-.local/bin/agent
 .local/bin/work-creds-send
 .local/bin/work-wipe
 .config/fish/functions/work-creds.fish

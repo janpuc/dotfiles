@@ -4,4 +4,6 @@
 .pi/agent/local/pocket-api.md
 .pi/agent/local/agent-guard-ask.ts
 .pi/agent/local/agent-guard-child.ts
+# Replaced by the agent command from janpuc/agent, see .chezmoidata/agent.yaml.
+.config/fish/functions/agent.fish
 {{- end }}

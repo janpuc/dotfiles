@@ -1,0 +1,10 @@
+#!/bin/sh
+# Install the agent command from github.com/janpuc/agent at the pinned commit in
+# .chezmoidata/agent.yaml. Re-runs when the pin changes. A failed install keeps the previous
+# command. Runs only where the agent runner is managed (aether, hermes, sisyphus).
+# version {{ .agent.version }}
+set -eu
+PATH="$HOME/.local/share/mise/shims:/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+[ -e "$HOME/.local/bin/agent-run" ] || exit 0
+command -v go >/dev/null || { echo "agent: go is not installed" >&2; exit 1; }
+GOBIN="$HOME/.local/bin" GOFLAGS=-trimpath go install "github.com/janpuc/agent/cmd/agent@{{ .agent.version }}"

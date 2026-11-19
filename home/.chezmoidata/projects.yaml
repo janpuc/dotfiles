@@ -19,6 +19,8 @@ hosts:
   sisyphus:
     root: ~/Work
     meminiPrefix: work
+    # Every session on the work host shares work, never a personal namespace.
+    meminiScratch: work
     meminiHome: none
     guard: work
     providers: all

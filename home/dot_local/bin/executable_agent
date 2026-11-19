@@ -1,4 +1,0 @@
-#!/bin/sh
-# `agent` for any shell: the project agents run bash, where the fish function of the same name
-# does not exist. Both hand over to agent-run.
-exec python3 "$HOME/.local/bin/agent-run" --launch "$@"
