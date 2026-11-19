@@ -18,7 +18,7 @@ const RULES: [string, RegExp][] = [
 	["a Helm change", cmd("helm", "install|upgrade|uninstall|rollback|delete")],
 	["a dotfiles apply", cmd("chezmoi", "apply|update|destroy|purge")],
 	// main's sisyphus key is forced to three commands there. Only agent ls runs without asking.
-	["a sisyphus command", /^(?:\S*\/)?ssh\s(?=(?:.*\s)?sisyphus(?:\s|$))(?!(?:.*\s)?sisyphus agent ls$)/],
+	["a sisyphus command", /^(?:\S*\/)?ssh\s(?=(?:.*\s)?(?:\S+@)?(?:sisyphus(?:\.\S*)?|100\.103\.124\.32|192\.168\.69\.249)(?:\s|$))(?!(?:.*\s)?sisyphus agent ls$)/],
 ];
 
 // This deliberately handles ordinary shell command forms, not arbitrary shell programs.

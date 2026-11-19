@@ -1155,15 +1155,16 @@ def main():
             print(HELP)
             return 2
         sys.argv[2:] = [args[2]]
-    config = json.loads(CONFIG.read_text())
-    REGISTRY = config
     if sys.platform == "darwin" and HOST == "sisyphus":
         os.environ["PATH"] = os.pathsep.join([
             str(HOME / ".local/share/mise/shims"), "/opt/homebrew/bin",
             "/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS",
             os.environ.get("PATH", "/usr/bin:/bin")])
+    # Before the registry read, so a broken registry can still be repaired by chezmoi update.
     if sys.argv[1:] == ["--main-endpoint"]:
         return main_endpoint()
+    config = json.loads(CONFIG.read_text())
+    REGISTRY = config
     if sys.platform == "darwin" and HOST == "hermes":
         return dispatch(config, sys.argv[1:])
     if HOST not in config["hosts"]:
