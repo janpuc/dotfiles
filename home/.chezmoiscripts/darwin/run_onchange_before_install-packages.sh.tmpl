@@ -36,7 +36,9 @@ set -eufo pipefail
 {{-   end -}}
 {{- end }}
 
-/opt/homebrew/bin/brew bundle --file=/dev/stdin --force-cleanup <<EOF
+brewfile=$(mktemp)
+trap 'rm -f "$brewfile"' EXIT
+cat >"$brewfile" <<EOF
 {{ if eq .chezmoi.hostname "sisyphus" -}}
 $(if [ ! -f "$HOME/.local/state/agents/model-wipe-approved" ]; then
     # Retain installed model packages until approval, never reinstall retired ones.
@@ -57,4 +59,23 @@ cask {{ . | quote }}
 vscode {{ . | quote }}
 {{ end -}}
 EOF
+# Install and upgrade first, remove what is not listed afterwards: the cleanup ends with
+# brew cleanup, which fails on a keg it cannot delete.
+/opt/homebrew/bin/brew bundle --file="$brewfile"
+{{ if eq .chezmoi.hostname "sisyphus" -}}
+# tailscaled runs as root (sudo brew services), so Homebrew makes the running keg's bin root-owned
+# and brew cleanup cannot delete it after an upgrade. Restart the daemon on the new version, then
+# remove the old root-owned kegs. Needs sudo, so it only completes in Jan's local chezmoi apply.
+current=$(readlink /opt/homebrew/opt/tailscale 2>/dev/null || true)
+stale=()
+for keg in /opt/homebrew/Cellar/tailscale/*(N/); do
+    [[ -n "$current" && "${keg:t}" != "${current:t}" ]] || continue
+    if [[ -n "$(find "$keg" -user root -print -quit)" ]]; then stale+=("$keg"); fi
+done
+if (( ${#stale} )); then
+    sudo /opt/homebrew/bin/brew services restart tailscale
+    sudo rm -rf -- "${stale[@]}"
+fi
+{{ end -}}
+/opt/homebrew/bin/brew bundle cleanup --file="$brewfile" --force
 {{ end -}}

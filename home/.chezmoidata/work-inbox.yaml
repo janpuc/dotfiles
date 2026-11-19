@@ -1,5 +1,5 @@
 # Jan fills the public half of sisyphus ~/.ssh/work-inbox before deploying on aether.
 # The private key stays on sisyphus. Never use a general-purpose SSH identity here.
 workInbox:
-  publicKey: ""
+  publicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAq4ysZ73Ea0QJjRx5FCRD/8HNxJkPG6YY4obnQKacrT sisyphus-work-inbox
   sourceAddress: 100.103.124.32

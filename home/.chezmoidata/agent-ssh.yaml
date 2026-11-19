@@ -5,7 +5,7 @@ agentSsh:
   # Verify each with ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub on the host itself.
   hostKeys:
     aether: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICWufpRYHdxDMIIxqwCqC6hqAtl7kifkS+RhmsNd0Clb
-    sisyphus: ""
+    sisyphus: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgf/1p8LAoYIvHblYg09cyAxEyE9ow7+i3mdgwN7NGU
   # main on aether runs only agent ls, agent restart all and chezmoi update on sisyphus,
   # through agent-run --main-endpoint. Key: aether ~/.ssh/main-sisyphus.pub.
   mainSisyphus:
