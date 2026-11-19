@@ -57,9 +57,6 @@
         },
         "opencode-go/deepseek-v4.1-flash": {
           "name": "DeepSeek V4.1 Flash"
-        },
-        "m3pro/huihui-qwen3.8-27b": {
-          "name": "Huihui Qwen3.8 27B (M3 Pro, local)"
         }
       }
     }
