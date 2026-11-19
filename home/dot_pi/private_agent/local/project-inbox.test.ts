@@ -33,23 +33,28 @@ function fixture() {
 	};
 }
 
-test("new items reach the agent without a prompt, the second as a followUp, once", () => {
+test("new items reach an idle agent one at a time without a prompt, once", () => {
 	const f = fixture();
 	try {
 		const second = { ...f.item, id: "20261118T120001-abcdef", text: "Second request" };
 		fs.writeFileSync(join(f.workspace, ".agent/inbox", `${second.id}.json`), JSON.stringify(second));
 		let idle = true;
-		const ctx: any = { isIdle: () => idle, ui: { notify: () => {} } };
+		const ctx: any = { isIdle: () => idle, hasPendingMessages: () => false, ui: { notify: () => {} } };
 		const delivered: { text: string; options: unknown }[] = [];
 		const pi = { sendUserMessage: (text: string, options?: unknown) => { delivered.push({ text, options }); idle = false; } };
 		const state = { delivered: new Set<string>(), promptOpen: false };
 		deliverOpen(pi as any, "home", f.workspace, ctx, state);
 		deliverOpen(pi as any, "home", f.workspace, ctx, state);
+		assert.equal(delivered.length, 1, "nothing is handed over while the agent runs");
+		idle = true;
+		deliverOpen(pi as any, "home", f.workspace, ctx, state);
+		idle = true;
+		deliverOpen(pi as any, "home", f.workspace, ctx, state);
 		assert.equal(delivered.length, 2);
 		assert.match(delivered[0].text, /Request 20261118T120000-abcdef from kubernetes/);
 		assert.match(delivered[0].text, /agent reply home 20261118T120000-abcdef/);
 		assert.equal(delivered[0].options, undefined);
-		assert.deepEqual(delivered[1].options, { deliverAs: "followUp" });
+		assert.match(delivered[1].text, /Second request/);
 		assert.equal(f.status(), "accepted");
 	} finally {
 		f.restore();

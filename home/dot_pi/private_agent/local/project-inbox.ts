@@ -1,6 +1,6 @@
 // Watch the project inbox and the restart marker. Requests from other projects, replies and
-// task folds reach the agent by themselves: delivered at once when Pi is idle, otherwise
-// queued as a follow-up that never interrupts a run. There is no prompt and no model call in
+// task folds reach the agent by themselves, one at a time and only when Pi is idle, so a
+// run is never interrupted and nothing waits in a volatile follow-up queue. There is no prompt and no model call in
 // this path. /inbox lists what arrived.
 import { existsSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -82,11 +82,12 @@ function message(item: InboxItem, project: string) {
 	const head = item.inReplyTo
 		? `Reply ${item.id} from ${item.from} to your request ${item.inReplyTo}.`
 		: item.from === project ? `Fold ${item.id} from one of your tasks.` : `Request ${item.id} from ${item.from}.`;
-	const tail = item.inReplyTo || item.from === project ? "" : `\n\nTake it up after your current work. When done, answer with: agent reply ${project} ${item.id} <text>`;
+	const tail = item.inReplyTo || item.from === project ? "" : `\n\nWhen done, answer with: agent reply ${project} ${item.id} <text>`;
 	return `${head}\n\n${item.text}${tail}`;
 }
 
-/** Hand every new item to the agent and mark it accepted. A failed hand-over stays new. */
+/** Hand the oldest new item to an idle agent and mark it accepted. The next poll after the
+ * run settles hands over the next one. */
 export function deliverOpen(
 	pi: Pick<ExtensionAPI, "sendUserMessage">,
 	project: string,
@@ -94,12 +95,14 @@ export function deliverOpen(
 	ctx: ExtensionContext,
 	state: InboxState,
 ) {
+	if (state.promptOpen || !ctx.isIdle() || ctx.hasPendingMessages()) return;
 	for (const item of openItems(folder, project)) {
 		if (state.delivered.has(item.id)) continue;
 		if (!setStatus(folder, item, "accepted")) continue;
 		state.delivered.add(item.id);
 		try {
-			pi.sendUserMessage(message(item, project), ctx.isIdle() ? undefined : { deliverAs: "followUp" });
+			pi.sendUserMessage(message(item, project));
+			return;
 		} catch (error) {
 			setStatus(folder, item, "new");
 			state.delivered.delete(item.id);

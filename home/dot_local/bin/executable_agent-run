@@ -1171,9 +1171,14 @@ def digest(projects, hours=24):
         for line in action_log().read_text().splitlines():
             try:
                 entry = json.loads(line)
-                if datetime.fromisoformat(entry["ts"].replace("Z", "+00:00")) >= since:
-                    actions.setdefault(entry.get("project") or "-", []).append(entry)
-            except (ValueError, KeyError, TypeError):
+                if not isinstance(entry, dict) or not isinstance(entry.get("ts"), str) or not entry.get("what"):
+                    continue
+                stamp = datetime.fromisoformat(entry["ts"].replace("Z", "+00:00"))
+                if stamp.tzinfo is None:
+                    stamp = stamp.replace(tzinfo=timezone.utc)
+                if stamp >= since:
+                    actions.setdefault(str(entry.get("project") or "-"), []).append(entry)
+            except (ValueError, KeyError, TypeError, AttributeError):
                 continue
     except OSError:
         pass
@@ -1195,7 +1200,7 @@ def digest(projects, hours=24):
         for entry in actions.get(name, []):
             reason = f" (reason: {entry['reason']})" if entry.get("reason") else ""
             failed = " FAILED" if entry.get("ok") is False else ""
-            block.append(f"- {entry['kind']} {entry.get('what')}{failed}{reason}: {entry.get('command', '')}")
+            block.append(f"- {entry.get('kind', 'action')} {entry.get('what')}{failed}{reason}: {entry.get('command', '')}")
         if block:
             out += [f"## {name}", *block, ""]
     if len(out) == 2:
