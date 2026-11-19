@@ -93,15 +93,13 @@ system is changed by asking its owner.
 | `thesis` | the thesis |
 
 `agent ask <project> <text>` writes a request into the target's inbox. `agent ls`
-counts the open ones. In the target's `pi` tab Jan sees each new request with its
-sender, its text and the current Claude 5h and week usage, then chooses Take this on
-now, Later or Decline. Only Take this on now reaches the agent. At 85 percent or more
-of either window the prompt says so and puts Later first. Later keeps the request for
-`/inbox`, which lists the open ones and offers them again. A decline writes an
-automatic reply. A reply to an accepted request comes back the same way.
+counts the open ones. The target's Pi picks each new request, reply or task fold up by
+itself within 30 seconds: at once when idle, otherwise as a follow-up after the current
+run, never interrupting it. There is no prompt. `/inbox` lists the recent items and
+their status. A request that is not the owner's to do gets a reply saying so.
 
 Requests are plain JSON in `~/Development/<project>/.agent/inbox/`, outside git and
-inside the backup. Print, JSON and RPC modes never accept or answer for you. Reading
+inside the backup. Reading
 another aether project's notes and memini namespace on aether is allowed, changing
 them is not. Work agents read no personal material and main never reads Work.
 

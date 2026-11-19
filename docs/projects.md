@@ -75,7 +75,7 @@ Project and member names are single directory components beginning with a letter
 digit and containing only letters, digits, dots, underscores and hyphens. Project
 names up, ls, open, help, archive, adopt, ask, reply, restart, task and jan are reserved.
 main is an ordinary registered project. jan is a laptop-only request sender, refused
-inside project sessions. Replies and declines for jan land in main's ordinary inbox. Member paths notes,
+inside project sessions. Replies for jan land in main's ordinary inbox. Member paths notes,
 plans, scripts and tasks are reserved. Names and paths must be unique, relative and contained
 without symlink escapes. Members remain direct children of the workspace.
 

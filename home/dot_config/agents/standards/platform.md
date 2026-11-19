@@ -30,5 +30,5 @@ indexed topic pages under PI_PROJECT_ROOT and recall homelab/<owner> read-only.
 This does not permit reading Work. Work agents never read personal files or memory.
 Ask main for platform help without reading its workspace first. Never change another
 owner's files or memory. Delegate with agent ask, never terminal input.
-Requests and replies wait for Jan. Laptop requests outside registered projects come
+Requests, replies and folds reach the agent by themselves. Laptop requests outside registered projects come
 from jan. Their replies go to main's ordinary inbox on aether, not the laptop.

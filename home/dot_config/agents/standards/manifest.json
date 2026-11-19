@@ -8,7 +8,7 @@
   "files": [
     {
       "path": "platform.md",
-      "sha256": "b854af5e3804afcc9fa96d7cc946c264681b20d47bcd03ba53a64e7f89b332c2"
+      "sha256": "cf6e660c94194f65e28850f40cbbb973a2d0f918c3d11a35dddfb1dc999cb3f3"
     },
     {
       "path": "tasks.md",
@@ -48,7 +48,7 @@
     },
     {
       "path": "requests.md",
-      "sha256": "c3177a3461e27f71def042f4b6807a8b51f70a1b231762507a4f35f30cd9683b"
+      "sha256": "56a37a16fb52b500cc89e87565c8ed9d8dafc884d46f457cc7ec69d2e9b614ba"
     },
     {
       "path": "wipe.md",

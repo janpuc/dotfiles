@@ -23,16 +23,16 @@ acknowledge replies addressed to work. Replies wait on aether until work pulls t
 The endpoint validates the sender, target, operation and 32 KiB payload cap.
 
 agent ask <owner> "<text>" states outcome, reason and done check. One request per
-outcome, to an active project other than yourself. Jan decides in its tab whether
-it reaches the agent. Do not repeat requests or use another channel.
+outcome, to an active project other than yourself. It reaches the owner by itself
+after its current work. Do not repeat requests or use another channel.
 
-On acceptance, plan, ask Jan for shared changes, execute, then answer with
-agent reply <your-project> <request-id> "<text>". Report changes, verification, open
-work and pending approvals. Never type into another agent's tab or claim unchecked
-completion. A decline sends an automatic reply. Do not argue, bring new evidence.
+Take a request up, decide and execute per approvals.md, then answer with
+agent reply <your-project> <request-id> "<text>". Report changes, verification and
+open questions. Never type into another agent's tab or claim unchecked completion.
+If a request is not yours to do, reply saying so and who owns it.
 Laptop requests outside registered projects come from reserved sender jan. Replies
-and declines for jan go to main's ordinary aether inbox, never a laptop inbox.
+for jan go to main's ordinary aether inbox, never a laptop inbox.
 
-Track accepted request ids under notes/STATE.md Open threads until replied and all
-follow-up answered. Fold requests are task close-outs for the project owner to
-reconcile, not instructions to reply to yourself. They also wait for Jan.
+Track request ids under notes/STATE.md Open threads until replied and all follow-up
+answered. Folds are task close-outs for the owner to reconcile into project notes,
+not instructions to reply to yourself.

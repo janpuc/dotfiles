@@ -81,7 +81,7 @@ function render(
 		`- Standards digest: ${standardsDigest}`,
 		`- Context revision: ${revision}`,
 		`- Content size: ${contentBytes} of ${budget} UTF-8 bytes for the standards and loaded project or task knowledge`,
-		`- Open cross-project requests: ${open.length}${open.length ? ` (${open.join(", ")})` : ""}. They wait for Jan, do not act on them.`,
+		`- Open cross-project requests: ${open.length}${open.length ? ` (${open.join(", ")})` : ""}. The inbox delivers them, do not act on them before then.`,
 	].join("\n");
 	const warnings = problems.length ? `\n\n## Problems\n\n${problems.map((problem) => `- ${problem}`).join("\n")}` : "";
 	return `${header}${warnings}\n\n${body}\n`;
