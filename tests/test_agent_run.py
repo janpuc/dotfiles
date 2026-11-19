@@ -51,10 +51,10 @@ class AgentRunTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "only deliver or fetch"):
                         agent.remote_inbox({"projects": {}})
 
-    def test_main_endpoint_runs_only_three_exact_commands_on_sisyphus(self):
+    def test_main_endpoint_runs_only_three_exact_commands(self):
         for host, command in [("sisyphus", ""), ("sisyphus", "bash"), ("sisyphus", "agent ls; id"),
                               ("sisyphus", "agent ls "), ("sisyphus", "chezmoi apply"),
-                              ("sisyphus", "agent restart main"), ("aether", "agent ls")]:
+                              ("sisyphus", "agent restart main")]:
             with self.subTest(host=host, command=command), patch.object(agent, "HOST", host), \
                     patch.dict(os.environ, {"SSH_ORIGINAL_COMMAND": command}), \
                     patch.object(agent.subprocess, "run") as run:

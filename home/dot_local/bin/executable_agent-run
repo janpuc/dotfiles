@@ -16,10 +16,28 @@ from datetime import datetime, timedelta, timezone
 HOME = Path.home()
 ROOT = HOME / "Development"
 CONFIG = HOME / ".config/agents/projects.json"
-HOST = socket.gethostname().split(".")[0].lower()
+# AGENT_HOST is for tests, which run every host role on one machine.
+HOST = (os.environ.get("AGENT_HOST") or socket.gethostname()).split(".")[0].lower()
 HOST_CONFIG = {}
 REGISTRY = {}
 REMOTE_LIMIT = 32768
+# Site names come from the registry's platform block. These fallbacks are today's values.
+SITE_DEFAULTS = {
+    "operator": "jan",
+    "coordinator": "dotfiles",
+    "aliases": {"main": "dotfiles"},
+    "clients": ["hermes"],
+    "hub": "aether",
+    "remote": {"project": "work", "host": "sisyphus", "identity": "~/.ssh/work-inbox"},
+}
+
+
+def site(key):
+    return (REGISTRY.get("platform") or {}).get(key, SITE_DEFAULTS[key])
+
+
+def remote_site():
+    return {**SITE_DEFAULTS["remote"], **site("remote")}
 
 HELP = """agent: project agents on aether and sisyphus, dispatched over SSH from hermes
 
@@ -53,7 +71,7 @@ Guide: docs/agents.md in janpuc/dotfiles.
 
 
 def project_host(config, project):
-    return config["projects"][project].get("host", config["defaults"].get("host", "aether"))
+    return config["projects"][project].get("host", config["defaults"].get("host", site("hub")))
 
 
 def dispatch(config, args):
@@ -67,11 +85,13 @@ def dispatch(config, args):
     sender = os.environ.get("PI_PROJECT")
     if not sender:
         try:
-            root = "Work" if Path.cwd().resolve().is_relative_to(HOME / "Work") else "Development"
-            candidate = Path.cwd().resolve().relative_to(HOME / root).parts[0]
-            if candidate in projects:
-                sender = candidate
-        except (ValueError, IndexError):
+            for host in config["hosts"].values():
+                root = Path(host["root"]).expanduser()
+                if Path.cwd().resolve().is_relative_to(root):
+                    candidate = Path.cwd().resolve().relative_to(root).parts[0]
+                    if candidate in projects:
+                        sender = candidate
+        except (ValueError, IndexError, KeyError):
             pass
     if sender and sender not in projects:
         raise ValueError(f"Unknown sender project: {sender}")
@@ -80,7 +100,7 @@ def dispatch(config, args):
             if not sender:
                 raise ValueError("Task commands need an explicit project outside a project")
             command.insert(2, sender)
-    hosts = sorted({project_host(config, name) for name in projects}, key=lambda h: (h != "aether", h))
+    hosts = sorted({project_host(config, name) for name in projects}, key=lambda h: (h != site("hub"), h))
     if command in (["ls"], ["up"], ["restart", "all"], ["task", "ls"], ["todo"]) or command[0] == "digest":
         targets = hosts
     else:
@@ -266,7 +286,7 @@ def request_target(projects, name):
 
 
 def work_reply_queue():
-    queue = platform_state() / "remote-inbox/work"
+    queue = platform_state() / "remote-inbox" / remote_site()["project"]
     if (not queue.resolve().is_relative_to(HOME.resolve())
             or queue.is_symlink() or any(parent.is_symlink() for parent in queue.parents
                                          if parent != HOME and parent.is_relative_to(HOME))):
@@ -275,30 +295,31 @@ def work_reply_queue():
 
 
 def write_request(target, item):
-    # Replies wait on aether. Only work can fetch them, dotfiles never connects to sisyphus.
-    folder = work_reply_queue() if target == "work" and HOST == "aether" else inbox(target)
+    # Replies wait on the hub. Only the remote project fetches them, the hub never connects out.
+    folder = work_reply_queue() if target == remote_site()["project"] and HOST == site("hub") else inbox(target)
     folder.mkdir(parents=True, exist_ok=True)
     atomic_write(folder / f"{item['id']}.json", json.dumps(item, ensure_ascii=False, indent=2) + "\n")
 
 
-def ask(projects, target, text, client_jan=False):
+def ask(projects, target, text, client_operator=False):
     request_target(projects, target)
     sender = os.environ.get("PI_PROJECT", "")
-    if client_jan:
+    operator, remote_project = site("operator"), remote_site()
+    if client_operator:
         if sender:
-            raise ValueError("A project session cannot send as jan")
-        sender = "jan"
+            raise ValueError(f"A project session cannot send as {operator}")
+        sender = operator
     if not sender:
         raise ValueError("agent ask must run inside a project agent, PI_PROJECT is unset")
-    if sender != "jan" and sender not in projects:
+    if sender != operator and sender not in projects:
         raise ValueError(f"Unknown sender project: {sender}")
-    if sender == "jan" and not client_jan:
-        raise ValueError("jan is reserved for the laptop client")
+    if sender == operator and not client_operator:
+        raise ValueError(f"{operator} is reserved for the laptop client")
     if sender == target:
         raise ValueError("Cannot ask your own project, do the work yourself")
     remote = REGISTRY and project_host(REGISTRY, target) != HOST
-    if remote and not (HOST == "sisyphus" and sender == "work"):
-        raise ValueError("Only work may deliver remote requests to aether")
+    if remote and not (HOST == remote_project["host"] and sender == remote_project["project"]):
+        raise ValueError(f"Only {remote_project['project']} may deliver remote requests to {site('hub')}")
     if not remote and (not initialization(target) or not (ROOT / target).is_dir()):
         raise ValueError(f"{target}: workspace is not initialized yet")
     text = text.strip()
@@ -328,9 +349,11 @@ def reply(projects, project, request, text):
     if not isinstance(original, dict) or original.get("to") != project or original.get("id") != request:
         raise ValueError(f"{project}: no request {request} in its inbox")
     target = original.get("from")
-    # Jan has no laptop inbox. His replies wait in the dotfiles project's ordinary inbox.
-    # Requests sent before the 2026-11-19 rename still name main as their sender.
-    target = "dotfiles" if target in ("jan", "main") else target
+    # The operator has no laptop inbox. Their replies wait in the coordinator's ordinary inbox.
+    # Aliases map senders of requests sent before a project rename.
+    if target == site("operator"):
+        target = site("coordinator")
+    target = site("aliases").get(target, target)
     request_target(REGISTRY["projects"] if REGISTRY else projects, target)
     text = text.strip()
     if not text:
@@ -339,11 +362,12 @@ def reply(projects, project, request, text):
             "created": request_time(), "status": "new", "inReplyTo": request}
     if len(json.dumps(item).encode()) > REMOTE_LIMIT - 1024:
         raise ValueError("Reply exceeds inbox payload limit")
-    if HOST == "aether" and target == "work":
+    remote_project = remote_site()
+    if HOST == site("hub") and target == remote_project["project"]:
         write_request(target, item)
     elif REGISTRY and project_host(REGISTRY, target) != HOST:
-        if HOST != "sisyphus" or project != "work":
-            raise ValueError("Only work may deliver replies remotely")
+        if HOST != remote_project["host"] or project != remote_project["project"]:
+            raise ValueError(f"Only {remote_project['project']} may deliver replies remotely")
         remote_call("deliver", item)
     else:
         write_request(target, item)
@@ -352,11 +376,13 @@ def reply(projects, project, request, text):
 
 
 def remote_call(operation, payload):
-    if HOST != "sisyphus":
-        raise ValueError("Only sisyphus uses the work inbox key")
+    remote_project = remote_site()
+    if HOST != remote_project["host"]:
+        raise ValueError(f"Only {remote_project['host']} uses the remote inbox key")
     output = run("ssh", "-T", "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
                  "-o", "IdentityAgent=none", "-o", "ControlMaster=no", "-o", "ControlPath=none",
-                 "-o", "StrictHostKeyChecking=yes", "-i", HOME / ".ssh/work-inbox", "aether", operation,
+                 "-o", "StrictHostKeyChecking=yes", "-i", Path(remote_project["identity"]).expanduser(),
+                 site("hub"), operation,
                  input=json.dumps(payload), stdout=subprocess.PIPE, text=True, timeout=15).stdout
     return json.loads(output)
 
@@ -365,10 +391,11 @@ MAIN_ENDPOINT = {"agent ls": ["--launch", "ls"], "agent restart all": ["--launch
 
 
 def main_endpoint():
-    """Forced SSH command for the dotfiles project's key (main-sisyphus) on sisyphus. Exactly three operations, no arguments."""
+    """Forced SSH command for the coordinator's key on the remote host. Exactly three operations, no
+    arguments. It runs before the registry is read, so authorized_keys is the gate, not the host name."""
     operation = os.environ.get("SSH_ORIGINAL_COMMAND", "")
-    if HOST != "sisyphus" or operation not in (*MAIN_ENDPOINT, "chezmoi update"):
-        raise ValueError("main endpoint accepts only agent ls, agent restart all or chezmoi update on sisyphus")
+    if operation not in (*MAIN_ENDPOINT, "chezmoi update"):
+        raise ValueError("main endpoint accepts only agent ls, agent restart all or chezmoi update")
     os.chdir(HOME)
     # No TTY: chezmoi scripts that need sudo fail and wait for Jan's local chezmoi apply.
     command = (["chezmoi", "--no-tty", "update"] if operation == "chezmoi update"
@@ -379,8 +406,8 @@ def main_endpoint():
 def remote_inbox(config):
     """Forced SSH command. No shell, arbitrary paths or other operations are accepted."""
     operation = os.environ.get("SSH_ORIGINAL_COMMAND", "")
-    if HOST != "aether" or operation not in ("deliver", "fetch"):
-        raise ValueError("Remote inbox accepts only deliver or fetch on aether")
+    if HOST != site("hub") or operation not in ("deliver", "fetch"):
+        raise ValueError(f"Remote inbox accepts only deliver or fetch on {site('hub')}")
     raw = sys.stdin.read(REMOTE_LIMIT + 1)
     if len(raw.encode()) > REMOTE_LIMIT:
         raise ValueError("Remote inbox payload exceeds 32 KiB")
@@ -389,12 +416,12 @@ def remote_inbox(config):
         raise ValueError("Remote inbox requires an object")
     if operation == "deliver":
         target = payload.get("to")
-        if (payload.get("from") != "work" or not valid_name(target) or target not in config["projects"]
-                or project_host(config, target) != "aether"
+        if (payload.get("from") != remote_site()["project"] or not valid_name(target)
+                or target not in config["projects"] or project_host(config, target) != site("hub")
                 or not isinstance(payload.get("id"), str) or not REQUEST_ID.fullmatch(payload["id"])
                 or not isinstance(payload.get("text"), str) or not payload["text"].strip()
                 or payload.get("status") != "new"):
-            raise ValueError("Invalid work request")
+            raise ValueError("Invalid remote request")
         request_target(config["projects"], target)
         record = initialization(target)
         if not record or record["state"] != "initialized" or not (ROOT / target).is_dir():
@@ -430,7 +457,7 @@ def remote_inbox(config):
         if len(raw.encode()) > REMOTE_LIMIT:
             raise ValueError("Work reply exceeds 32 KiB")
         item = json.loads(raw)
-        if (not isinstance(item, dict) or item.get("to") != "work" or item.get("id") != path.stem
+        if (not isinstance(item, dict) or item.get("to") != remote_site()["project"] or item.get("id") != path.stem
                 or not isinstance(item.get("inReplyTo"), str) or not REQUEST_ID.fullmatch(item["inReplyTo"])):
             raise ValueError("Invalid work reply")
         if len(json.dumps(items + [item]).encode()) > REMOTE_LIMIT:
@@ -441,19 +468,20 @@ def remote_inbox(config):
 
 
 def fetch_replies():
-    if HOST != "sisyphus" or os.environ.get("PI_PROJECT") != "work":
-        raise ValueError("Only the work project may fetch replies")
+    remote_project = remote_site()
+    if HOST != remote_project["host"] or os.environ.get("PI_PROJECT") != remote_project["project"]:
+        raise ValueError(f"Only the {remote_project['project']} project may fetch replies")
     acknowledgements = platform_state() / "work-reply-acks.json"
     pending = json.loads(acknowledgements.read_text()) if acknowledgements.exists() else []
     items = remote_call("fetch", {"ack": pending})
     received = []
     for item in items:
-        if (item.get("to") != "work" or not REQUEST_ID.fullmatch(item.get("id", ""))
+        if (item.get("to") != remote_project["project"] or not REQUEST_ID.fullmatch(item.get("id", ""))
                 or not isinstance(item.get("text"), str)):
             raise ValueError("Invalid work reply")
         # Preserve a locally accepted or declined reply after an interrupted acknowledgement.
-        if not (inbox("work") / f"{item['id']}.json").exists():
-            write_request("work", item)
+        if not (inbox(item["to"]) / f"{item['id']}.json").exists():
+            write_request(item["to"], item)
         received.append(item["id"])
     acknowledgements.parent.mkdir(parents=True, exist_ok=True)
     atomic_write(acknowledgements, json.dumps(received) + "\n")
@@ -774,7 +802,7 @@ def ensure(name, project):
         windows = rex("session", "inspect", sid, "--json")["windows"]
         if not unique(windows, "shell"):
             rex("window", "new", "-s", sid, "shell", "-c", folder, "--focus=false", "--json")
-    sessions = sorted(rex("ls", "--json")["sessions"], key=lambda s: (s.get("label") != "dotfiles", s.get("label", "")))
+    sessions = sorted(rex("ls", "--json")["sessions"], key=lambda s: (s.get("label") != site("coordinator"), s.get("label", "")))
     for before, after in zip(reversed(sessions[:-1]), reversed(sessions[1:])):
         rex("api", "call", "session.move", json.dumps({
             "session_id": before["session_id"], "before_session_id": after["session_id"]}))
@@ -810,7 +838,7 @@ def loop(name, project, defaults, task=None):
         env.update(PI_PROJECT=name, PI_PROJECT_DIR=str(folder), PI_PROJECT_ROOT=str(ROOT),
                    PI_GUARD_PROFILE=HOST_CONFIG.get("guard", "personal"),
                    MEMINI_NAMESPACE=project.get("meminiNamespace", f"{HOST_CONFIG.get('meminiPrefix', 'homelab')}/{name}"),
-                   MEMINI_HOME=HOST_CONFIG.get("meminiHome", "personal/jan"))
+                   MEMINI_HOME=HOST_CONFIG.get("meminiHome", "none"))
         for key in ("MEMINI_NAMESPACE_PREFIX", "PI_TASK", "PI_TASK_DIR", "PI_TASK_STATE_DIR",
                     "OP_SERVICE_ACCOUNT_TOKEN"):
             env.pop(key, None)
@@ -1249,7 +1277,7 @@ def main():
             print(HELP)
             return 2
         sys.argv[2:] = [args[2]]
-    if sys.platform == "darwin" and HOST == "sisyphus":
+    if sys.platform == "darwin" and HOST not in SITE_DEFAULTS["clients"]:
         os.environ["PATH"] = os.pathsep.join([
             str(HOME / ".local/share/mise/shims"), "/opt/homebrew/bin",
             "/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS",
@@ -1259,7 +1287,7 @@ def main():
         return main_endpoint()
     config = json.loads(CONFIG.read_text())
     REGISTRY = config
-    if sys.platform == "darwin" and HOST == "hermes":
+    if HOST in site("clients"):
         return dispatch(config, sys.argv[1:])
     if HOST not in config["hosts"]:
         raise ValueError(f"Host {HOST} is not registered as an execution host")
@@ -1278,14 +1306,16 @@ def main():
         atomic_write(path, digest(projects))
         print(path)
         return 0
-    client_jan = len(sys.argv) > 1 and sys.argv[1] == "--client-jan"
-    if client_jan:
+    # --client-jan is the flag older laptop dispatchers send.
+    client_operator = len(sys.argv) > 1 and sys.argv[1] in ("--client-operator", "--client-jan")
+    if client_operator:
         sys.argv.pop(1)
         if sys.argv[1:3] != ["--launch", "ask"]:
-            raise ValueError("--client-jan is only for laptop requests")
-    reserved = ("up", "ls", "archive", "adopt", "ask", "reply", "restart", "task", "jan", "open", "help", "todo", "digest")
+            raise ValueError("--client-operator is only for laptop requests")
+    reserved = ("up", "ls", "archive", "adopt", "ask", "reply", "restart", "task", "open", "help", "todo", "digest",
+                site("operator"))
     if any(not valid_name(name) or name in reserved for name in projects):
-        raise ValueError("Project names must be single path components and not reserved command names or jan")
+        raise ValueError("Project names must be single path components and not reserved command names or the operator")
     for name, project in projects.items():
         lifecycle(name, project)
     if len(sys.argv) >= 3 and sys.argv[1] == "--launch":
@@ -1300,7 +1330,7 @@ def main():
         if action == "ask":
             if len(sys.argv) < 5:
                 raise ValueError("Usage: agent ask <project> <text>")
-            ask(config["projects"], sys.argv[3], " ".join(sys.argv[4:]), client_jan=client_jan)
+            ask(config["projects"], sys.argv[3], " ".join(sys.argv[4:]), client_operator=client_operator)
             return 0
         if action == "reply":
             if len(sys.argv) < 6:

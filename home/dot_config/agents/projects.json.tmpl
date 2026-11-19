@@ -16,4 +16,4 @@
 {{- $_ := set $resolved "tasks" (merge (deepCopy (default dict (get $project "tasks"))) $.defaults.tasks) -}}
 {{- $_ := set $projects $name $resolved -}}
 {{- end -}}
-{{ dict "hosts" .hosts "defaults" .defaults "projects" $projects | toPrettyJson }}
+{{ dict "platform" .platform "hosts" .hosts "defaults" .defaults "projects" $projects | toPrettyJson }}

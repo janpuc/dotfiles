@@ -1,3 +1,15 @@
+# Site names the runner reads instead of hard-coding them.
+platform:
+  # Reserved sender for laptop requests. Its replies go to the coordinator's inbox.
+  operator: jan
+  coordinator: dotfiles
+  # Senders of requests made before a project rename.
+  aliases: {main: dotfiles}
+  # Dispatch-only machines.
+  clients: [hermes]
+  # Receives remote deliveries and queues replies for the remote project.
+  hub: aether
+  remote: {project: work, host: sisyphus, identity: ~/.ssh/work-inbox}
 hosts:
   aether:
     root: ~/Development
