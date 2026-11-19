@@ -50,9 +50,9 @@ export default function (pi: ExtensionAPI) {
 		try {
 			const result = readFileSync(join(folder, "RESULT.md"), "utf8");
 			if (["Outcome", "Changes", "Verification", "Learned", "Open"].some((heading) => !new RegExp(`^## ${heading}\\s*$`, "m").test(result))) throw new Error("RESULT.md headings are incomplete");
-			const completed = await pi.exec("python3", [join(process.env.HOME!, ".local/bin/agent-run"), "--launch", "task", "finalize", project, task]);
+			const completed = await pi.exec(join(process.env.HOME!, ".local/bin/agent"), ["task", "finalize", project, task]);
 			if (completed.code !== 0) throw new Error(completed.stderr || completed.stdout);
-			ctx.ui.notify("Task closed. Result and folder retained. The project inbox has the fold request.", "info");
+			ctx.ui.notify("Task closed. Result and folder retained. The fold request is in the receiving project's inbox.", "info");
 			ctx.shutdown();
 		} catch (error) {
 			ctx.ui.notify(`Task close paused: ${error}. Run agent task close again to retry.`, "error");

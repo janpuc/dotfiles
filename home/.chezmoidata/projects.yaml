@@ -16,6 +16,8 @@ hosts:
     meminiPrefix: homelab
     meminiHome: personal/jan
     guard: personal
+    # agent scratch opens tasks of this project. Its memini namespace is homelab/scratch.
+    scratchProject: scratch
   sisyphus:
     root: ~/Work
     meminiPrefix: work
@@ -23,6 +25,8 @@ hosts:
     meminiScratch: work
     meminiHome: none
     guard: work
+    # Work scratch stays on the work host as tasks of work.
+    scratchProject: work
     providers: all
     vault: Work
     backup: sisyphus-backup
@@ -53,6 +57,11 @@ projects:
     repos:
       - name: dotfiles
         url: https://github.com/janpuc/dotfiles.git
+  scratch:
+    # Free-standing work: agent scratch "<brief>" opens a task here. agent scratch fold hands
+    # it to a project, agent scratch promote asks dotfiles for a new project. Added 2026-11-19.
+    host: aether
+    lifecycle: active
   home:
     lifecycle: active
     repos:

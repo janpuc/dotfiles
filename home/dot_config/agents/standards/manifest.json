@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2.4.1",
+  "version": "2.4.2",
   "compatibility": {
     "contextSchemaVersion": 1,
     "bootstrapMaxBytes": 49152
@@ -8,7 +8,7 @@
   "files": [
     {
       "path": "platform.md",
-      "sha256": "0046faf58ec1c41c552cdc3138ad4ef89dd6338bbee0030ba8cf3530369ed705"
+      "sha256": "82c717c0c15a2e57c8ac9a8318fe2e0d33344690d105f00e9e88c3acdc657489"
     },
     {
       "path": "tasks.md",

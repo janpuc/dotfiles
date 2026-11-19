@@ -60,6 +60,9 @@ A project agent cannot send as `jan` or impersonate `dotfiles`.
 |---|---|
 | `agent <project>` or `agent open <project>` | Open the project. Creates its Rex session and tabs if missing, starts Pi in the `pi` tab if it is not running. A brand new project folder is created the first time |
 | `agent up` | The same for every active project. Run it after a reboot or a Rex upgrade: Rex brings back tabs and scrollback but not the programs in them |
+| `agent scratch "<brief>"` | Start free-standing work as a task of the host's scratch project (`scratch` on aether, `work` on sisyphus) in its own tab. `--slug name` picks the id, otherwise it is `s-<yymmdd-hhmm>`. `agent scratch` alone opens the scratch project, `agent scratch ls` lists, `agent scratch restart <id>` resumes |
+| `agent scratch fold <id> <project>` | Close a scratch task and send its fold to that project, whose agent copies in what belongs. The scratch folder stays |
+| `agent scratch promote <id> <name>` | Ask dotfiles to register a new project from a scratch task, then fold it there |
 | `agent ls` | One line per project: lifecycle, folder, Rex session, whether Pi runs, generation, open requests, a pending restart, and each repo's branch, dirty state and unpushed commits |
 | `agent adopt <project>` | Take over a folder that already exists but was never set up by the platform. It only inspects and records, it changes nothing |
 | `agent archive <project>` | Stop the project's agent and leave it out of `agent up`. Files, tabs and backups stay |

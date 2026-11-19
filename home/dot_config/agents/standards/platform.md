@@ -20,6 +20,7 @@ agent commands, with a project optional in task commands inside its session:
 - task ticket [project] <slug> <TICKET>: attach a ticket without renaming
 - task close [project] <id>: request a result and knowledge fold, never deletion
 - task restart [project] <id>: resume its conversation
+- scratch ["<brief>"|ls|fold <id> <project>|promote <id> <name>]: free-standing work
 - --help: grouped commands and examples
 
 /inbox offers requests to Jan. /rotate checkpoints a project for its next generation.
