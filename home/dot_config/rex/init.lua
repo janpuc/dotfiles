@@ -495,8 +495,10 @@ local function fetch_command(output)
   return { "bash", "-c", "printf '%s\\n' " .. table.concat(lines, " ") .. " && sleep 3600" }
 end
 
-local function fetch_window(output)
+-- Opens the links in the project's session. A run from the Mac stub has no current session.
+local function fetch_window(session, output)
   local w, err = rex.session.new_window{
+    session_id = session,
     layout = rex.layout.block{
       flavor = SHELL,
       options = {
@@ -507,7 +509,8 @@ local function fetch_window(output)
     },
   }
   if err ~= nil then error(err, 0) end
-  rex.session.set_window_label{ window_id = w.window_id, label = "fetch" }
+  rex.session.set_window_label{ session_id = session, window_id = w.window_id, label = "fetch" }
+  rex.client.queue("session.select", { session_id = session, window_id = w.window_id })
   return w
 end
 
@@ -546,8 +549,10 @@ rex.action{
     })
     if chosen == nil or #chosen == 0 then return nil end
 
+    local session = session_by_project(active_projects())[project]
+    if session == nil then error(project .. " has no Rex session, run agent " .. project, 0) end
     local out = must({ FETCH, unpack(chosen) }, 25)
-    local w = fetch_window(out)
+    local w = fetch_window(session, out)
     return { files = #chosen, window_id = w.window_id, output = out }
   end,
 }

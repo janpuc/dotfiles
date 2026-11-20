@@ -1,0 +1,15 @@
+{{ if eq .chezmoi.hostname "hermes" -}}
+#!/bin/bash
+# Loads agents.lua from the Mac's own Rex config, which stays Jan's file.
+# agents.lua {{ include "dot_config/rex/agents.lua" | sha256sum }}
+set -euo pipefail
+init="$HOME/.config/rex/init.lua"
+mkdir -p "$(dirname "$init")" "$HOME/Library/Logs"
+touch "$init"
+if ! grep -q 'require("agents")' "$init"; then
+  printf '\nrequire("agents")\n' >>"$init"
+fi
+if command -v rex >/dev/null; then
+  rex config reload >/dev/null || echo "rex config reload failed, run rex config check" >&2
+fi
+{{ end -}}
