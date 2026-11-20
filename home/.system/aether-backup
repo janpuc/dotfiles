@@ -101,7 +101,10 @@ backup() {
 
 forget() {
     # forget is cheap and runs every hour. Pruning rewrites packs and uploads, so it happens on the
-    # first run at or after 03:00 only.
+    # first run at or after 03:00 only. forget needs an exclusive lock, and a run killed mid-way
+    # (a reboot or restart) leaves its lock behind, so every later forget failed and alerted. Plain
+    # unlock removes only stale locks, those of a dead process on this host or older than 30 minutes.
+    restic unlock --quiet
     if [ "$(cat "$prune_file" 2>/dev/null || true)" = "$(date +%F)" ] || [ "$(date +%H)" -lt 3 ]; then
         restic forget --keep-hourly 48 --keep-daily 30 --keep-weekly 12 --keep-monthly 12 --quiet
     else
