@@ -1,0 +1,35 @@
+{{- if eq .chezmoi.os "linux" -}}
+#!/bin/sh
+# pi-agy-bridge 0.1.5 reads Neon's tool calls as JSON written in plain text, so code inside a JSON
+# string needs a second layer of escaping that Neon often gets wrong (`\d`, `\$`, a raw newline).
+# The patch in .chezmoitemplates repairs those invalid escapes after a failed parse, shows the text
+# around a remaining JSON error and tells Neon how to escape code and shell ${...} in JavaScript.
+# Pi installs a pinned npm package once and never rewrites it, so the patch holds until the pin
+# moves. A new pin prints a warning: check whether upstream fixed this, then rebase or drop it.
+# patch {{ include ".chezmoitemplates/pi-agy-bridge-0.1.5.patch" | sha256sum }}
+# settings {{ include "dot_pi/private_agent/modify_settings.json.tmpl" | sha256sum }}
+set -eu
+want=0.1.5
+pkg="$HOME/.pi/agent/npm/node_modules/@timmyjl12/pi-agy-bridge"
+pin=$(grep -o '"npm:@timmyjl12/pi-agy-bridge@[^"]*"' "$HOME/.pi/agent/settings.json" | sed 's/.*@\([^"]*\)"/\1/')
+if [ "$pin" != "$want" ]; then
+	echo "pi-agy-bridge: pinned $pin, the JSON repair patch is for $want and was not applied" >&2
+	exit 0
+fi
+if [ ! -f "$pkg/package.json" ]; then
+	echo "pi-agy-bridge: not installed yet, start Pi once and run chezmoi apply --force on this script" >&2
+	exit 0
+fi
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+cat > "$tmp" <<'AGY_PATCH_EOF'
+{{ include ".chezmoitemplates/pi-agy-bridge-0.1.5.patch" -}}
+AGY_PATCH_EOF
+cd "$pkg"
+if patch -p1 -R -f -s --dry-run < "$tmp" >/dev/null 2>&1; then
+	echo "pi-agy-bridge: JSON repair patch already applied"
+	exit 0
+fi
+patch -p1 -f -s --no-backup-if-mismatch < "$tmp"
+echo "pi-agy-bridge: JSON repair patch applied, agent restart all loads it"
+{{- end }}

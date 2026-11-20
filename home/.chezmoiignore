@@ -20,6 +20,7 @@
 !.chezmoiscripts/*-linux-agy.sh
 !.chezmoiscripts/*-pi-git-packages.sh
 !.chezmoiscripts/*-pi-release.sh
+!.chezmoiscripts/*-pi-agy-bridge-patch.sh
 !.chezmoiscripts/*-agent.sh
 !.local
 !.local/bin
