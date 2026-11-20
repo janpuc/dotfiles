@@ -34,6 +34,9 @@ managed='{
     "npm:pi-web-access@0.46.0",
     "git:github.com/janpuc/pi-usage@v0.2.4",
     "git:github.com/janpuc/pi-footer@v0.1.0",
+{{- if eq .chezmoi.os "linux" }}
+    "npm:@timmyjl12/pi-agy-bridge@0.1.5",
+{{- end }}
     "./local/agent-guard.ts",
     "./local/project-rotate.ts",
     "./local/project-context.ts",
@@ -66,7 +69,8 @@ managed='{
         "claude-bridge/claude-sonnet-5-5",
         "claude-bridge/claude-fable-5-1",
         "alibaba/qwen4-max-preview",
-        "alibaba/deepseek-v4.1-flash"
+        "alibaba/deepseek-v4.1-flash"{{ if eq .chezmoi.os "linux" }},
+        "agy/gemini-4-neon"{{ end }}
       ]
     },
     "agentOverrides": {
