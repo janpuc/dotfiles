@@ -1,0 +1,27 @@
+#!/bin/sh
+# credential_process for the SAML work profiles: work-saml <org> <role-arn>.
+# saml2aws logs in to Okta with the username, password and TOTP from the Work vault. On sisyphus
+# there is no 1Password app session, so the Work service account reads them. The token stays in
+# this process environment and is never printed or passed as an argument.
+set -eu
+[ $# -eq 2 ] || { echo "usage: work-saml <org> <role-arn>" >&2; exit 2; }
+org=$1
+role=$2
+case "$org" in
+DSC | DTC | WB) ;;
+*) echo "work-saml: unknown org $org" >&2; exit 2 ;;
+esac
+if [ "$(hostname -s)" = sisyphus ]; then
+    token_file="$HOME/.config/op/sisyphus-work.env"
+    token=$(sed -n -E "s/^[[:space:]]*(export[[:space:]]+)?OP_SERVICE_ACCOUNT_TOKEN=//p" "$token_file" 2>/dev/null |
+        head -n 1 | tr -d "\"'")
+    if [ -z "$token" ]; then
+        echo "work-saml: missing Work service account token in $token_file" >&2
+        exit 1
+    fi
+    OP_SERVICE_ACCOUNT_TOKEN=$token
+    export OP_SERVICE_ACCOUNT_TOKEN
+fi
+# No terminal input: a login that needs a person fails instead of hanging.
+exec op run --env-file="$HOME/.aws/saml2aws/$org/.env" -- \
+    saml2aws login --credential-process --skip-prompt --idp-account="$org" --role="$role" </dev/null

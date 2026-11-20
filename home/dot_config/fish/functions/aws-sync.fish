@@ -139,9 +139,9 @@ function aws-sync --description "Discover AWS roles and generate ~/.aws/config"
             echo "credential_process = granted credential-process --auto-login --profile $PROFILE" >>"$CONFIG_FILE"
         else
             set -l ARN (echo "$row" | jq -r '.role_arn')
-            set -l ENV_FILE "$HOME/.aws/saml2aws/$ORG/.env"
             echo "region = us-east-1" >>"$CONFIG_FILE"
-            echo "credential_process = op run --env-file='$ENV_FILE' -- saml2aws login --credential-process --idp-account='$ORG' --role='$ARN'" >>"$CONFIG_FILE"
+            # work-saml also logs in on sisyphus, through the Work service account
+            echo "credential_process = $HOME/.local/bin/work-saml $ORG $ARN" >>"$CONFIG_FILE"
         end
     end
 
