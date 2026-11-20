@@ -13,6 +13,8 @@ import { join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const CUSTOM_TYPE = "project-context";
+// Home-relative, so the header names the same directory build reads.
+const STANDARDS = ".config/agents/standards";
 // Used only when the manifest omits compatibility.bootstrapMaxBytes.
 const FALLBACK_BUDGET = 24576;
 
@@ -77,6 +79,7 @@ function render(
 		`- Project: ${project}`,
 		`- Workspace: ${workspace}`,
 		...(process.env.PI_TASK ? [`- Task: ${process.env.PI_TASK}`] : []),
+		`- Standards: injected below from ~/${STANDARDS}/. Project notes: ${workspace}/notes/. Do not search for these files.`,
 		`- Standards version: ${manifest.version ?? "unknown"}, context schema ${manifest.compatibility?.contextSchemaVersion ?? 1}`,
 		`- Standards digest: ${standardsDigest}`,
 		`- Context revision: ${revision}`,
@@ -107,7 +110,7 @@ function openRequests(workspace: string, project: string): string[] {
 }
 
 function build(project: string, workspace: string): Context {
-	const standardsDir = join(homedir(), ".config/agents/standards");
+	const standardsDir = join(homedir(), STANDARDS);
 	const problems: string[] = [];
 	const manifestFile = load(join(standardsDir, "manifest.json"));
 	let manifest: Manifest = {};

@@ -58,6 +58,7 @@ test("context is injected again after compaction and after a changed STATE hash"
 		assert.ok(first);
 		assert.match(first.message.content, /## Standard: session\.md/);
 		assert.match(first.message.content, /## notes\/STATE\.md/);
+		assert.match(first.message.content, /- Standards: injected below from ~\/\.config\/agents\/standards\/\. Project notes: .+\/notes\/\. Do not search for these files\./);
 		assert.equal(h.inject(), undefined);
 		h.handlers.session_compact({}, {});
 		const afterCompaction = h.inject();
