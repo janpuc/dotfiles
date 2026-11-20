@@ -82,6 +82,9 @@ Library/LaunchAgents/local.agent-digest.plist
 {{ if ne .chezmoi.hostname "sisyphus" }}
 .ssh/authorized_keys
 {{ end }}
+{{ if eq .chezmoi.hostname "sisyphus" }}
+.config/fish/functions/aether-get.fish
+{{ end }}
 {{ if and (ne .chezmoi.hostname "hermes") (ne .chezmoi.hostname "sisyphus") }}
 .chezmoiscripts/*-agent.sh
 .local/bin/agent-run

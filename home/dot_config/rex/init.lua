@@ -170,8 +170,8 @@ local RANK = { waiting = 1, closing = 2, working = 3, idle = 4 }
 local function state_of(status, pi, waiting)
   if waiting then return "waiting" end
   if status == "closing" then return "closing" end
-  if pi == "yes" then return "working" end
-  return "idle"
+  if pi == "yes" then return "running" end
+  return "stopped"
 end
 
 local function by_rank(a, b)
