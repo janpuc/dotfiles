@@ -17,7 +17,8 @@ stays the workspace. Context includes standards, project PROJECT.md, task BRIEF.
 and STATE.md within 48 KiB. Tasks restart on the same session and never rotate.
 Runtime state is .agent/tasks/<id>/, outside Git.
 
-Write only your task folder, new notes/knowledge/ evidence pages and your worktrees.
+Write only your task folder, new notes/knowledge/ evidence pages, your worktrees and
+tools you add to the workspace mise.toml.
 Never edit project PROJECT.md or STATE.md, other tasks or other projects. Create
 needed code worktrees at .worktrees/<repo>/<id>/ on branch task/<id>. Prefix commits
 [TICKET] when attached, otherwise [task:<id>]. Include the ticket in RESULT's title.

@@ -9,7 +9,9 @@ Use latest Pi, Node and Rex versions aligned across machines. Do not pin platfor
 runtime versions. Test upgrades because upstream changes can affect context and
 rotation. Record the effective versions when diagnosing a failure or restoring.
 
-Agents may add user-space tools and scripts at workspace scope. Record why they are
+Before a job, check that its tools are present. When one is missing, add it to the
+workspace mise.toml yourself, not as a one-off install or ad hoc run, so the next session
+has it. Agents may add user-space tools and scripts at workspace scope. Record why they are
 needed, verify ARM support and smoke test. Do not change system packages, services,
 privileged Docker configuration or host-wide settings without Jan. Propose promotion
 of broadly useful tools to dotfiles for review rather than silently modifying the base.

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2.4.3",
+  "version": "2.4.4",
   "compatibility": {
     "contextSchemaVersion": 1,
     "bootstrapMaxBytes": 49152
@@ -12,7 +12,7 @@
     },
     {
       "path": "tasks.md",
-      "sha256": "a131e1e57c29ea95565368eef8a8e3987aefd24c64de95762cf30aaca252e1fe"
+      "sha256": "d4f8d9026dc357720e1ee41041eab6d317434070363f78f92e892f3287d6f5b7"
     },
     {
       "path": "workspace.md",
@@ -32,7 +32,7 @@
     },
     {
       "path": "tools.md",
-      "sha256": "210abfc0fe6e397ad8fef621544fed59cabcf2dbcd8d0b24f07ed0beb046a52c"
+      "sha256": "b25a071382e275c2bfe9fe6438b4bddc85bcfef81a6c996cc849ec9e8d7b2aa6"
     },
     {
       "path": "approvals.md",
