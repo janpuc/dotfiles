@@ -77,9 +77,9 @@ managed='{
         "description": "Fast recon in a repo, a cluster, GitHub or the web (bash, gh, kubectl, web fetch); returns compressed context for handoff",
         "tools": ["read", "grep", "find", "ls", "bash", "write", "contact_supervisor", "web_search", "fetch_content", "get_search_content"]
       },
-      "researcher": { "machine": "local", "model": "opencode-go/deepseek-v4.1-flash", "thinking": "medium" },
-      "worker": { "machine": "local", "model": "opencode-go/deepseek-v4.1-flash", "thinking": "medium" },
-      "reviewer": { "machine": "local", "model": "opencode-go/deepseek-v4.1-flash", "thinking": "high" },
+      "researcher": { "machine": "local", "model": "alibaba/deepseek-v4.1-flash", "thinking": "medium" },
+      "worker": { "machine": "local", "model": "alibaba/deepseek-v4.1-flash", "thinking": "medium" },
+      "reviewer": { "machine": "local", "model": "alibaba/deepseek-v4.1-flash", "thinking": "high" },
       "oracle": { "machine": "local", "model": "openai/gpt-6-astra", "thinking": "high", "defaultContext": "fresh" },
       "delegate": { "disabled": true },
       "evidence-auditor": { "disabled": true },
