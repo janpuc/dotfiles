@@ -70,6 +70,10 @@
 Library/LaunchAgents/local.sisyphus-backup.plist
 Library/LaunchAgents/local.sisyphus-backup-watchdog.plist
 Library/LaunchAgents/local.agent-digest.plist
+.agents/skills/work-jira
+.agents/skills/work-jira/**
+.agents/skills/work-slack
+.agents/skills/work-slack/**
 {{ end }}
 {{ if ne .chezmoi.hostname "sisyphus" }}
 .ssh/authorized_keys
