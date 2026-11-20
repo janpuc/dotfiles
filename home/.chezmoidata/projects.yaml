@@ -138,6 +138,3 @@ projects:
     # Jan's maker work: Xiao ESP32 boards and their 3D-printed cases (humidifier, soil and
     # moisture sensors, mmWave), and the earlier ESP32 experiments.
     lifecycle: active
-    # Gemini 4 Neon trial from 2026-11-20 on Jan's AI Ultra login through pi-agy-bridge.
-    model: agy/gemini-4-neon
-    thinking: high
