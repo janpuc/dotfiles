@@ -1,4 +1,4 @@
 # The agent command, built from github.com/janpuc/agent at this commit on every machine that runs
 # or dispatches project agents. Bump it to deploy a new version.
 agent:
-  version: 7f716fcaa8338d08b184bbfec1c31fea6c269162
+  version: ebbb93e92e5b873b187377fa781156008a6e79c4
