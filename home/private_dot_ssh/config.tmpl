@@ -15,6 +15,20 @@ Host sisyphus
   StrictHostKeyChecking yes
   UserKnownHostsFile ~/.ssh/known_hosts_agents
 
+# gaming's BC250 and Steam Deck on the home LAN, reached over the Tailscale subnet route where
+# mDNS names do not resolve. Keys copied by Jan 2026-11-20, host keys in ~/.ssh/known_hosts.
+Host bc250
+  HostName 192.168.69.250
+  User janpuc
+  IdentityFile ~/.ssh/bc250
+  IdentitiesOnly yes
+
+Host steamdeck
+  HostName 192.168.69.140
+  User deck
+  IdentityFile ~/.ssh/spore_deck
+  IdentitiesOnly yes
+
 Host *
   ForwardAgent no
   HashKnownHosts no
