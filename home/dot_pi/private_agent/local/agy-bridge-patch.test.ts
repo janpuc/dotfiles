@@ -2,13 +2,22 @@
 // .chezmoitemplates/pi-agy-bridge-0.1.5.patch. Skipped where the bridge is not installed (only aether runs Neon).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const source = join(import.meta.dirname, "../npm/node_modules/@timmyjl12/pi-agy-bridge/src/tool-protocol.ts");
 const skip = existsSync(source) ? false : "pi-agy-bridge is not installed here";
 
-const load = async () => await import(source);
+// Node strips types only outside node_modules, so test a copy. It imports only node: builtins.
+let copy: string | undefined;
+const load = async () => {
+	if (!copy) {
+		copy = join(mkdtempSync(join(tmpdir(), "agy-bridge-test-")), "tool-protocol.ts");
+		copyFileSync(source, copy);
+	}
+	return await import(copy);
+};
 const call = async (body: string) => {
 	const { ToolCallStreamParser } = await load();
 	const parser = new ToolCallStreamParser({ makeId: () => "id" });
