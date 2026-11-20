@@ -13,7 +13,7 @@
 #   alert@      {{ include ".system/aether-backup-alert@.service" | sha256sum }}
 #   watch-svc   {{ include ".system/aether-backup-watchdog.service" | sha256sum }}
 #   watch-timer {{ include ".system/aether-backup-watchdog.timer" | sha256sum }}
-#   known_hosts {{ include "dot_config/aether-backup/create_known_hosts" | sha256sum }}
+#   known_hosts {{ include "dot_config/private_aether-backup/create_known_hosts" | sha256sum }}
 set -eu
 src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
 if ! dpkg-query -W -f='${Status}' restic 2>/dev/null | grep -q '^install ok installed$'; then
