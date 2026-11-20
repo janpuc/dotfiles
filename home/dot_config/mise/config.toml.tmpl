@@ -37,4 +37,7 @@ node = "lts"
 # Model Studio's CLI: pi-usage reads the Alibaba Token Plan's monthly pool through its console
 # login (`bl auth login --console --config token-plan --console-site international`, once).
 "npm:bailian-cli" = "2.9.0"
+# Codex CLI: pi-usage reads the ChatGPT Plus limits (Sol, Astra) through its app-server, after
+# `codex login --device-auth` once. Pi's own ChatGPT token gets 401 on the usage endpoint.
+"npm:@openai/codex" = "latest"
 {{ end -}}
