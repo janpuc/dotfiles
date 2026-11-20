@@ -71,6 +71,15 @@
 [rebase]
 	autoStash = true
 
+{{- if eq .chezmoi.hostname "sisyphus" }}
+
+# No GitHub SSH key here, so SSH remotes copied from the laptop go over HTTPS with gh's
+# credential helper. In a work session GH_TOKEN (op://Work/github) is the token it uses.
+[url "https://github.com/"]
+	insteadOf = "git@github.com:"
+	insteadOf = "ssh://git@github.com/"
+{{- end }}
+
 [tag]
 	forceSignAnnotated = true
 	gpgSign = true
