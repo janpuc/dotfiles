@@ -16,6 +16,10 @@
 # pi-web-access among them, and agent-guard.ts (the hard-deny list) runs in every session and child.
 # pi-subagents 0.84 checks a machine's cwd on the parent's disk as well (a bug), so each needs a
 # path that exists on both ends, /tmp on aether.
+#
+# Pi gives each provider call a deadline of retry.provider.timeoutMs (default 5 minutes).
+# pi-agy-bridge applies it to the whole turn, and Gemini 4 Neon can think silently for longer
+# on design work, so aether allows 20 minutes. HTTP providers keep their 5 minute idle timeout.
 {{- $host := default dict (get .hosts .chezmoi.hostname) -}}
 {{- $providers := default "all" (get $host "providers") -}}
 {{- $enabled := list -}}
@@ -45,6 +49,7 @@ managed='{
     "./local/rex-inspector.ts"
   ],
 {{- if eq .chezmoi.os "linux" }}
+  "retry": { "provider": { "timeoutMs": 1200000 } },
   "compaction": {
     "modelOverrides": {
       "claude-bridge/claude-opus-5-5": { "reserveTokens": 750000, "keepRecentTokens": 60000 }
