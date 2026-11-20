@@ -30,7 +30,8 @@ export default function (pi: ExtensionAPI) {
 		if (existsSync(join(state, "closed")) || existsSync(join(state, "restart-requested"))) {
 			ctx.shutdown();
 		} else if (!closing && !existsSync(join(state, "close-requested"))) {
-			deliver();
+			// A task restarted after its last turn resumes idle without a settle event, so mark it here.
+			if (!deliver() && lastRole(ctx) === "assistant") waiting(true);
 		} else if (!closing && existsSync(join(state, "close-requested"))) {
 			const request = readFileSync(join(state, "close-requested"), "utf8");
 			if (request === offered) return;
@@ -41,15 +42,20 @@ export default function (pi: ExtensionAPI) {
 	};
 	// agent task send queues messages from the coordinator. Each moves to delivered/ before it is
 	// sent, so a crash never sends it twice.
-	const deliver = () => {
+	const deliver = (): boolean => {
 		const inbox = join(state, "messages");
-		if (!existsSync(inbox)) return;
+		if (!existsSync(inbox)) return false;
 		const next = readdirSync(inbox).filter((name) => name.endsWith(".md")).sort()[0];
-		if (!next) return;
+		if (!next) return false;
 		mkdirSync(join(inbox, "delivered"), { recursive: true });
 		const delivered = join(inbox, "delivered", next);
 		renameSync(join(inbox, next), delivered);
 		pi.sendUserMessage(`Message for task ${task} from the ${project} coordinator, sent with agent task send:\n\n${readFileSync(delivered, "utf8").trim()}`);
+		return true;
+	};
+	const lastRole = (ctx: ExtensionContext) => {
+		const last = ctx.sessionManager.getBranch().filter((entry) => entry.type === "message").at(-1);
+		return last?.type === "message" ? last.message.role : undefined;
 	};
 	pi.on("session_start", (_event, ctx) => {
 		closing = false;
