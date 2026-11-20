@@ -10,6 +10,8 @@ platform:
   # Receives remote deliveries and queues replies for the remote project.
   hub: aether
   remote: {project: work, host: sisyphus, identity: ~/.ssh/work-inbox}
+  # Opens the task for a bare ticket id, as in agent CEA-123, outside a project.
+  tickets: work
 hosts:
   aether:
     root: ~/Development

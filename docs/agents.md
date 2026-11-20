@@ -115,6 +115,7 @@ or aether:
 agent task new home --slug speaker-audit "Audit the speaker configuration"
 agent task new home HA-123 "Investigate ticket HA-123"
 agent task new home --wait HA-125
+agent HA-126
 agent task ls
 agent task ticket home speaker-audit HA-124
 agent task restart home speaker-audit
@@ -124,6 +125,10 @@ agent task close home speaker-audit
 With `--wait` the brief is optional and Pi starts without its first prompt. Paste the
 ticket into the new tab as the first message, and the agent saves it into BRIEF.md.
 The new tab is shown in every connected Rex app, since Rex cannot say which one you use.
+
+`agent <TICKET>` shows the task with that id if a project on its host has one, and
+restarts it if it stopped. Otherwise it opens it with `--wait` in the current project, or
+outside a project in the registry's `platform.tickets` project, which is work.
 
 Inside a project session, omit `home` from task commands. Ticket ids match
 `^[A-Z][A-Z0-9]{1,9}-[0-9]{1,7}$`, slugs match `^[a-z0-9][a-z0-9-]{1,39}$`.
