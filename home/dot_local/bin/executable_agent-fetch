@@ -1,0 +1,77 @@
+#!/bin/bash
+# Copy files into a served folder on aether so the Mac can fetch them over the tailnet.
+# Prints one http URL per file, then the aether-get command for the same files.
+set -euo pipefail
+
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+root="$HOME/.local/share/agent-fetch/$stamp"
+state="$HOME/.local/state/agent-fetch"
+pidfile="$state/http.pid"
+port=8765
+
+if [ "$#" -eq 0 ]; then
+  echo "agent-fetch: give at least one file" >&2
+  exit 2
+fi
+for p in "$@"; do
+  if [ ! -f "$p" ]; then
+    echo "agent-fetch: not a file: $p" >&2
+    exit 1
+  fi
+done
+
+ip=$(tailscale ip -4 | head -n 1)
+if [ -z "$ip" ]; then
+  echo "agent-fetch: no tailnet IPv4 address" >&2
+  exit 1
+fi
+
+# One server at a time. setsid puts it in its own group so the kill reaches the server too.
+mkdir -p "$state"
+if [ -f "$pidfile" ]; then
+  old=$(cat "$pidfile")
+  if [ -n "$old" ] && kill -0 "$old" 2>/dev/null; then
+    kill -TERM -- "-$old" 2>/dev/null || true
+    sleep 0.5
+  fi
+  rm -f "$pidfile"
+fi
+
+paths=()
+for p in "$@"; do
+  rel=${p#"$HOME/Development/"}
+  if [ "$rel" = "$p" ]; then
+    rel=$(basename "$p")
+  fi
+  mkdir -p "$root/$(dirname "$rel")"
+  cp -p "$p" "$root/$rel"
+  paths+=("$rel")
+done
+
+# timeout ends the server after an hour even when nothing kills it.
+setsid timeout 3600 python3 -m http.server "$port" --bind "$ip" --directory "$root" \
+  >/dev/null 2>&1 &
+echo "$!" >"$pidfile"
+
+# Wait for the port so the printed URLs answer as soon as they are read.
+up=no
+for _ in $(seq 1 20); do
+  if (echo >"/dev/tcp/$ip/$port") 2>/dev/null; then
+    up=yes
+    break
+  fi
+  sleep 0.25
+done
+if [ "$up" = no ]; then
+  echo "agent-fetch: no file server on $ip:$port" >&2
+  exit 1
+fi
+
+for rel in "${paths[@]}"; do
+  printf 'http://%s:%s/%s\n' "$ip" "$port" "$rel"
+done
+printf 'aether-get'
+for rel in "${paths[@]}"; do
+  printf ' %s' "$root/$rel"
+done
+printf '\n'

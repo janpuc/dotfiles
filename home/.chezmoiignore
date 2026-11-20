@@ -25,6 +25,7 @@
 !.local
 !.local/bin
 !.local/bin/agent-run
+!.local/bin/agent-fetch
 !.ssh
 !.ssh/authorized_keys
 !.ssh/config
@@ -90,6 +91,7 @@ Library/LaunchAgents/local.agent-digest.plist
 {{ end }}
 .config/rex
 .config/rex/**
+.local/bin/agent-fetch
 .config/aether-backup
 .config/aether-backup/**
 {{- end }}
