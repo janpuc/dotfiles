@@ -17,6 +17,7 @@ agent commands, with a project optional in task commands inside its session:
 - restart <project>|all: load new config on the same sessions
 - task new [project] <TICKET-ID|--slug slug> "<brief>": open a task
 - task ls [project]: inspect tasks
+- task send [project] <id> "<text>": message a task session at its next idle point
 - task ticket [project] <slug> <TICKET>: attach a ticket without renaming
 - task close [project] <id>: request a result and knowledge fold, never deletion
 - task restart [project] <id>: resume its conversation
@@ -30,6 +31,6 @@ On aether, before asking another aether owner, read its PROJECT.md, STATE.md and
 indexed topic pages under PI_PROJECT_ROOT and recall homelab/<owner> read-only.
 This does not permit reading Work. Work agents never read personal files or memory.
 Ask dotfiles for platform help without reading its workspace first. Never change another
-owner's files or memory. Delegate with agent ask, never terminal input.
+owner's files or memory. Delegate with agent ask or agent task send, never terminal input.
 Requests, replies and folds reach the agent by themselves. Laptop requests outside registered projects come
 from jan. Their replies go to the dotfiles project's ordinary inbox on aether, not the laptop.

@@ -11,7 +11,8 @@ agent task new [project] <TICKET-ID|--slug slug> "<brief>" creates tasks/<id>/:
 - STATE.md: knowledge.md's State headings
 - RESULT.md at close: Outcome, Changes, Verification, Learned, Open headings
 
-Cwd is tasks/<id>, Rex tab task:<id>, Pi session <project>-task-<id>. PI_PROJECT_DIR
+The coordinator hands a task new instructions with agent task send, which arrive as a
+user message when the task is idle and start a stopped task. Cwd is tasks/<id>, Rex tab task:<id>, Pi session <project>-task-<id>. PI_PROJECT_DIR
 stays the workspace. Context includes standards, project PROJECT.md, task BRIEF.md
 and STATE.md within 48 KiB. Tasks restart on the same session and never rotate.
 Runtime state is .agent/tasks/<id>/, outside Git.

@@ -1,5 +1,5 @@
 // Task close and restart are idle-boundary requests, never terminal keystrokes.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -17,6 +17,8 @@ export default function (pi: ExtensionAPI) {
 		if (promptOpen || !ctx.isIdle() || ctx.hasPendingMessages() || ctx.mode !== "tui" || !ctx.hasUI) return;
 		if (existsSync(join(state, "closed")) || existsSync(join(state, "restart-requested"))) {
 			ctx.shutdown();
+		} else if (!closing && !existsSync(join(state, "close-requested"))) {
+			deliver();
 		} else if (!closing && existsSync(join(state, "close-requested"))) {
 			const request = readFileSync(join(state, "close-requested"), "utf8");
 			if (request === offered) return;
@@ -24,6 +26,18 @@ export default function (pi: ExtensionAPI) {
 			closing = true;
 			pi.sendUserMessage(`Close task ${task} now. Update STATE.md and write ${join(folder, "RESULT.md")} with a title including the ticket when attached and these level-two headings: Outcome, Changes, Verification, Learned, Open. Record only verified outcomes and preserve pending approvals. Save durable facts to the project memini namespace with ticket:<ID> or task:<slug> tags and metadata. Do not edit project PROJECT.md or STATE.md. When the result is complete, finish with TASK_CLOSE_READY on its own line. If blocked or a step fails, explain it and do not emit that marker.`);
 		}
+	};
+	// agent task send queues messages from the coordinator. Each moves to delivered/ before it is
+	// sent, so a crash never sends it twice.
+	const deliver = () => {
+		const inbox = join(state, "messages");
+		if (!existsSync(inbox)) return;
+		const next = readdirSync(inbox).filter((name) => name.endsWith(".md")).sort()[0];
+		if (!next) return;
+		mkdirSync(join(inbox, "delivered"), { recursive: true });
+		const delivered = join(inbox, "delivered", next);
+		renameSync(join(inbox, next), delivered);
+		pi.sendUserMessage(`Message for task ${task} from the ${project} coordinator, sent with agent task send:\n\n${readFileSync(delivered, "utf8").trim()}`);
 	};
 	pi.on("session_start", (_event, ctx) => {
 		closing = false;

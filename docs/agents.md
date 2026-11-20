@@ -117,6 +117,7 @@ agent task new home HA-123 "Investigate ticket HA-123"
 agent task new home --wait HA-125
 agent HA-126
 agent task ls
+agent task send home speaker-audit "Check the bridge too"
 agent task ticket home speaker-audit HA-124
 agent task restart home speaker-audit
 agent task close home speaker-audit
@@ -125,6 +126,10 @@ agent task close home speaker-audit
 With `--wait` the brief is optional and Pi starts without its first prompt. Paste the
 ticket into the new tab as the first message, and the agent saves it into BRIEF.md.
 The new tab is shown in every connected Rex app, since Rex cannot say which one you use.
+
+`agent task send` queues a message that the task's Pi receives as a user message at its
+next idle point, starting the task if it stopped. Coordinators use it instead of typing
+into a task tab.
 
 `agent <TICKET>` shows the task with that id if a project on its host has one, and
 restarts it if it stopped. Otherwise it opens it with `--wait` in the current project, or
