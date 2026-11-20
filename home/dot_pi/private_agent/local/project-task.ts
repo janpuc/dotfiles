@@ -38,7 +38,8 @@ export default function (pi: ExtensionAPI) {
 			if (request === offered) return;
 			offered = request;
 			closing = true;
-			pi.sendUserMessage(`Close task ${task} now. Update STATE.md and write ${join(folder, "RESULT.md")} with a title including the ticket when attached and these level-two headings: Outcome, Changes, Verification, Learned, Open. Record only verified outcomes and preserve pending approvals. Save durable facts to the project memini namespace with ticket:<ID> or task:<slug> tags and metadata. Do not edit project PROJECT.md or STATE.md. When the result is complete, finish with TASK_CLOSE_READY on its own line. If blocked or a step fails, explain it and do not emit that marker.`);
+			const written = existsSync(join(folder, "RESULT.md"));
+			pi.sendUserMessage(`Close task ${task} now. The task stays open until this step is done: replying that the work is complete, or a status of closing in BRIEF.md, does not close it. ${written ? `${join(folder, "RESULT.md")} already exists. Check it is accurate and has the headings below, and fix it if not.` : `${join(folder, "RESULT.md")} does not exist yet.`} Do not rewrite deliverables or knowledge pages during close, they may hold the coordinator's review. Update STATE.md and write ${join(folder, "RESULT.md")} with a title including the ticket when attached and these level-two headings: Outcome, Changes, Verification, Learned, Open. Record only verified outcomes and preserve pending approvals. Save durable facts to the project memini namespace with ticket:<ID> or task:<slug> tags and metadata. Do not edit project PROJECT.md or STATE.md. When the result is complete, finish with TASK_CLOSE_READY on its own line. If blocked or a step fails, explain it and do not emit that marker.`);
 		}
 	};
 	// agent task send queues messages from the coordinator. Each moves to delivered/ before it is
@@ -57,30 +58,35 @@ export default function (pi: ExtensionAPI) {
 	// A turn the coordinator started, with the opening brief or agent task send, reports back to
 	// the coordinator through the project inbox, so Jan never relays a task's result by hand.
 	// Turns Jan starts in the task tab stay between him and the task.
-	const report = (ctx: ExtensionContext): boolean => {
-		const messages = ctx.sessionManager.getBranch().flatMap((entry) => entry.type === "message" ? [entry] : []);
-		const reply = messages.at(-1);
-		const asked = messages.filter((entry) => entry.message.role === "user").at(-1);
-		if (reply?.message.role !== "assistant" || !asked || !process.env.PI_PROJECT_DIR) return false;
-		const text = (content: unknown) => typeof content === "string" ? content
-			: Array.isArray(content) ? content.map((part) => part?.type === "text" ? part.text : "").join("\n") : "";
-		const prompt = text(asked.message.content);
-		if (!prompt.startsWith(`Work on task ${task}.`) && !prompt.startsWith(`Message for task ${task} from the ${project} coordinator`)) return false;
+	const text = (content: unknown) => typeof content === "string" ? content
+		: Array.isArray(content) ? content.map((part) => part?.type === "text" ? part.text : "").join("\n") : "";
+	// Sends the last reply to the project inbox once, with a heading when the coordinator must act.
+	const post = (ctx: ExtensionContext, heading = ""): boolean => {
+		const reply = ctx.sessionManager.getBranch().flatMap((entry) => entry.type === "message" ? [entry] : []).at(-1);
+		if (reply?.message.role !== "assistant" || !process.env.PI_PROJECT_DIR) return false;
 		const marker = join(state, "reported");
 		if (existsSync(marker) && readFileSync(marker, "utf8").trim() === reply.id) return true;
 		try {
 			const inbox = join(process.env.PI_PROJECT_DIR, ".agent/inbox");
 			const id = `${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}-${randomBytes(3).toString("hex")}`;
-			const answer = text(reply.message.content).trim();
-			const body = answer.length > 8000 ? `${answer.slice(0, 8000)}\n\n[cut at 8000 characters, the full reply is in the task session]` : answer;
+			const answer = text(reply.message.content).trim() || "(the turn ended without text)";
+			const cut = answer.length > 8000 ? `${answer.slice(0, 8000)}\n\n[cut at 8000 characters, the full reply is in the task session]` : answer;
+			const body = heading ? `${heading}\n\nThe task's last reply:\n\n${cut}` : cut;
 			mkdirSync(inbox, { recursive: true });
-			writeFileSync(join(inbox, `${id}.json.tmp`), JSON.stringify({ id, from: project, to: project, kind: "report", task, text: body || "(the turn ended without text)", created: new Date().toISOString().replace(/\.\d+Z$/, "Z"), status: "new" }, null, 2) + "\n", { mode: 0o600 });
+			writeFileSync(join(inbox, `${id}.json.tmp`), JSON.stringify({ id, from: project, to: project, kind: "report", task, text: body, created: new Date().toISOString().replace(/\.\d+Z$/, "Z"), status: "new" }, null, 2) + "\n", { mode: 0o600 });
 			renameSync(join(inbox, `${id}.json.tmp`), join(inbox, `${id}.json`));
 			writeFileSync(marker, `${reply.id}\n`);
 			return true;
 		} catch {
 			return false;
 		}
+	};
+	// Only turns the coordinator started report back. Turns Jan starts in the tab stay there.
+	const report = (ctx: ExtensionContext): boolean => {
+		const asked = ctx.sessionManager.getBranch().filter((entry) => entry.type === "message" && entry.message.role === "user").at(-1);
+		const prompt = asked?.type === "message" ? text(asked.message.content) : "";
+		if (!prompt.startsWith(`Work on task ${task}.`) && !prompt.startsWith(`Message for task ${task} from the ${project} coordinator`)) return false;
+		return post(ctx);
 	};
 	const lastRole = (ctx: ExtensionContext) => {
 		const last = ctx.sessionManager.getBranch().filter((entry) => entry.type === "message").at(-1);
@@ -111,6 +117,7 @@ export default function (pi: ExtensionAPI) {
 			&& last.message.content.some((part) => part.type === "text" && /(?:^|\n)TASK_CLOSE_READY\s*$/.test(part.text));
 		if (event.aborted || !ready) {
 			ctx.ui.notify("Task close paused. Resolve the blocker, then run agent task close again or restart the task.", "warning");
+			post(ctx, `Close of task ${task} paused: the turn ended without TASK_CLOSE_READY${event.aborted ? " (aborted)" : ""}. Resolve it, then run agent task close ${project} ${task} again. Messages are not delivered while the close is pending.`);
 			return;
 		}
 		try {
@@ -122,6 +129,7 @@ export default function (pi: ExtensionAPI) {
 			ctx.shutdown();
 		} catch (error) {
 			ctx.ui.notify(`Task close paused: ${error}. Run agent task close again to retry.`, "error");
+			post(ctx, `Close of task ${task} paused: ${error}. Fix it, then run agent task close ${project} ${task} again.`);
 		}
 	});
 }
