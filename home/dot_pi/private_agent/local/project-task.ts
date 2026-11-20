@@ -1,5 +1,5 @@
 // Task close and restart are idle-boundary requests, never terminal keystrokes.
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -13,6 +13,18 @@ export default function (pi: ExtensionAPI) {
 	let offered = "";
 	let promptOpen = false;
 	let timer: ReturnType<typeof setInterval> | undefined;
+	// An idle open task waits on Jan. One file per waiting task, which pi-footer counts for its
+	// "N waiting" pill. Written when a turn settles, removed when work starts or Pi exits.
+	const attention = join(process.env.HOME!, ".local/state/agents/attention", `${project}--${task}.json`);
+	const waiting = (on: boolean) => {
+		try {
+			if (!on) { rmSync(attention, { force: true }); return; }
+			if (existsSync(attention)) return;
+			mkdirSync(join(attention, ".."), { recursive: true });
+			writeFileSync(`${attention}.tmp`, JSON.stringify({ project, task, since: new Date().toISOString(), why: "idle task" }) + "\n");
+			renameSync(`${attention}.tmp`, attention);
+		} catch { /* the footer pill is a hint, never block the task */ }
+	};
 	const poll = (ctx: ExtensionContext) => {
 		if (promptOpen || !ctx.isIdle() || ctx.hasPendingMessages() || ctx.mode !== "tui" || !ctx.hasUI) return;
 		if (existsSync(join(state, "closed")) || existsSync(join(state, "restart-requested"))) {
@@ -46,11 +58,16 @@ export default function (pi: ExtensionAPI) {
 		timer = setInterval(() => poll(ctx), 5000);
 		timer.unref();
 	});
-	pi.on("session_shutdown", () => { if (timer) clearInterval(timer); });
+	pi.on("session_shutdown", () => { if (timer) clearInterval(timer); waiting(false); });
+	pi.on("agent_start", () => waiting(false));
 	pi.on("ui_prompt_start", () => { promptOpen = true; });
 	pi.on("ui_prompt_end", () => { promptOpen = false; });
 	pi.on("agent_settled", async (event, ctx) => {
-		if (!closing) { poll(ctx); return; }
+		if (!closing) {
+			poll(ctx);
+			if (ctx.isIdle() && !ctx.hasPendingMessages() && !existsSync(join(state, "close-requested"))) waiting(true);
+			return;
+		}
 		if (!ctx.isIdle() || ctx.hasPendingMessages()) return;
 		closing = false;
 		const last = ctx.sessionManager.getBranch().filter((entry) => entry.type === "message" && entry.message.role === "assistant").at(-1);
