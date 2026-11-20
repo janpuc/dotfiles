@@ -275,13 +275,9 @@ function terraform(args: string[], profile: string, text: string, cwd: string): 
 	if (verb === "apply" && profile === "work" && (PROD.test(text) || PROD.test(cwd))) return "a terraform apply on production";
 }
 
-// Commands that can act on a NAS dataset or snapshot. A string inside another program's heredoc
-// or argument is data, so the NAS rules read only these tools.
-const NAS_TOOLS = new Set(["zfs", "zpool", "midclt", "ssh", "curl", "wget", "http", "https"]);
-
-const TEXT_RULES: [string, RegExp, Set<string>?][] = [
-	["deleting a NAS dataset or snapshot", /\b(?:zfs|zpool)\s+destroy\b|\b(?:pool\.dataset\.delete|pool\.snapshot\.delete|zfs\.snapshot\.delete|pool\.dataset\.destroy_snapshots)\b/, NAS_TOOLS],
-	["deleting a NAS dataset or snapshot", /^(?=.*\bDELETE\b).*\/api\/v2\.0\/(?:pool\/dataset|pool\/snapshot|zfs\/snapshot)\//is, NAS_TOOLS],
+const TEXT_RULES: [string, RegExp][] = [
+	["deleting a NAS dataset or snapshot", /\b(?:zfs|zpool)\s+destroy\b|\b(?:pool\.dataset\.delete|pool\.snapshot\.delete|zfs\.snapshot\.delete|pool\.dataset\.destroy_snapshots)\b/],
+	["deleting a NAS dataset or snapshot", /^(?=.*\bDELETE\b).*\/api\/v2\.0\/(?:pool\/dataset|pool\/snapshot|zfs\/snapshot)\//is],
 	["sending a message in Jan's name", /\/_matrix\/client\/\S*\/send\/|slack\.com\/api\/chat\.(?:postMessage|scheduleMessage|update)|hooks\.slack\.com\/|api\.(?:x|twitter)\.com\/[\d.]+\/(?:tweets|statuses\/update)|discord(?:app)?\.com\/api\/(?:v\d+\/)?(?:webhooks|channels\/\d+\/messages)|gmail\.googleapis\.com\/\S*\/send|graph\.microsoft\.com\/\S*\/sendMail|\/api\/v1\/statuses\b|com\.atproto\.repo\.createRecord|\bsmtps?:\/\/|tell application "(?:Messages|Mail)"/i],
 ];
 
@@ -297,10 +293,7 @@ function denied(words: string[], profile: string, cwd: string, env = ""): string
 		|| ["mail", "mailx", "mutt", "neomutt"].includes(tool) && args.some((word) => word.includes("@"))) return "sending a message in Jan's name";
 	if (TEXT_TOOLS.has(tool)) return;
 	const http = ["curl", "wget", "http", "https"].includes(tool);
-	for (const [what, re, tools] of TEXT_RULES) {
-		if (tools && !tools.has(tool)) continue;
-		if (re.test(text) && !(http && what.startsWith("sending") && !httpWrite(tool, args))) return what;
-	}
+	for (const [what, re] of TEXT_RULES) if (re.test(text) && !(http && what.startsWith("sending") && !httpWrite(tool, args))) return what;
 }
 
 export interface Verdict { denied?: string; overrides: { what: string; reason: string }[] }
