@@ -362,8 +362,8 @@ export default function (pi: ExtensionAPI) {
 			return {
 				block: true,
 				reason: child
-					? `Refused ${verdict.denied}: it cannot be undone. Report the exact command to your parent.`
-					: `Refused ${verdict.denied}: it cannot be undone. Only Jan can lift this, for one command. If he has told you to, rerun it as AGENT_OVERRIDE="<his reason>" <command>, otherwise ask him in one line.`,
+					? `Refused ${verdict.denied}: it cannot be undone. Report the exact command to your parent. If the command only edits or prints text that mentions this, use the edit or write tool instead, the guard reads shell commands only.`
+					: `Refused ${verdict.denied}: it cannot be undone. Only Jan can lift this, for one command. If he has told you to, rerun it as AGENT_OVERRIDE="<his reason>" <command>, otherwise ask him in one line. If the command only edits or prints text that mentions this, use the edit or write tool instead, the guard reads shell commands only.`,
 			};
 		}
 		for (const { what, reason } of verdict.overrides) logAction("override", what, command, { reason });
