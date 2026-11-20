@@ -110,3 +110,36 @@ test("the close message says when RESULT.md is already written", async () => {
 	const { sent } = await pausedClose(true);
 	assert.match(sent[0], /RESULT\.md already exists\. Check it is accurate/);
 });
+
+test("a steering message reaches a busy turn, a plain one waits for idle", async () => {
+	const home = fs.mkdtempSync(join(tmpdir(), "project-task-test-"));
+	const workspace = join(home, "Development/home");
+	const state = join(workspace, ".agent/tasks/speakers");
+	const taskDir = join(workspace, "tasks/speakers");
+	fs.mkdirSync(join(state, "messages/steer"), { recursive: true });
+	fs.mkdirSync(taskDir, { recursive: true });
+	fs.writeFileSync(join(state, "messages/20261120T120000.md"), "Plain\n");
+	fs.writeFileSync(join(state, "messages/steer/20261120T120001.md"), "Stop, wrong file\n");
+	const saved = { ...process.env };
+	Object.assign(process.env, { HOME: home, PI_TASK: "speakers", PI_PROJECT: "home", PI_TASK_STATE_DIR: state, PI_TASK_DIR: taskDir, PI_PROJECT_DIR: workspace });
+	delete process.env.PI_SUBAGENT_CHILD;
+	delete process.env.PI_SUBAGENTS_HERDR_BRIDGE;
+	const handlers: Record<string, Function> = {};
+	const sent: [string, any][] = [];
+	try {
+		extension({ on: (name: string, fn: Function) => { handlers[name] = fn; }, sendUserMessage: (m: string, o: any) => { sent.push([m, o]); } } as any);
+		const ctx: any = { isIdle: () => false, hasPendingMessages: () => true, mode: "tui", hasUI: true, ui: { notify: () => {} }, shutdown: () => {}, sessionManager: { getBranch: () => [] } };
+		handlers.session_start({}, ctx);
+		await new Promise((resolve) => setTimeout(resolve, 5200));
+		handlers.session_shutdown();
+		assert.equal(sent.length, 1);
+		assert.match(sent[0][0], /^Message for task speakers from the home coordinator, sent with agent task send --steer during your turn/);
+		assert.match(sent[0][0], /Stop, wrong file$/);
+		assert.deepEqual(sent[0][1], { deliverAs: "steer" });
+		assert.ok(fs.existsSync(join(state, "messages/20261120T120000.md")));
+		assert.ok(fs.existsSync(join(state, "messages/steer/delivered/20261120T120001.md")));
+	} finally {
+		process.env = saved;
+		fs.rmSync(home, { recursive: true, force: true });
+	}
+});

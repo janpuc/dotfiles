@@ -27,7 +27,10 @@ export default function (pi: ExtensionAPI) {
 		} catch { /* the footer pill is a hint, never block the task */ }
 	};
 	const poll = (ctx: ExtensionContext) => {
-		if (promptOpen || !ctx.isIdle() || ctx.hasPendingMessages() || ctx.mode !== "tui" || !ctx.hasUI) return;
+		if (promptOpen || ctx.mode !== "tui" || !ctx.hasUI) return;
+		// agent task send --steer reaches a busy turn after its current tool call.
+		if (!ctx.isIdle() && !closing && !existsSync(join(state, "close-requested"))) { steer(); return; }
+		if (!ctx.isIdle() || ctx.hasPendingMessages()) return;
 		if (existsSync(join(state, "closed")) || existsSync(join(state, "restart-requested"))) {
 			ctx.shutdown();
 		} else if (!closing && !existsSync(join(state, "close-requested"))) {
@@ -44,16 +47,26 @@ export default function (pi: ExtensionAPI) {
 	};
 	// agent task send queues messages from the coordinator. Each moves to delivered/ before it is
 	// sent, so a crash never sends it twice.
-	const deliver = (): boolean => {
-		const inbox = join(state, "messages");
-		if (!existsSync(inbox)) return false;
+	const take = (inbox: string): string | undefined => {
+		if (!existsSync(inbox)) return undefined;
 		const next = readdirSync(inbox).filter((name) => name.endsWith(".md")).sort()[0];
-		if (!next) return false;
+		if (!next) return undefined;
 		mkdirSync(join(inbox, "delivered"), { recursive: true });
 		const delivered = join(inbox, "delivered", next);
 		renameSync(join(inbox, next), delivered);
-		pi.sendUserMessage(`Message for task ${task} from the ${project} coordinator, sent with agent task send:\n\n${readFileSync(delivered, "utf8").trim()}`);
+		return readFileSync(delivered, "utf8").trim();
+	};
+	// An idle task takes a steering message like any other, steering ones first.
+	const deliver = (): boolean => {
+		const message = take(join(state, "messages", "steer")) ?? take(join(state, "messages"));
+		if (message === undefined) return false;
+		pi.sendUserMessage(`Message for task ${task} from the ${project} coordinator, sent with agent task send:\n\n${message}`);
 		return true;
+	};
+	const steer = () => {
+		const message = take(join(state, "messages", "steer"));
+		if (message === undefined) return;
+		pi.sendUserMessage(`Message for task ${task} from the ${project} coordinator, sent with agent task send --steer during your turn. Take it into account before your next step:\n\n${message}`, { deliverAs: "steer" });
 	};
 	// A turn the coordinator started, with the opening brief or agent task send, reports back to
 	// the coordinator through the project inbox, so Jan never relays a task's result by hand.
