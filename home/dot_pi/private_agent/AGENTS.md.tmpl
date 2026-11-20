@@ -155,22 +155,25 @@ below. Any other id is refused.
 | Alibaba Token Plan (Standard) | 80,000 credits a month, no 5-hour or weekly window: a hard task on DeepSeek V4.1 Flash costs about 14 credits. Up to 3 agents at once. Off-peak 15:00-01:00 Warsaw: 50% off DeepSeek. Interactive use only: never from a script. Its content filter can refuse a request (`data_inspection_failed`): rerun that one on OpenCode Go | `alibaba/deepseek-v4.1-flash`: the default worker, `alibaba/qwen4-max-preview`: a second-opinion review when Sol is busy, until 2026-11-25 (slow: 2-5 minutes a task) |
 | OpenCode Go | dollar-metered: a 5-minute `kimi-k3:high` investigation took 2.5% of its week | `opencode-go/deepseek-v4.1-flash`: the same model as Alibaba's, for when Alibaba refuses or has no headroom, `opencode-go/kimi-k3.1-pro`: hard open-model tasks |
 | MiniMax | very large, slow | `minimax/MiniMax-M3.1-Flash`: long and bulk work when Alibaba has no headroom |
-| ChatGPT Plus | Sol uses the fewest tokens: a 1-2 minute task took about 0.15% of the week, an 18-minute worker 1% (and 2% of the 5-hour window) | `openai/gpt-6.1-sol`: hard tasks, `openai/gpt-6-astra`: advisor only |
+| ChatGPT Plus | small, and the cluster runs austerity-curator and kritika confidence on it too. GPT-6.1 Sol used the fewest tokens: a 1-2 minute task took about 0.15% of the week, an 18-minute worker 1%. GPT-6.2 replaced 6.1 on 2026-11-20 at the same price, its token use is not measured yet | `openai/gpt-6.2-sol`: hard tasks, `openai/gpt-6.2-astra`: advisor only |
 | Claude Max | largest, but it is your own quota | `claude-bridge/claude-sonnet-5-5` only when Jan asks, `claude-bridge/claude-fable-5-1` only when Jan names Fable, never Opus |
+{{- if eq .chezmoi.os "linux" }}
+| Google AI Ultra 5x | separate 5-hour and weekly Gemini pool, on Jan's consumer login | `agy/gemini-4-neon`: long build tasks in projects without shared infra or credentials. Run it as a task with `agent task new --model agy/gemini-4-neon:high`, not as a quick subagent: it thinks silently for minutes. It has reported done without applying review corrections, so check its result against your brief |
+{{- end }}
 
 ### Start at the lowest level that fits
 
 Size the task before the call. Take the first model in its row whose subscription has
 headroom, and move along the row when it has none or refuses. Never start an easy or normal task
-on Sol, Astra or Fable.
+on Sol, Astra, Fable or Neon.
 
 | Level | Task | Models, in order |
 |---|---|---|
 | Easy | one clear job: a lookup, a web fact, a small specified change, a small review | `alibaba/deepseek-v4.1-flash:low`, `opencode-go/deepseek-v4.1-flash:low`, `minimax/MiniMax-M3.1-Flash:medium` |
-| Normal | several files or steps with a clear goal | `alibaba/deepseek-v4.1-flash:medium`, `opencode-go/deepseek-v4.1-flash:medium`, `openai/gpt-6.1-sol:medium`, or `minimax/MiniMax-M3.1-Flash:medium` when Jan is not waiting |
+| Normal | several files or steps with a clear goal | `alibaba/deepseek-v4.1-flash:medium`, `opencode-go/deepseek-v4.1-flash:medium`, `openai/gpt-6.2-sol:medium`, or `minimax/MiniMax-M3.1-Flash:medium` when Jan is not waiting |
 | Long | research, bulk reading or an investigation that takes many turns, when Jan is not waiting | `alibaba/deepseek-v4.1-flash:medium`, `minimax/MiniMax-M3.1-Flash:medium` |
-| Hard | ambiguous, cross-cutting or a long investigation, or a lower level failed its check | `openai/gpt-6.1-sol:high` or `opencode-go/kimi-k3.1-pro:high`, whichever subscription has more headroom, `minimax/MiniMax-M3.1-Flash:high` when Jan is not waiting |
-| Advice | see Advisors | `oracle` on `openai/gpt-6-astra:high` |
+| Hard | ambiguous, cross-cutting or a long investigation, or a lower level failed its check | `openai/gpt-6.2-sol:high` or `opencode-go/kimi-k3.1-pro:high`, whichever subscription has more headroom, `minimax/MiniMax-M3.1-Flash:high` when Jan is not waiting |
+| Advice | see Advisors | `oracle` on `openai/gpt-6.2-astra:high` |
 
 Reviews follow the same levels. Go to Sol for a review when the change touches security, data,
 credentials or shared systems, or when a lighter review missed something.
@@ -196,7 +199,7 @@ the strong ones on ambiguous work. Evidence and harness: `~/Development/pi-model
 ## Advisors
 
 `oracle` is the advisor class: for a decision or a design, a bug two levels could not fix, or a
-high-stakes review. "Ask astra" means `oracle` on `openai/gpt-6-astra:high`. "Ask fable" means
+high-stakes review. "Ask astra" means `oracle` on `openai/gpt-6.2-astra:high`. "Ask fable" means
 `oracle` on `claude-bridge/claude-fable-5-1:high`, only when Jan names Fable.
 
 Its default context is fresh, so write it a brief: the question, the options, the constraints,

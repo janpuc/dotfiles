@@ -1,0 +1,5 @@
+# Pi follows mise's "latest" on aether and sisyphus, but mise holds a release back for its
+# minimum_release_age and mise install never upgrades an installed version. Name a release here
+# to roll it out on the next chezmoi update. Hermes takes Pi from Homebrew instead.
+pi:
+  release: "1.6.0"

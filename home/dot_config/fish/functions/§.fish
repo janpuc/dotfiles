@@ -204,7 +204,7 @@ function __oneshot_model
         return
     end
     set -l usage $HOME/.pi/agent/usage.json
-    for pick in opencode-go=opencode-go/deepseek-v4.1-flash:low chatgpt=openai/gpt-6.1-sol:low minimax=minimax/MiniMax-M2.7-highspeed:low
+    for pick in opencode-go=opencode-go/deepseek-v4.1-flash:low chatgpt=openai/gpt-6.2-sol:low minimax=minimax/MiniMax-M2.7-highspeed:low
         set -l pool (string split -m1 = $pick)
         set -l full (jq -r --arg p $pool[1] --argjson now (date +%s) '
             def t: .[0:19] + "Z" | fromdateiso8601;

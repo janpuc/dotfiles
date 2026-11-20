@@ -69,8 +69,8 @@ managed='{
         "minimax/MiniMax-M3.1-Flash",
         "opencode-go/deepseek-v4.1-flash",
         "opencode-go/kimi-k3.1-pro",
-        "openai/gpt-6.1-sol",
-        "openai/gpt-6-astra",
+        "openai/gpt-6.2-sol",
+        "openai/gpt-6.2-astra",
         "claude-bridge/claude-sonnet-5-5",
         "claude-bridge/claude-fable-5-1",
         "alibaba/qwen4-max-preview",
@@ -80,7 +80,7 @@ managed='{
     },
     "agentOverrides": {
       "scout": {
-        "model": "minimax/MiniMax-M3.1-Flash",
+        "model": "alibaba/deepseek-v4.1-flash",
         "thinking": "medium",
         "machine": "local",
         "description": "Fast recon in a repo, a cluster, GitHub or the web (bash, gh, kubectl, web fetch); returns compressed context for handoff",
@@ -89,7 +89,7 @@ managed='{
       "researcher": { "machine": "local", "model": "alibaba/deepseek-v4.1-flash", "thinking": "medium" },
       "worker": { "machine": "local", "model": "alibaba/deepseek-v4.1-flash", "thinking": "medium" },
       "reviewer": { "machine": "local", "model": "alibaba/deepseek-v4.1-flash", "thinking": "high" },
-      "oracle": { "machine": "local", "model": "openai/gpt-6-astra", "thinking": "high", "defaultContext": "fresh" },
+      "oracle": { "machine": "local", "model": "openai/gpt-6.2-astra", "thinking": "high", "defaultContext": "fresh" },
       "delegate": { "disabled": true },
       "evidence-auditor": { "disabled": true },
       "claude-code": { "disabled": true },

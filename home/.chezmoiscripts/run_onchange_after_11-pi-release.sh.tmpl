@@ -1,0 +1,15 @@
+{{- if or (eq .chezmoi.os "linux") (eq .chezmoi.hostname "sisyphus") -}}
+#!/bin/sh
+# Roll out Pi {{ .pi.release }} (named in .chezmoidata/pi.yaml) ahead of mise's release age hold.
+# Project runners start Pi with `mise which pi`, so the upgrade reaches them on agent restart all.
+set -eu
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:$PATH"
+MISE_MINIMUM_RELEASE_AGE=0s mise upgrade --yes npm:@earendil-works/pi-coding-agent
+have=$(cd "$HOME" && "$(mise which pi)" --version)
+want={{ .pi.release | quote }}
+if [ "$(printf '%s\n%s\n' "$want" "$have" | sort -V | head -n 1)" != "$want" ]; then
+	echo "pi: wanted $want or newer, mise runs $have" >&2
+	exit 1
+fi
+echo "pi $have"
+{{- end }}
