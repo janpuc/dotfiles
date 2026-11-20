@@ -1,4 +1,5 @@
 // Task close and restart are idle-boundary requests, never terminal keystrokes.
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -53,6 +54,34 @@ export default function (pi: ExtensionAPI) {
 		pi.sendUserMessage(`Message for task ${task} from the ${project} coordinator, sent with agent task send:\n\n${readFileSync(delivered, "utf8").trim()}`);
 		return true;
 	};
+	// A turn the coordinator started, with the opening brief or agent task send, reports back to
+	// the coordinator through the project inbox, so Jan never relays a task's result by hand.
+	// Turns Jan starts in the task tab stay between him and the task.
+	const report = (ctx: ExtensionContext): boolean => {
+		const messages = ctx.sessionManager.getBranch().flatMap((entry) => entry.type === "message" ? [entry] : []);
+		const reply = messages.at(-1);
+		const asked = messages.filter((entry) => entry.message.role === "user").at(-1);
+		if (reply?.message.role !== "assistant" || !asked || !process.env.PI_PROJECT_DIR) return false;
+		const text = (content: unknown) => typeof content === "string" ? content
+			: Array.isArray(content) ? content.map((part) => part?.type === "text" ? part.text : "").join("\n") : "";
+		const prompt = text(asked.message.content);
+		if (!prompt.startsWith(`Work on task ${task}.`) && !prompt.startsWith(`Message for task ${task} from the ${project} coordinator`)) return false;
+		const marker = join(state, "reported");
+		if (existsSync(marker) && readFileSync(marker, "utf8").trim() === reply.id) return true;
+		try {
+			const inbox = join(process.env.PI_PROJECT_DIR, ".agent/inbox");
+			const id = `${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}-${randomBytes(3).toString("hex")}`;
+			const answer = text(reply.message.content).trim();
+			const body = answer.length > 8000 ? `${answer.slice(0, 8000)}\n\n[cut at 8000 characters, the full reply is in the task session]` : answer;
+			mkdirSync(inbox, { recursive: true });
+			writeFileSync(join(inbox, `${id}.json.tmp`), JSON.stringify({ id, from: project, to: project, kind: "report", task, text: body || "(the turn ended without text)", created: new Date().toISOString().replace(/\.\d+Z$/, "Z"), status: "new" }, null, 2) + "\n", { mode: 0o600 });
+			renameSync(join(inbox, `${id}.json.tmp`), join(inbox, `${id}.json`));
+			writeFileSync(marker, `${reply.id}\n`);
+			return true;
+		} catch {
+			return false;
+		}
+	};
 	const lastRole = (ctx: ExtensionContext) => {
 		const last = ctx.sessionManager.getBranch().filter((entry) => entry.type === "message").at(-1);
 		return last?.type === "message" ? last.message.role : undefined;
@@ -71,7 +100,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("agent_settled", async (event, ctx) => {
 		if (!closing) {
 			poll(ctx);
-			if (ctx.isIdle() && !ctx.hasPendingMessages() && !existsSync(join(state, "close-requested"))) waiting(true);
+			if (ctx.isIdle() && !ctx.hasPendingMessages() && !existsSync(join(state, "close-requested")) && !report(ctx)) waiting(true);
 			return;
 		}
 		if (!ctx.isIdle() || ctx.hasPendingMessages()) return;

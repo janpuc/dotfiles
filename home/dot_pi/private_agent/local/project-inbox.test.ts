@@ -60,3 +60,22 @@ test("new items reach an idle agent one at a time without a prompt, once", () =>
 		f.restore();
 	}
 });
+
+test("a task report reaches the coordinator as a report, not a request to answer", () => {
+	const f = fixture();
+	try {
+		const report = { ...f.item, id: "20261120T120000-abcdef", from: "home", kind: "report", task: "speakers", text: "Done, 3 tests pass." };
+		fs.rmSync(join(f.workspace, ".agent/inbox", `${f.item.id}.json`));
+		fs.writeFileSync(join(f.workspace, ".agent/inbox", `${report.id}.json`), JSON.stringify(report));
+		const ctx: any = { isIdle: () => true, hasPendingMessages: () => false, ui: { notify: () => {} } };
+		const delivered: string[] = [];
+		deliverOpen({ sendUserMessage: (text: string) => { delivered.push(text); } } as any, "home", f.workspace, ctx, { delivered: new Set(), promptOpen: false });
+		assert.equal(delivered.length, 1);
+		assert.match(delivered[0], /Report 20261120T120000-abcdef from task speakers/);
+		assert.match(delivered[0], /Done, 3 tests pass\./);
+		assert.match(delivered[0], /agent task send home speakers/);
+		assert.doesNotMatch(delivered[0], /agent reply/);
+	} finally {
+		f.restore();
+	}
+});

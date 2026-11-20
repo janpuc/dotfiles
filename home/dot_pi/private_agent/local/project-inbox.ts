@@ -17,6 +17,8 @@ export type InboxItem = {
 	created: string;
 	status: string;
 	inReplyTo?: string;
+	kind?: string;
+	task?: string;
 };
 
 export type InboxState = { delivered: Set<string>; promptOpen: boolean };
@@ -79,6 +81,9 @@ function setStatus(folder: string, item: InboxItem, status: string) {
 }
 
 function message(item: InboxItem, project: string) {
+	if (item.kind === "report") {
+		return `Report ${item.id} from task ${item.task}, which finished the turn you started and is idle. Its last reply:\n\n${item.text}\n\nCheck it before relaying anything to Jan. Answer the task with agent task send ${project} ${item.task} <text>, or close it.`;
+	}
 	const head = item.inReplyTo
 		? `Reply ${item.id} from ${item.from} to your request ${item.inReplyTo}.`
 		: item.from === project ? `Fold ${item.id} from one of your tasks.` : `Request ${item.id} from ${item.from}.`;
@@ -167,7 +172,7 @@ export default function (pi: ExtensionAPI) {
 			if (project === "work") await poll(ctx);
 			const items = recentItems(folder, project);
 			ctx.ui.notify(items.length
-				? items.map((item) => `${item.id} ${item.inReplyTo ? "reply" : "request"} from ${item.from}: ${item.status}`).join("\n")
+				? items.map((item) => `${item.id} ${item.inReplyTo ? "reply" : item.kind ?? "request"} from ${item.task ? `task ${item.task}` : item.from}: ${item.status}`).join("\n")
 				: "Inbox is empty", "info");
 		},
 	});
