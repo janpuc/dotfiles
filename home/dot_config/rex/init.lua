@@ -164,8 +164,8 @@ end
 local OPEN_TASKS = { open = true, closing = true }
 local OPEN_ONLY = { open = true }
 
--- Waiting first, then closing, then work in progress, then the idle ones.
-local RANK = { waiting = 1, closing = 2, working = 3, idle = 4 }
+-- Waiting first, then closing, then running, then stopped.
+local RANK = { waiting = 1, closing = 2, running = 3, stopped = 4 }
 
 local function state_of(status, pi, waiting)
   if waiting then return "waiting" end
