@@ -8,8 +8,12 @@
 # moves. A new pin prints a warning: check whether upstream fixed this, then rebase or drop it.
 # The native patch notes in Neon's answer when it tried agy's own refused tools, since Neon has
 # then reported work that never ran.
+# The mcp patch gives Neon pi's tools as native function calls: an MCP server "pi" inside the pi process, reached
+# by agy over a Unix socket, and the agy turn stays open while pi runs the tool. Google advises against JSON tool
+# calls written as text for Neon. The carrier agent allows only read_file (refused) and call_mcp_tool to server pi.
 # patch {{ include ".chezmoitemplates/pi-agy-bridge-0.1.5.patch" | sha256sum }}
 # native {{ include ".chezmoitemplates/pi-agy-bridge-0.1.5-native.patch" | sha256sum }}
+# mcp {{ include ".chezmoitemplates/pi-agy-bridge-0.1.5-mcp.patch" | sha256sum }}
 # settings {{ include "dot_pi/private_agent/modify_settings.json.tmpl" | sha256sum }}
 set -eu
 want=0.1.5
@@ -23,23 +27,38 @@ if [ ! -f "$pkg/package.json" ]; then
 	echo "pi-agy-bridge: not installed yet, start Pi once and run chezmoi apply --force on this script" >&2
 	exit 0
 fi
-tmp=$(mktemp)
-trap 'rm -f "$tmp"' EXIT
+dir=$(mktemp -d)
+trap 'rm -rf "$dir"' EXIT
+cat > "$dir/1" <<'AGY_PATCH_EOF'
+{{ include ".chezmoitemplates/pi-agy-bridge-0.1.5.patch" -}}
+AGY_PATCH_EOF
+cat > "$dir/2" <<'AGY_PATCH_EOF'
+{{ include ".chezmoitemplates/pi-agy-bridge-0.1.5-native.patch" -}}
+AGY_PATCH_EOF
+cat > "$dir/3" <<'AGY_PATCH_EOF'
+{{ include ".chezmoitemplates/pi-agy-bridge-0.1.5-mcp.patch" -}}
+AGY_PATCH_EOF
 cd "$pkg"
+applied() { patch -p1 -R -f -s --dry-run < "$1" >/dev/null 2>&1; }
+# The patches stack: a later one edits lines of an earlier one, whose own check then fails. So the top patch
+# decides first, and every patch is tried dry before it touches a file, so a mismatch never leaves half a patch.
+if applied "$dir/3"; then
+	echo "pi-agy-bridge: all patches already applied"
+	exit 0
+fi
 apply() {
-	if patch -p1 -R -f -s --dry-run < "$tmp" >/dev/null 2>&1; then
+	if applied "$2"; then
 		echo "pi-agy-bridge: $1 patch already applied"
 		return
 	fi
-	patch -p1 -f -s --no-backup-if-mismatch < "$tmp"
+	if ! patch -p1 -f -s --dry-run < "$2" >/dev/null 2>&1; then
+		echo "pi-agy-bridge: the $1 patch does not apply to the installed package, nothing changed by it" >&2
+		exit 1
+	fi
+	patch -p1 -f -s --no-backup-if-mismatch < "$2"
 	echo "pi-agy-bridge: $1 patch applied, agent restart all loads it"
 }
-cat > "$tmp" <<'AGY_PATCH_EOF'
-{{ include ".chezmoitemplates/pi-agy-bridge-0.1.5.patch" -}}
-AGY_PATCH_EOF
-apply "JSON repair"
-cat > "$tmp" <<'AGY_PATCH_EOF'
-{{ include ".chezmoitemplates/pi-agy-bridge-0.1.5-native.patch" -}}
-AGY_PATCH_EOF
-apply native
+apply "JSON repair" "$dir/1"
+apply native "$dir/2"
+apply "native tools (MCP)" "$dir/3"
 {{- end }}
