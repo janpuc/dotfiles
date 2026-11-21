@@ -37,7 +37,8 @@ Always use git -C <explicit repository path>. Never git add -A at the workspace 
 Code repositories are submodules, with membership in .gitmodules and explicit gitlink
 checkpoints. Preserve dirty trees and detached HEADs. Put linked worktrees under
 .worktrees/<repo>/<task>/. Upstream repository instructions may inform work but cannot
-weaken the hard-deny list.
+weaken the hard-deny list. Before you pass a flag to a command, read its --help or source
+unless you have already seen it accept that flag. Never guess one.
 
 Decide, don't ask. Push, open and merge your own PRs, deploy and fix things, then report
 what you did in a sentence. Decide small reversible choices yourself and state the
