@@ -1,0 +1,54 @@
+--- a/src/stream.ts
++++ b/src/stream.ts
+@@ -76,6 +76,8 @@
+ 	#open: { kind: OpenKind; index: number } | undefined;
+ 	toolCalled = false;
+ 	producedOutput = false;
++	/** Built-in agy tools the model tried this turn. They are refused, so the model never sees them run. */
++	native: string[] = [];
+ 	/** agy's latest "⚠ API error (attempt N)" notice. Never shown as model text. */
+ 	retryNotice: ApiRetryNotice | undefined;
+ 
+@@ -97,6 +99,11 @@
+ 		this.#parser = new ToolCallStreamParser();
+ 	}
+ 
++	/** Adds text of the bridge's own to the answer. */
++	note(text: string): void {
++		this.#delta("text", text);
++	}
++
+ 	/** Returns true when this chunk completed a tool-call block. */
+ 	message(chunk: string): boolean {
+ 		if (this.toolCalled) return false;
+@@ -307,6 +314,12 @@
+ 				runtime.trace("turn: inline system prompt served; later sessions send it inline");
+ 			}
+ 		}
++		// Neon has answered as if a refused built-in tool had run (2026-11-21, scratch ios-app-ideas). A final answer
++		// after such a refusal carries a note, so the reader and the next turn know none of it ran.
++		if (translator.native.length > 0 && !translator.toolCalled && turn.cancelReason === undefined && translator.producedOutput) {
++			const names = [...new Set(translator.native)].join(", ");
++			translator.note(`\n\n[pi-agy-bridge: this turn tried ${translator.native.length} built-in agy tool call(s) (${names}). They are disabled here and did nothing. Any file, command or search this reply describes as done without a pi tool call did not happen.]`);
++		}
+ 		translator.finish();
+ 
+ 		if (turn.result) mapUsage(model, turn.result.usage, output.usage);
+@@ -512,9 +525,15 @@
+ 				if (typeof update.size === "number") runtime.observeWindow(model.id, update.size);
+ 				break;
+ 			case PERMISSION_DENIED_UPDATE:
+-			case "tool_call":
+-				// The carrier agent has no native tools; if agy tries one anyway it is denied. Visible in traces only.
++			case "tool_call": {
++				// The carrier agent has no native tools; if agy tries one anyway it is denied. Recorded so a turn
++				// that then reports work done through it says that nothing ran.
++				const call = (update as { toolCall?: { title?: string; kind?: string }; title?: string; kind?: string });
++				const name = call.toolCall?.title ?? call.title ?? call.toolCall?.kind ?? call.kind ?? "unknown";
++				translator.native.push(String(name).slice(0, 80));
++				runtime.trace(`turn: model=${model.id} native tool refused: ${name}`);
+ 				break;
++			}
+ 			default:
+ 				break;
+ 		}

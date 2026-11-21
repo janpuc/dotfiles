@@ -6,7 +6,7 @@ import { join } from "node:path";
 import extension from "./project-task.ts";
 
 // Load the extension with a stub Pi, then settle a turn whose last prompt is `prompt`.
-function settle(prompt: string, settles = 1) {
+function settle(prompt: string, settles = 1, work: any[] = []) {
 	const home = fs.mkdtempSync(join(tmpdir(), "project-task-test-"));
 	const workspace = join(home, "Development/home");
 	const state = join(workspace, ".agent/tasks/speakers");
@@ -20,6 +20,7 @@ function settle(prompt: string, settles = 1) {
 		extension({ on: (name: string, fn: Function) => { handlers[name] = fn; }, sendUserMessage: () => {} } as any);
 		const branch = [
 			{ type: "message", id: "u1", message: { role: "user", content: [{ type: "text", text: prompt }] } },
+			...work.map((message, i) => ({ type: "message", id: `w${i}`, message })),
 			{ type: "message", id: "a1", message: { role: "assistant", content: [{ type: "text", text: "Done, 3 tests pass." }] } },
 		];
 		const ctx: any = { isIdle: () => true, hasPendingMessages: () => false, mode: "print", hasUI: false, sessionManager: { getBranch: () => branch } };
@@ -41,7 +42,7 @@ test("a turn the coordinator started reports once to the project inbox", () => {
 	assert.equal(items[0].to, "home");
 	assert.equal(items[0].task, "speakers");
 	assert.equal(items[0].status, "new");
-	assert.equal(items[0].text, "Done, 3 tests pass.");
+	assert.equal(items[0].text, "Done, 3 tests pass.\n\nTurn record from the session log: no tool calls in this turn.");
 	assert.match(items[0].id, /^\d{8}T\d{6}-[0-9a-f]{6}$/);
 	assert.equal(waiting, false);
 });
@@ -103,7 +104,7 @@ test("a close that ends without the marker reports to the coordinator", async ()
 	assert.equal(items[0].kind, "report");
 	assert.match(items[0].text, /^Close of task speakers paused: the turn ended without TASK_CLOSE_READY\./);
 	assert.match(items[0].text, /agent task close home speakers again/);
-	assert.match(items[0].text, /The task is already complete\.$/);
+	assert.match(items[0].text, /The task is already complete\.\n\nTurn record from the session log: no tool calls in this turn\.$/);
 });
 
 test("the close message says when RESULT.md is already written", async () => {
@@ -142,4 +143,16 @@ test("a steering message reaches a busy turn, a plain one waits for idle", async
 		process.env = saved;
 		fs.rmSync(home, { recursive: true, force: true });
 	}
+});
+
+test("a report ends with the tool calls, failures and files the session log shows", () => {
+	const work = [
+		{ role: "assistant", content: [{ type: "toolCall", id: "c1", name: "write", arguments: { path: "/w/bad.md" } }, { type: "toolCall", id: "c2", name: "edit", arguments: { path: "/w/STATE.md" } }] },
+		{ role: "toolResult", toolCallId: "c1", toolName: "write", isError: true },
+		{ role: "toolResult", toolCallId: "c2", toolName: "edit", isError: false },
+		{ role: "assistant", content: [{ type: "toolCall", id: "c3", name: "codemode", arguments: { code: "x" } }] },
+		{ role: "toolResult", toolCallId: "c3", toolName: "codemode", isError: false, nestedCalls: { calls: [{ name: "write", status: "ok", arguments: { path: "/w/IDEAS.md" } }, { name: "write", status: "error", arguments: { path: "/w/no.md" } }] } },
+	];
+	const { items } = settle("Message for task speakers from the home coordinator, sent with agent task send:\n\nFix it.", 1, work);
+	assert.match(items[0].text, /\n\nTurn record from the session log: 3 tool calls, 1 failed\. Files written or edited: \/w\/STATE\.md, \/w\/IDEAS\.md\.$/);
 });

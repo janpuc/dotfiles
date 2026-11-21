@@ -73,6 +73,30 @@ export default function (pi: ExtensionAPI) {
 	// Turns Jan starts in the task tab stay between him and the task.
 	const text = (content: unknown) => typeof content === "string" ? content
 		: Array.isArray(content) ? content.map((part) => part?.type === "text" ? part.text : "").join("\n") : "";
+	// What the session log shows for the turn, so a reply that describes work it never did reads as
+	// such. Neon once reported files written after its only tool call failed.
+	const record = (ctx: ExtensionContext): string => {
+		const branch = ctx.sessionManager.getBranch().flatMap((entry) => entry.type === "message" ? [entry.message as any] : []);
+		const start = branch.findLastIndex((message) => message.role === "user");
+		const turn = branch.slice(start + 1);
+		const calls = new Map<string, { name: string; path?: string }>();
+		for (const message of turn) {
+			if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+			for (const part of message.content) if (part?.type === "toolCall") calls.set(part.id, { name: part.name, path: part.arguments?.path });
+		}
+		const results = turn.filter((message) => message.role === "toolResult");
+		const failed = results.filter((message) => message.isError).length;
+		const written = new Set<string>();
+		for (const result of results) {
+			const call = calls.get(result.toolCallId);
+			if (!result.isError && call?.path && ["write", "edit"].includes(call.name)) written.add(call.path);
+			for (const nested of result.nestedCalls?.calls ?? []) {
+				if (nested.status === "ok" && ["write", "edit"].includes(nested.name) && nested.arguments?.path) written.add(nested.arguments.path);
+			}
+		}
+		if (results.length === 0) return "Turn record from the session log: no tool calls in this turn.";
+		return `Turn record from the session log: ${results.length} tool call${results.length === 1 ? "" : "s"}, ${failed} failed. ${written.size ? `Files written or edited: ${[...written].join(", ")}.` : "No file was written or edited."}`;
+	};
 	// Sends the last reply to the project inbox once, with a heading when the coordinator must act.
 	const post = (ctx: ExtensionContext, heading = ""): boolean => {
 		const reply = ctx.sessionManager.getBranch().flatMap((entry) => entry.type === "message" ? [entry] : []).at(-1);
@@ -84,7 +108,7 @@ export default function (pi: ExtensionAPI) {
 			const id = `${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}-${randomBytes(3).toString("hex")}`;
 			const answer = text(reply.message.content).trim() || "(the turn ended without text)";
 			const cut = answer.length > 8000 ? `${answer.slice(0, 8000)}\n\n[cut at 8000 characters, the full reply is in the task session]` : answer;
-			const body = heading ? `${heading}\n\nThe task's last reply:\n\n${cut}` : cut;
+			const body = `${heading ? `${heading}\n\nThe task's last reply:\n\n${cut}` : cut}\n\n${record(ctx)}`;
 			mkdirSync(inbox, { recursive: true });
 			writeFileSync(join(inbox, `${id}.json.tmp`), JSON.stringify({ id, from: project, to: project, kind: "report", task, text: body, created: new Date().toISOString().replace(/\.\d+Z$/, "Z"), status: "new" }, null, 2) + "\n", { mode: 0o600 });
 			renameSync(join(inbox, `${id}.json.tmp`), join(inbox, `${id}.json`));

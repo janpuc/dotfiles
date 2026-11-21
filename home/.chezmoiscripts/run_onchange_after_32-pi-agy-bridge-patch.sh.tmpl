@@ -6,7 +6,10 @@
 # around a remaining JSON error and tells Neon how to escape code and shell ${...} in JavaScript.
 # Pi installs a pinned npm package once and never rewrites it, so the patch holds until the pin
 # moves. A new pin prints a warning: check whether upstream fixed this, then rebase or drop it.
+# The native patch notes in Neon's answer when it tried agy's own refused tools, since Neon has
+# then reported work that never ran.
 # patch {{ include ".chezmoitemplates/pi-agy-bridge-0.1.5.patch" | sha256sum }}
+# native {{ include ".chezmoitemplates/pi-agy-bridge-0.1.5-native.patch" | sha256sum }}
 # settings {{ include "dot_pi/private_agent/modify_settings.json.tmpl" | sha256sum }}
 set -eu
 want=0.1.5
@@ -22,14 +25,21 @@ if [ ! -f "$pkg/package.json" ]; then
 fi
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
+cd "$pkg"
+apply() {
+	if patch -p1 -R -f -s --dry-run < "$tmp" >/dev/null 2>&1; then
+		echo "pi-agy-bridge: $1 patch already applied"
+		return
+	fi
+	patch -p1 -f -s --no-backup-if-mismatch < "$tmp"
+	echo "pi-agy-bridge: $1 patch applied, agent restart all loads it"
+}
 cat > "$tmp" <<'AGY_PATCH_EOF'
 {{ include ".chezmoitemplates/pi-agy-bridge-0.1.5.patch" -}}
 AGY_PATCH_EOF
-cd "$pkg"
-if patch -p1 -R -f -s --dry-run < "$tmp" >/dev/null 2>&1; then
-	echo "pi-agy-bridge: JSON repair patch already applied"
-	exit 0
-fi
-patch -p1 -f -s --no-backup-if-mismatch < "$tmp"
-echo "pi-agy-bridge: JSON repair patch applied, agent restart all loads it"
+apply "JSON repair"
+cat > "$tmp" <<'AGY_PATCH_EOF'
+{{ include ".chezmoitemplates/pi-agy-bridge-0.1.5-native.patch" -}}
+AGY_PATCH_EOF
+apply native
 {{- end }}
