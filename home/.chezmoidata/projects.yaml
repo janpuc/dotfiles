@@ -138,3 +138,7 @@ projects:
     # Jan's maker work: Xiao ESP32 boards and their 3D-printed cases (humidifier, soil and
     # moisture sensors, mmWave), and the earlier ESP32 experiments.
     lifecycle: active
+  apps:
+    # Jan's paid iOS, iPadOS and iPhone Duo apps. Each app is its own repo registered as a member,
+    # one coordinator runs per-app tasks. Builds, signing and upload need a Mac, aether only codes.
+    lifecycle: active
