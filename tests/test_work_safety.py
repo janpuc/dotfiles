@@ -198,6 +198,13 @@ class WorkSafetyTests(unittest.TestCase):
                 self.assertTrue(personal.is_dir())
                 self.assertTrue(ambiguous.is_dir())
 
+    @staticmethod
+    def migrated_digest(wipe, home):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            wipe.wipe(home, "hermes", migrated=True)
+        return re.search(r"Inventory: ([0-9a-f]{64})", output.getvalue()).group(1)
+
     def test_work_wipe_migrated_keeps_credentials_and_runs_only_on_hermes(self):
         wipe = load("work-wipe")
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"HOME": temp}):
@@ -240,25 +247,47 @@ class WorkSafetyTests(unittest.TestCase):
             with contextlib.redirect_stdout(again):
                 wipe.wipe(home, "hermes", migrated=True)
             digest = re.search(r"Inventory: ([0-9a-f]{64})", again.getvalue()).group(1)
-            # Intake that arrives after the hash check but before deletion survives.
+            state = home / "Work/work/notes/STATE.md"
+            # A replacement with the same size and times is a different file and refuses.
+            before, folder = state.stat(), state.parent.stat()
+            swap = home / "Work/work/notes/swap"
+            swap.write_text("STATE")
+            os.utime(swap, ns=(before.st_atime_ns, before.st_mtime_ns))
+            os.rename(swap, state)
+            os.utime(state.parent, ns=(folder.st_atime_ns, folder.st_mtime_ns))
+            with self.assertRaisesRegex(ValueError, "inventory changed"):
+                wipe.wipe(home, "hermes", really=True, migrated=True, inventory=digest)
+            digest = self.migrated_digest(wipe, home)
+            # Intake after the check but before the move is caught once moved aside: all goes back.
             real_summary = wipe.summary
-            def summary_then_intake(paths):
-                result = real_summary(paths)
-                (home / "Work/work/notes/LATE.md").write_text("late intake")
+            calls = []
+            def intake_before_move(units):
+                result = real_summary(units)
+                calls.append(1)
+                if len(calls) == 1:
+                    (home / "Work/work/notes/LATE.md").write_text("late intake")
                 return result
-            with patch.object(wipe, "summary", summary_then_intake), contextlib.redirect_stdout(io.StringIO()) as late:
-                wipe.wipe(home, "hermes", really=True, migrated=True, inventory=digest)
+            with patch.object(wipe, "summary", intake_before_move), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(ValueError, "changed while it was moved aside.*everything is back"):
+                    wipe.wipe(home, "hermes", really=True, migrated=True, inventory=digest)
+            self.assertEqual(state.read_text(), "STATE")
             self.assertEqual((home / "Work/work/notes/LATE.md").read_text(), "late intake")
-            self.assertFalse((home / "Work/work/notes/STATE.md").exists())
-            self.assertIn("Kept, changed since the dry run", late.getvalue())
-            self.assertEqual(sorted(p.name for p in (home / "Work").rglob("*")), ["LATE.md", "notes", "work"])
+            self.assertTrue(work_session.is_dir())
+            self.assertEqual(list(home.glob(".work-wipe-*")), [])
             (home / "Work/work/notes/LATE.md").unlink()
-            again = io.StringIO()
-            with contextlib.redirect_stdout(again):
-                wipe.wipe(home, "hermes", migrated=True)
-            digest = re.search(r"Inventory: ([0-9a-f]{64})", again.getvalue()).group(1)
-            with contextlib.redirect_stdout(io.StringIO()):
+            digest = self.migrated_digest(wipe, home)
+            # Intake after the move lands in the new empty ~/Work and stays.
+            calls.clear()
+            def intake_after_move(units):
+                calls.append(1)
+                if len(calls) == 2:
+                    (home / "Work/AFTER.md").write_text("after the move")
+                return real_summary(units)
+            with patch.object(wipe, "summary", intake_after_move), contextlib.redirect_stdout(io.StringIO()):
                 wipe.wipe(home, "hermes", really=True, migrated=True, inventory=digest)
+            self.assertEqual([p.name for p in (home / "Work").iterdir()], ["AFTER.md"])
+            (home / "Work/AFTER.md").unlink()
+            self.assertEqual(list(home.glob(".work-wipe-*")), [])
             self.assertTrue((home / "Work").is_dir())
             self.assertEqual(list((home / "Work").iterdir()), [])
             self.assertFalse(work_session.exists())

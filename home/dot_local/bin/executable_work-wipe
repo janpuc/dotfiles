@@ -5,6 +5,7 @@ import hashlib
 import stat
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import shutil
 import socket
@@ -95,58 +96,86 @@ def migrated_paths(home, host):
     return paths + work_sessions(home)
 
 
-def summary(paths):
-    """Entries, bytes, the newest change and an inventory hash of everything below paths, without
-    following links. The hash changes when any entry is added, removed or modified."""
+def migrated_units(home, paths):
+    """The renameable units of a migrated cleanup: ~/Work, whose contents are the inventory, and each
+    Work session folder, which is inventory with its contents."""
+    work = home / "Work"
+    units = [(work, work, False)] if work.is_dir() else []
+    return units + [(path, path, True) for path in paths if not path.is_relative_to(work)]
+
+
+def summary(units):
+    """Entries, bytes, the newest change and an inventory hash of every unit, without following
+    links. A unit is (where it is now, where it was reviewed, whether its own folder counts). Each
+    entry is named by its reviewed path and identified by device, inode, type, size, mtime and
+    ctime, so a replacement with the same size and times changes the hash. A unit folder's own
+    ctime is left out, since moving it aside changes it, and its entries are checked one by one."""
     entries = size = 0
     newest = 0.0
     records = []
-    manifest = []
-    for path in paths:
-        stack = [path]
+    for actual, shown, own in units:
+        stack = [(actual, shown)]
         while stack:
-            current = stack.pop()
+            current, name = stack.pop()
             try:
                 info = current.lstat()
             except OSError:
                 continue
-            entries += 1
-            size += info.st_size
-            newest = max(newest, info.st_mtime)
-            records.append(f"{current}\0{stat.S_IFMT(info.st_mode)}\0{info.st_size}\0{info.st_mtime_ns}")
-            manifest.append((current, info))
-            if not current.is_symlink() and current.is_dir():
+            root = current == actual
+            if own or not root:
+                entries += 1
+                size += info.st_size
+                newest = max(newest, info.st_mtime)
+                ctime = "" if root else info.st_ctime_ns
+                records.append(f"{name}\0{info.st_dev}\0{info.st_ino}\0{stat.S_IFMT(info.st_mode)}\0"
+                               f"{info.st_size}\0{info.st_mtime_ns}\0{ctime}")
+            if stat.S_ISDIR(info.st_mode):
                 try:
-                    stack.extend(current.iterdir())
+                    stack.extend((child, name / child.name) for child in current.iterdir())
                 except OSError:
-                    pass
+                    records.append(f"{name}\0unreadable")
     digest = hashlib.sha256("\n".join(sorted(records)).encode("utf-8", "surrogateescape")).hexdigest()
-    return entries, size, newest, digest, manifest
+    return entries, size, newest, digest
 
 
-def same(info, seen):
-    return (stat.S_IFMT(info.st_mode), info.st_size, info.st_mtime_ns, info.st_ino) == \
-        (stat.S_IFMT(seen.st_mode), seen.st_size, seen.st_mtime_ns, seen.st_ino)
+def quarantine_and_delete(home, units, approved):
+    """Move every unit aside with one rename each, check the moved tree against the reviewed
+    inventory and delete it only then. Anything written to the old paths after the move stays
+    where it is. A mismatch moves everything back and deletes nothing."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    aside = home / f".work-wipe-{stamp}"
+    aside.mkdir(mode=0o700)
+    device = aside.lstat().st_dev
+    if any(actual.lstat().st_dev != device for actual, _, _ in units):
+        aside.rmdir()
+        raise ValueError("An inventory path is on another volume, nothing was moved")
+    moved = []
+    for index, (actual, shown, own) in enumerate(units):
+        target = aside / str(index)
+        mode = stat.S_IMODE(actual.lstat().st_mode)
+        os.rename(actual, target)
+        moved.append((target, shown, own))
+        if not own:
+            # ~/Work itself stays, empty.
+            actual.mkdir(mode=mode)
+    if summary(moved)[3] != approved:
+        kept = restore(moved)
+        raise ValueError("The inventory changed while it was moved aside. Nothing was deleted"
+                         + (f", and these stay under {aside}: " + ", ".join(kept) if kept else ", everything is back in place"))
+    shutil.rmtree(aside)
 
 
-def delete_manifest(manifest):
-    """Delete exactly the reviewed entries, deepest first. A file that changed since is kept, and a
-    folder is removed with rmdir only, so anything new inside it stays. Returns what was kept."""
+def restore(moved):
     kept = []
-    for path, seen in sorted(manifest, key=lambda item: len(item[0].parts), reverse=True):
+    for target, shown, own in reversed(moved):
         try:
-            info = path.lstat()
-        except FileNotFoundError:
-            continue
-        if stat.S_ISDIR(seen.st_mode) and stat.S_ISDIR(info.st_mode) and info.st_ino == seen.st_ino:
-            try:
-                path.rmdir()
-            except OSError:
-                kept.append(path)
-        elif not stat.S_ISDIR(seen.st_mode) and same(info, seen):
-            path.unlink()
-        else:
-            kept.append(path)
+            if not own:
+                shown.rmdir()
+            os.rename(target, shown)
+        except OSError:
+            kept.append(f"{target.name} (was {shown})")
+    if not kept:
+        target.parent.rmdir()
     return kept
 
 
@@ -160,7 +189,8 @@ def wipe(home, host, really=False, migrated=False, inventory=None):
         if any(parent.is_symlink() for parent in path.parents if parent != home and parent.is_relative_to(home)):
             raise ValueError(f"Symlinked wipe ancestor: {path}")
     if migrated:
-        entries, size, newest, digest, manifest = summary(paths)
+        units = migrated_units(home, paths)
+        entries, size, newest, digest = summary(units)
         # Deletion is bound to the dry run Jan reviewed: anything added or changed since refuses.
         if really and inventory != digest:
             raise ValueError("The inventory changed since the reviewed dry run, or --inventory is missing. "
@@ -174,9 +204,7 @@ def wipe(home, host, really=False, migrated=False, inventory=None):
         print(f"Entries: {entries}, bytes: {size}, newest change: {changed}")
         print(f"Inventory: {digest}")
     if really and migrated:
-        kept = delete_manifest(manifest)
-        for path in kept:
-            print(f"Kept, changed since the dry run: {path}")
+        quarantine_and_delete(home, units, digest)
         return
     if really:
         for path in paths:
