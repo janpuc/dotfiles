@@ -1,0 +1,9 @@
+[Unit]
+Description=Agent jobs: run queued jobs on workers that are switched on, deliver results
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+ExecStart=/home/ubuntu/.local/bin/agent job --drain
+UMask=0077

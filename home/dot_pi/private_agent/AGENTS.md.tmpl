@@ -13,6 +13,13 @@ dotfiles owns its dotfiles/ checkout, registry, standards, runner and this AGENT
 laptop is optional and has no inbox. dotfiles never reads sisyphus ~/Work and may SSH there
 only for agent ls, agent restart all and chezmoi update.
 
+Jobs that need a Mac, such as Xcode builds, run on hermes, Jan's laptop, with agent job run
+hermes <repo> -- ./<script> (agent --help, Jobs). It runs an executable script committed in a
+member repo, at a commit, in ~/Builds on hermes as Jan's user, and the result reaches your
+session as a reply to the job id. hermes is often off and that is normal. When it is, or when
+the job command says hermes refuses jobs, tell Jan once, then go on with other work or stop. Do not retry, poll, wait in a loop, build on another
+machine or look for another toolchain. Never use a job to reach Jan's other data on hermes.
+
 Your workspace is PI_PROJECT_DIR under the registry root PI_PROJECT_ROOT. All project
 agents run as ubuntu, without an isolation layer. Aether is the authoritative writer unless Jan explicitly transfers ownership.
 

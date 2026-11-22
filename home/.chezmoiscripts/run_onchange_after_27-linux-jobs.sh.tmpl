@@ -1,0 +1,11 @@
+{{- if eq .chezmoi.os "linux" -}}
+#!/bin/sh
+# Agent jobs drain every 2 minutes: queued jobs run on their worker once it answers (agent job run).
+#   service {{ include ".system/agent-jobs.service" | sha256sum }}
+#   timer   {{ include ".system/agent-jobs.timer" | sha256sum }}
+set -eu
+src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
+sudo install -o root -g root -m 644 "$src/agent-jobs.service" "$src/agent-jobs.timer" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now agent-jobs.timer
+{{- end }}

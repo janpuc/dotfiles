@@ -12,6 +12,8 @@ platform:
   remote: {project: work, host: sisyphus, identity: ~/.ssh/work-inbox}
   # Opens the task for a bare ticket id, as in agent CEA-123, outside a project.
   tickets: work
+  # Machines that run agent jobs over SSH when switched on. Off is normal: jobs wait for them.
+  workers: [hermes]
 hosts:
   aether:
     root: ~/Development

@@ -79,7 +79,7 @@ Library/LaunchAgents/local.agent-digest.plist
 .agents/skills/work-slack
 .agents/skills/work-slack/**
 {{ end }}
-{{ if ne .chezmoi.hostname "sisyphus" }}
+{{ if and (ne .chezmoi.hostname "sisyphus") (ne .chezmoi.hostname "hermes") }}
 .ssh/authorized_keys
 {{ end }}
 {{ if eq .chezmoi.hostname "sisyphus" }}

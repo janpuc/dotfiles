@@ -73,6 +73,36 @@ A project agent cannot send as `jan` or impersonate `dotfiles`.
 | `aether-backup status` | When the last backup succeeded |
 | `ai-sync` | Refresh all keys from 1Password: model keys, `gh` login, per-project secrets, backup password. Run it after rotating any of them |
 
+## Jobs on hermes
+
+Some work needs a Mac, Xcode builds above all. hermes, Jan's laptop, is a worker: it runs jobs
+when it is on, and it is often off.
+
+- `agent job run hermes <repo> [--commit <rev>] [--fetch <path>]... -- ./<script> [args]` in a
+  project session queues a job. It bundles the commit (HEAD by default) of the member repo and runs
+  the script in `~/Builds/<project>/<repo>` on hermes as Jan's user, in a checkout the endpoint
+  created and keeps between jobs. The script must be an executable file committed in that commit,
+  so everything that runs as Jan is reviewable in git. A folder in `~/Builds` the endpoint did not
+  create is refused, never cleaned.
+- When hermes is off the job waits and the agent tells Jan once. When hermes answers but refuses
+  (an unpinned or changed host key, a rejected key, a missing endpoint) the job also waits, and
+  the project gets one message with the reason, for Jan or dotfiles. `agent todo` lists every
+  waiting job. The `agent-jobs` timer on aether tries every 2 minutes, so a job starts within
+  about two minutes of Jan opening the laptop.
+- A connection lost mid-job does not run the build twice. hermes keeps a record per job in
+  `~/Builds/.jobs/<id>` (pruned after 14 days): the next connection follows a build still running
+  or replays a finished one. A build cut off by sleep runs again, up to 6 attempts.
+- The result arrives in the session that queued it, as a reply to the job id (a task gets it with
+  `agent task send`, a closed task's result goes to the project): exit code, the end of the log,
+  the log path and the `--fetch` files under `~/.local/state/agents/jobs/<id>/` on aether.
+- `agent job ls` lists jobs, `agent job cancel <id>` cancels a queued one.
+- On hermes the aether key `~/.ssh/aether-hermes` is forced to `agent --worker-endpoint`, which
+  accepts only ping, job, fetch, `work-cleanup --dry-run` and `work-cleanup --really <inventory>`.
+  The cleanup is `work-wipe --migrated`: `~/Work` contents and Work Pi sessions only, credentials
+  stay. Its dry run prints an Inventory hash, and the real run refuses if anything changed since.
+- Turning it on once: System Settings, General, Sharing, Remote Login on, then `chezmoi update`
+  on hermes. dotfiles pins the hermes host key in `~/.ssh/known_hosts_agents` on aether.
+
 ## Cross-project requests
 
 Every project agent owns its systems and changes only its own. Another project's

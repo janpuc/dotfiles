@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Explicit work-only deletion inventory. Dry run unless Jan supplies --really."""
 import argparse
+import hashlib
+import stat
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
@@ -8,28 +11,9 @@ import socket
 import sys
 
 
-def wipe_paths(home, host):
-    if host not in ("hermes", "sisyphus"):
-        raise ValueError("work-wipe is only for hermes and sisyphus")
-    paths = [home / path for path in (
-        "Work", ".aws", ".granted", ".saml2aws", ".aws-sso",
-        ".local/state/ai/projects/work.env", ".config/op/sisyphus-work.env",
-    )]
-    # All generated Work kubeconfigs, including legacy direct files. The personal config and
-    # its cache are deliberately excluded on both hosts. Never follow a kube directory symlink.
-    kube = home / ".kube"
-    if kube.is_symlink():
-        raise ValueError("Refusing symlinked ~/.kube")
-    if kube.is_dir():
-        paths += [path for path in sorted(kube.iterdir()) if path.name not in ("config", "cache")]
-    registry = home / ".config/agents/projects.json"
-    if registry.exists():
-        projects = json.loads(registry.read_text())["projects"]
-        for name, project in projects.items():
-            if any(ref.startswith("op://Work/") for ref in project.get("secrets", {}).values()):
-                if not name or Path(name).name != name or name in (".", ".."):
-                    raise ValueError("Invalid work project name")
-                paths.append(home / f".local/state/ai/projects/{name}.env")
+def work_sessions(home):
+    """Pi session folders whose every header has a cwd inside ~/Work."""
+    found = []
     sessions = home / ".pi/agent/sessions"
     if sessions.is_symlink():
         raise ValueError("Refusing symlinked Pi sessions")
@@ -59,9 +43,35 @@ def wipe_paths(home, host):
                     verified = False
                     break
             if verified or not files and path.name == prefix + "--":
-                paths.append(path)
+                found.append(path)
             else:
                 print("Work session candidate skipped, no verified Work cwd in every header", file=sys.stderr)
+    return found
+
+
+def wipe_paths(home, host):
+    if host not in ("hermes", "sisyphus"):
+        raise ValueError("work-wipe is only for hermes and sisyphus")
+    paths = [home / path for path in (
+        "Work", ".aws", ".granted", ".saml2aws", ".aws-sso",
+        ".local/state/ai/projects/work.env", ".config/op/sisyphus-work.env",
+    )]
+    # All generated Work kubeconfigs, including legacy direct files. The personal config and
+    # its cache are deliberately excluded on both hosts. Never follow a kube directory symlink.
+    kube = home / ".kube"
+    if kube.is_symlink():
+        raise ValueError("Refusing symlinked ~/.kube")
+    if kube.is_dir():
+        paths += [path for path in sorted(kube.iterdir()) if path.name not in ("config", "cache")]
+    registry = home / ".config/agents/projects.json"
+    if registry.exists():
+        projects = json.loads(registry.read_text())["projects"]
+        for name, project in projects.items():
+            if any(ref.startswith("op://Work/") for ref in project.get("secrets", {}).values()):
+                if not name or Path(name).name != name or name in (".", ".."):
+                    raise ValueError("Invalid work project name")
+                paths.append(home / f".local/state/ai/projects/{name}.env")
+    paths += work_sessions(home)
     paths.append(home / ".local/share/agent-history/work")
     if host == "sisyphus":
         paths += [home / path for path in (
@@ -73,8 +83,47 @@ def wipe_paths(home, host):
     return list(dict.fromkeys(paths))
 
 
-def wipe(home, host, really=False):
-    paths = wipe_paths(home, host)
+def migrated_paths(home, host):
+    """What moved to sisyphus and is left on the laptop: the contents of ~/Work and the Work Pi
+    sessions. Credentials stay, the laptop still sends temporary AWS logins with work-creds."""
+    if host != "hermes":
+        raise ValueError("work-wipe --migrated is only for hermes")
+    work = home / "Work"
+    if work.is_symlink():
+        raise ValueError("Refusing symlinked ~/Work")
+    paths = sorted(work.iterdir()) if work.is_dir() else []
+    return paths + work_sessions(home)
+
+
+def summary(paths):
+    """Entries, bytes, the newest change and an inventory hash of everything below paths, without
+    following links. The hash changes when any entry is added, removed or modified."""
+    entries = size = 0
+    newest = 0.0
+    records = []
+    for path in paths:
+        stack = [path]
+        while stack:
+            current = stack.pop()
+            try:
+                info = current.lstat()
+            except OSError:
+                continue
+            entries += 1
+            size += info.st_size
+            newest = max(newest, info.st_mtime)
+            records.append(f"{current}\0{stat.S_IFMT(info.st_mode)}\0{info.st_size}\0{info.st_mtime_ns}")
+            if not current.is_symlink() and current.is_dir():
+                try:
+                    stack.extend(current.iterdir())
+                except OSError:
+                    pass
+    digest = hashlib.sha256("\n".join(sorted(records)).encode("utf-8", "surrogateescape")).hexdigest()
+    return entries, size, newest, digest
+
+
+def wipe(home, host, really=False, migrated=False, inventory=None):
+    paths = migrated_paths(home, host) if migrated else wipe_paths(home, host)
     # Check the complete inventory before deleting anything. A symlink leaf is unlinked, never
     # traversed. A symlink ancestor could escape the inventory and therefore fails closed.
     for path in paths:
@@ -82,10 +131,20 @@ def wipe(home, host, really=False):
             raise ValueError(f"Unsafe wipe path: {path}")
         if any(parent.is_symlink() for parent in path.parents if parent != home and parent.is_relative_to(home)):
             raise ValueError(f"Symlinked wipe ancestor: {path}")
+    if migrated:
+        entries, size, newest, digest = summary(paths)
+        # Deletion is bound to the dry run Jan reviewed: anything added or changed since refuses.
+        if really and inventory != digest:
+            raise ValueError("The inventory changed since the reviewed dry run, or --inventory is missing. "
+                             "Run the dry run again and review it")
     print(f"Host: {host}")
     print("Deleting reviewed work inventory" if really else "Dry run only, deletion requires --really")
     for path in paths:
         print(path)
+    if migrated:
+        changed = datetime.fromtimestamp(newest, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if newest else "none"
+        print(f"Entries: {entries}, bytes: {size}, newest change: {changed}")
+        print(f"Inventory: {digest}")
     if really:
         for path in paths:
             if path.is_symlink() or path.is_file():
@@ -99,8 +158,13 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--really", action="store_true")
+    parser.add_argument("--migrated", action="store_true",
+                        help="hermes only: just ~/Work contents and Work Pi sessions, which moved to sisyphus")
+    parser.add_argument("--inventory", help="with --migrated --really: the Inventory hash of the reviewed dry run")
     args = parser.parse_args()
-    wipe(Path.home(), socket.gethostname().split(".")[0].lower(), args.really)
+    if args.inventory and not args.migrated:
+        parser.error("--inventory goes with --migrated")
+    wipe(Path.home(), socket.gethostname().split(".")[0].lower(), args.really, args.migrated, args.inventory)
 
 
 if __name__ == "__main__":

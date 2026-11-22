@@ -1,0 +1,10 @@
+[Unit]
+Description=Agent jobs drain every 2 minutes, a worker that is off keeps its jobs queued
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+Unit=agent-jobs.service
+
+[Install]
+WantedBy=timers.target

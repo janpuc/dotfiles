@@ -61,8 +61,9 @@ class WorkSafetyTests(unittest.TestCase):
         template = (BIN.parents[1] / "private_dot_ssh/modify_authorized_keys.tmpl").read_text()
         head, rest = template.split('{{ if eq .chezmoi.hostname "aether" -}}\n')
         aether, rest = rest.split('{{ else if eq .chezmoi.hostname "sisyphus" -}}\n')
-        sisyphus, tail = rest.split("{{ end -}}\n")
-        script = head + {"aether": aether, "sisyphus": sisyphus}.get(host, "") + tail
+        sisyphus, rest = rest.split('{{ else if eq .chezmoi.hostname "hermes" -}}\n')
+        hermes, tail = rest.split("{{ end -}}\n")
+        script = head + {"aether": aether, "sisyphus": sisyphus, "hermes": hermes}.get(host, "") + tail
         script = script.replace("{{ .chezmoi.homeDir }}", "/Users/jan.pucilowski")
         return re.sub(r"\{\{ (\S+) \| toJson \| toJson \}\}",
                       lambda match: json.dumps(json.dumps(values[match.group(1)])), script)
@@ -126,8 +127,26 @@ class WorkSafetyTests(unittest.TestCase):
             self.assertIn('from="100.68.4.107"', hermes)
             self.assertNotIn("command=", hermes)
             self.assertNotIn("stale", result.stdout)
-            other = self.run_authorized_keys("hermes", {}, existing, home)
+            other = self.run_authorized_keys("bc250", {}, existing, home)
             self.assertEqual((other.returncode, other.stdout), (0, existing))
+
+    def test_authorized_keys_on_hermes_forces_worker_endpoint_and_keeps_operator_keys(self):
+        blob = b"\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20" + bytes(range(32))
+        valid = "ssh-ed25519 " + base64.b64encode(blob).decode() + " aether-worker-hermes"
+        existing = "ssh-ed25519 operator-key jan\nstale agents-aether-worker\n"
+        address = {".agentSsh.aetherHermes.sourceAddress": "100.108.252.49"}
+        with tempfile.TemporaryDirectory() as home:
+            empty = self.run_authorized_keys("hermes", dict(address, **{".agentSsh.aetherHermes.publicKey": ""}), existing, home)
+            self.assertEqual((empty.returncode, empty.stdout), (0, existing))
+            result = self.run_authorized_keys("hermes", dict(address, **{".agentSsh.aetherHermes.publicKey": valid}), existing, home)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = result.stdout.splitlines()
+            self.assertEqual(len(lines), 2)
+            self.assertEqual(lines[0], "ssh-ed25519 operator-key jan")
+            self.assertTrue(lines[1].endswith(" agents-aether-worker"))
+            for option in ('command="/Users/jan.pucilowski/.local/bin/agent --worker-endpoint"', 'from="100.108.252.49"',
+                           "no-pty", "no-port-forwarding", "no-agent-forwarding", "no-X11-forwarding", "no-user-rc"):
+                self.assertIn(option, lines[1])
 
     def test_work_creds_refuses_without_session_token_before_ssh(self):
         creds = load("work-creds-send")
@@ -178,6 +197,57 @@ class WorkSafetyTests(unittest.TestCase):
                 self.assertTrue((home / ".talos").is_dir())
                 self.assertTrue(personal.is_dir())
                 self.assertTrue(ambiguous.is_dir())
+
+    def test_work_wipe_migrated_keeps_credentials_and_runs_only_on_hermes(self):
+        wipe = load("work-wipe")
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"HOME": temp}):
+            home = Path(temp)
+            for relative in ("Work/work/notes", "Work/infra", "Development/keep", ".aws", ".granted", ".kube/clusters"):
+                (home / relative).mkdir(parents=True)
+            (home / "Work/work/notes/STATE.md").write_text("state")
+            env = home / ".local/state/ai/projects"
+            env.mkdir(parents=True)
+            (env / "work.env").write_text("x")
+            sessions = home / ".pi/agent/sessions"
+            sessions.mkdir(parents=True)
+            work_session = sessions / ("--" + str(home / "Work/work").lstrip("/").replace("/", "-") + "--")
+            work_session.mkdir()
+            (work_session / "s.jsonl").write_text(json.dumps({"type": "session", "cwd": str(home / "Work/work")}) + "\n")
+            personal = sessions / ("--" + str(home / "Development/keep").lstrip("/").replace("/", "-") + "--")
+            personal.mkdir()
+            with self.assertRaisesRegex(ValueError, "only for hermes"):
+                wipe.wipe(home, "sisyphus", migrated=True)
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                wipe.wipe(home, "hermes", migrated=True)
+            listed = output.getvalue()
+            self.assertIn("requires --really", listed)
+            self.assertIn(str(home / "Work/work"), listed)
+            self.assertIn(str(work_session), listed)
+            self.assertRegex(listed, r"Entries: 6, bytes: \d+, newest change: 20")
+            for kept in (".aws", ".granted", ".kube", ".local/state/ai", "Development"):
+                self.assertNotIn(str(home / kept), listed)
+            self.assertTrue((home / "Work/work/notes/STATE.md").exists())
+            digest = re.search(r"Inventory: ([0-9a-f]{64})", listed).group(1)
+            with self.assertRaisesRegex(ValueError, "inventory changed"):
+                wipe.wipe(home, "hermes", really=True, migrated=True)
+            (home / "Work/work/notes/NEW.md").write_text("intake after the review")
+            with self.assertRaisesRegex(ValueError, "inventory changed"):
+                wipe.wipe(home, "hermes", really=True, migrated=True, inventory=digest)
+            self.assertTrue((home / "Work/work/notes/STATE.md").exists())
+            (home / "Work/work/notes/NEW.md").unlink()
+            again = io.StringIO()
+            with contextlib.redirect_stdout(again):
+                wipe.wipe(home, "hermes", migrated=True)
+            digest = re.search(r"Inventory: ([0-9a-f]{64})", again.getvalue()).group(1)
+            with contextlib.redirect_stdout(io.StringIO()):
+                wipe.wipe(home, "hermes", really=True, migrated=True, inventory=digest)
+            self.assertTrue((home / "Work").is_dir())
+            self.assertEqual(list((home / "Work").iterdir()), [])
+            self.assertFalse(work_session.exists())
+            for kept in (".aws", ".granted", ".kube/clusters", ".local/state/ai/projects/work.env", "Development/keep"):
+                self.assertTrue((home / kept).exists(), kept)
+            self.assertTrue(personal.is_dir())
 
 
 if __name__ == "__main__":

@@ -11,6 +11,13 @@ agentSsh:
   mainSisyphus:
     publicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILGTVmOggO5gTZmbOfahCjUrwasgQ6LJedvwhZG7i+1F
     sourceAddress: 100.108.252.49
+  # aether runs worker jobs on hermes as Jan's user, through agent --worker-endpoint only: ping, jobs in
+  # ~/Builds, fetching their files, and the migrated Work cleanup. Key: aether ~/.ssh/aether-hermes.pub.
+  aetherHermes:
+    publicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEU74snHVLkKlnH6zWP7lrqD13b5AZReMhhrkdypMeSp
+    sourceAddress: 100.108.252.49
+    hostName: 100.68.4.107
+    user: jan.pucilowski
   # Jan's own 1Password SSH key, used by the hermes dispatcher (needs a login shell).
   hermesSisyphus:
     publicKey: ""

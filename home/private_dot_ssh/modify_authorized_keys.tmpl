@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Preserve operator keys and manage only the tagged agent identities: the restricted work inbox
-# on aether, main's restricted endpoint and Jan's hermes key on sisyphus.
+# on aether, main's restricted endpoint and Jan's hermes key on sisyphus, and aether's worker key
+# on hermes.
 import base64
 import ipaddress
 import json
@@ -40,5 +41,9 @@ text = managed(text, value({{ .agentSsh.mainSisyphus.publicKey | toJson | toJson
 text = managed(text, value({{ .agentSsh.hermesSisyphus.publicKey | toJson | toJson }}),
                value({{ .agentSsh.hermesSisyphus.sourceAddress | toJson | toJson }}), "agents-hermes",
                "no-port-forwarding,no-agent-forwarding,no-X11-forwarding")
+{{ else if eq .chezmoi.hostname "hermes" -}}
+text = managed(text, value({{ .agentSsh.aetherHermes.publicKey | toJson | toJson }}),
+               value({{ .agentSsh.aetherHermes.sourceAddress | toJson | toJson }}), "agents-aether-worker",
+               'command="{{ .chezmoi.homeDir }}/.local/bin/agent --worker-endpoint",' + RESTRICT)
 {{ end -}}
 sys.stdout.write(text)
