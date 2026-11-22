@@ -2,10 +2,12 @@
 # Empty keys change nothing: the authorized_keys modifier keeps the file as it is.
 agentSsh:
   # Host keys pinned in ~/.ssh/known_hosts_agents on every host (HostKeyAlias names).
-  # Verify each with ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub on the host itself.
+  # Verify each on the host itself with ssh-keyscan -t ed25519 localhost | ssh-keygen -lf -
+  # (macOS keeps host keys in /etc/ssh, but Remote Login must be on).
   hostKeys:
     aether: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICWufpRYHdxDMIIxqwCqC6hqAtl7kifkS+RhmsNd0Clb
     sisyphus: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgf/1p8LAoYIvHblYg09cyAxEyE9ow7+i3mdgwN7NGU
+    hermes: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA2lHB5gfIy3aYEz03c4d+Ex1qnyQJ+f5dKZep4vQBY5
   # main on aether runs only agent ls, agent restart all and chezmoi update on sisyphus,
   # through agent --main-endpoint. Key: aether ~/.ssh/main-sisyphus.pub.
   mainSisyphus:
