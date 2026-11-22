@@ -1,0 +1,93 @@
+diff -ruN a/src/provider.ts b/src/provider.ts
+--- a/src/provider.ts	2026-11-22 19:05:48.760711757 +0100
++++ b/src/provider.ts	2026-11-22 19:06:15.790642817 +0100
+@@ -17,6 +17,7 @@
+ // We do NOT emit toolCall blocks: agy runs its OWN closed tool loop, so there
+ // is no toolUse stopReason and no tool-result delivery path back to pi.
+ 
++import { trailingUserImages, trailingUserStart, trailingUserText } from "./trailing-user.js";
+ import {
+ 	createAssistantMessageEventStream,
+ 	getCurrentSystemPrompt,
+@@ -103,17 +104,7 @@
+  *  own conversation history via --conversation, so we collapse pi's structured
+  *  message to text. Returns null if the last message isn't a user message. */
+ function extractUserPrompt(context: TranscriptContext): string | null {
+-	const last = context.messages[context.messages.length - 1];
+-	if (!last || last.role !== "user") return null;
+-	const content = last.content;
+-	if (typeof content === "string") return content;
+-	// Flatten text blocks; images ride separately via extractImages (native
+-	// blocks on ACP, staged files on stream-json via prompt-images.ts).
+-	return content
+-		.filter((b): b is { type: "text"; text: string } => b.type === "text")
+-		.map((b) => b.text)
+-		.join("\n")
+-		.trim() || null;
++	return trailingUserText(context.messages, findLastCompactionIdx(context.messages) + 1);
+ }
+ 
+ /** Image blocks of the latest user message (pi-ai ImageContent: base64 data
+@@ -121,11 +112,7 @@
+  *  content blocks; on stream-json they are staged to temp files and the
+  *  prompt names the paths (see prompt-images.ts). */
+ function extractImages(context: TranscriptContext): Array<{ data: string; mimeType: string }> {
+-	const last = context.messages[context.messages.length - 1];
+-	if (!last || last.role !== "user" || typeof last.content === "string") return [];
+-	return last.content
+-		.filter((b): b is { type: "image"; data: string; mimeType: string } => b.type === "image")
+-		.map((b) => ({ data: b.data, mimeType: b.mimeType }));
++	return trailingUserImages(context.messages, findLastCompactionIdx(context.messages) + 1);
+ }
+ 
+ // --- G1: pi-side context digest --------------------------------------------------
+@@ -367,7 +354,7 @@
+ 	} else if (watermark > messages.length) {
+ 		start = 0;
+ 	}
+-	const end = opts.includeLast ? messages.length : Math.max(0, messages.length - 1);
++	const end = opts.includeLast ? messages.length : Math.max(0, Math.min(messages.length - 1, trailingUserStart(messages, compactionIdx + 1)));
+ 	for (let i = start; i < end; i++) {
+ 		const m = messages[i];
+ 		if (m.role === "assistant") {
+diff -ruN a/src/trailing-user.ts b/src/trailing-user.ts
+--- a/src/trailing-user.ts	1970-01-01 01:00:00.000000000 +0100
++++ b/src/trailing-user.ts	2026-11-22 19:06:15.790199814 +0100
+@@ -0,0 +1,37 @@
++// Local patch (janpuc/dotfiles): pi appends extension messages from before_agent_start after the
++// user's prompt, and they reach the provider as user messages too. agy gets one prompt per turn, so
++// the prompt is every user message after the last assistant or tool result, in order. Reading only
++// the last one sent agy the extension's block and left the user's own words to the digest.
++// floor is the first index the run may use, so a compaction summary stays with the digest.
++
++type Block = { type: string; text?: string; data?: string; mimeType?: string };
++type Message = { role: string; content: string | Block[] };
++
++/** Index of the first message in the run of user messages that ends the transcript. */
++export function trailingUserStart(messages: readonly Message[], floor = 0): number {
++	let start = messages.length;
++	while (start > floor && messages[start - 1]?.role === "user") start--;
++	return start;
++}
++
++/** The trailing user messages flattened to one prompt, or null when there is no text. */
++export function trailingUserText(messages: readonly Message[], floor = 0): string | null {
++	const parts: string[] = [];
++	for (const m of messages.slice(trailingUserStart(messages, floor))) {
++		const text = typeof m.content === "string"
++			? m.content
++			: m.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n");
++		if (text.trim()) parts.push(text.trim());
++	}
++	return parts.length ? parts.join("\n\n") : null;
++}
++
++/** Image blocks of the trailing user messages. */
++export function trailingUserImages(messages: readonly Message[], floor = 0): Array<{ data: string; mimeType: string }> {
++	const images: Array<{ data: string; mimeType: string }> = [];
++	for (const m of messages.slice(trailingUserStart(messages, floor))) {
++		if (typeof m.content === "string") continue;
++		for (const b of m.content) if (b.type === "image") images.push({ data: b.data ?? "", mimeType: b.mimeType ?? "" });
++	}
++	return images;
++}

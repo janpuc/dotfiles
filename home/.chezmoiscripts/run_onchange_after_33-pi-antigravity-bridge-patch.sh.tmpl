@@ -1,0 +1,39 @@
+{{- if eq .chezmoi.os "linux" -}}
+#!/bin/sh
+# pi-antigravity-bridge 1.13.1 sends agy only the last user message of a turn. pi appends extension
+# messages from before_agent_start after the user's prompt, so after a restart, a compaction or a notes
+# change Neon got the project-context block as its prompt and the user's words only in the digest
+# (maker cutlery-insert, 2026-11-22). The patch in .chezmoitemplates sends every trailing user message.
+# Pi installs a pinned npm package once and never rewrites it, so the patch holds until the pin moves.
+# A new pin prints a warning: check whether upstream fixed this, then rebase or drop it.
+# patch {{ include ".chezmoitemplates/pi-antigravity-bridge-1.13.1.patch" | sha256sum }}
+# settings {{ include "dot_pi/private_agent/modify_settings.json.tmpl" | sha256sum }}
+set -eu
+want=1.13.1
+pkg="$HOME/.pi/agent/npm/node_modules/@estebanforge/pi-antigravity-bridge"
+pin=$(grep -o '"npm:@estebanforge/pi-antigravity-bridge@[^"]*"' "$HOME/.pi/agent/settings.json" | head -n 1 | sed 's/.*@\([^"]*\)"/\1/')
+if [ "$pin" != "$want" ]; then
+	echo "pi-antigravity-bridge: pinned $pin, the trailing prompt patch is for $want and was not applied" >&2
+	exit 0
+fi
+if [ ! -f "$pkg/package.json" ]; then
+	echo "pi-antigravity-bridge: not installed yet, start Pi once and run chezmoi apply --force on this script" >&2
+	exit 0
+fi
+dir=$(mktemp -d)
+trap 'rm -rf "$dir"' EXIT
+cat > "$dir/1" <<'AGB_PATCH_EOF'
+{{ include ".chezmoitemplates/pi-antigravity-bridge-1.13.1.patch" -}}
+AGB_PATCH_EOF
+cd "$pkg"
+if patch -p1 -R -f -s --dry-run < "$dir/1" >/dev/null 2>&1; then
+	echo "pi-antigravity-bridge: trailing prompt patch already applied"
+	exit 0
+fi
+if ! patch -p1 -f -s --dry-run < "$dir/1" >/dev/null 2>&1; then
+	echo "pi-antigravity-bridge: the trailing prompt patch does not apply to the installed package, nothing changed" >&2
+	exit 1
+fi
+patch -p1 -f -s --no-backup-if-mismatch < "$dir/1"
+echo "pi-antigravity-bridge: trailing prompt patch applied, agent restart all loads it"
+{{- end }}
