@@ -191,14 +191,22 @@ def restore(aside, moved):
     for target, shown, own in reversed(moved):
         try:
             if not own:
-                # The recreated empty ~/Work goes, rmdir fails if anything was written into it.
-                shown.rmdir()
+                # The recreated empty ~/Work goes, rmdir fails if anything was written into it. A
+                # ~/Work that was never recreated leaves the path free for the rename.
+                try:
+                    shown.rmdir()
+                except FileNotFoundError:
+                    pass
             rename_noreplace(target, shown)
         except OSError:
             kept.append(f"{target} (was {shown})")
-    (aside / "MOVED.txt").unlink(missing_ok=True)
-    if not kept:
-        aside.rmdir()
+    # Tidying up is best effort, it must never hide the paths above.
+    try:
+        (aside / "MOVED.txt").unlink(missing_ok=True)
+        if not kept:
+            aside.rmdir()
+    except OSError as error:
+        kept.append(f"{aside} could not be tidied: {error}")
     return kept
 
 

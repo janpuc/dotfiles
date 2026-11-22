@@ -288,6 +288,17 @@ class WorkSafetyTests(unittest.TestCase):
             self.assertEqual(state.read_text(), "STATE")
             self.assertTrue(work_session.is_dir())
             self.assertEqual(list(home.glob(".work-wipe-*")), [])
+            # A ~/Work that could not be recreated after its move still goes back.
+            real_mkdir = Path.mkdir
+            def no_recreate(path, *args, **kwargs):
+                if path == home / "Work":
+                    raise OSError("cannot recreate")
+                return real_mkdir(path, *args, **kwargs)
+            with patch.object(wipe.Path, "mkdir", no_recreate), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(ValueError, "cannot recreate.*everything is back"):
+                    wipe.wipe(home, "hermes", really=True, migrated=True, inventory=digest)
+            self.assertEqual(state.read_text(), "STATE")
+            self.assertEqual(list(home.glob(".work-wipe-*")), [])
             # A failed MOVED.txt write rolls back too.
             real_write = Path.write_text
             def no_manifest(path, *args, **kwargs):
