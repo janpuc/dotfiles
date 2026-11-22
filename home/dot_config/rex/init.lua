@@ -272,7 +272,7 @@ rex.bind("ctrl+cmd+p", "pick_agent")
 
 local MODELS = {
   { id = "claude-bridge/claude-opus-5-5", title = "Opus", subtitle = "default" },
-  { id = "agy/gemini-4-neon:high", title = "Neon", subtitle = "long builds" },
+  { id = "antigravity/gemini-4-neon:high", title = "Neon", subtitle = "long builds" },
   { id = "alibaba/deepseek-v4.1-flash:medium", title = "DeepSeek", subtitle = "cheap" },
 }
 

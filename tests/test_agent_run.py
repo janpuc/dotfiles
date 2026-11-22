@@ -317,6 +317,21 @@ class AgentRunTests(unittest.TestCase):
                                 env=env, capture_output=True, text=True, check=True)
         self.assertEqual(result.stdout.splitlines(), [env["PATH"], "--session-id home-1"])
 
+    def test_pi_wrapper_forces_antigravity_approval_gate(self):
+        # agy's own shell and file tools reach agent-guard only through this gate.
+        bin_dir = self.home / "bin"
+        bin_dir.mkdir()
+        launcher = bin_dir / "pi-launcher"
+        launcher.write_text('#!/bin/sh\nprintf "%s %s %s\\n" "$AGY_APPROVALS" "$AGY_APPROVALS_MODE" "$AGY_ENGINE"\n')
+        launcher.chmod(0o755)
+        mise = bin_dir / "mise"
+        mise.write_text(f'#!/bin/sh\ncase "$2" in pi) echo "{launcher}";; esac\n')
+        mise.chmod(0o755)
+        env = dict(agent.os.environ, PI_PROJECT="home", PATH=f"{bin_dir}:/usr/bin:/bin", AGY_APPROVALS="off")
+        result = subprocess.run(["sh", str(SOURCE.parents[2] / "dot_pi/private_agent/local/bin/executable_pi")],
+                                env=env, capture_output=True, text=True, check=True)
+        self.assertEqual(result.stdout.strip(), "shadow allow acp")
+
     def test_task_close_never_deletes_task_worktree_or_session_data(self):
         folder = agent.bootstrap("empty", {})
         projects = {"empty": {}}

@@ -169,7 +169,7 @@ below. Any other id is refused.
 | ChatGPT Plus | small, and the cluster runs austerity-curator and kritika confidence on it too. GPT-6.1 Sol used the fewest tokens: a 1-2 minute task took about 0.15% of the week, an 18-minute worker 1%. GPT-6.2 replaced 6.1 on 2026-11-20 at the same price, its token use is not measured yet | `openai/gpt-6.2-sol`: hard tasks, `openai/gpt-6.2-astra`: advisor only |
 | Claude Max | largest, but it is your own quota | `claude-bridge/claude-sonnet-5-5` only when Jan asks, `claude-bridge/claude-fable-5-1` only when Jan names Fable, never Opus |
 {{- if eq .chezmoi.os "linux" }}
-| Google AI Ultra 5x | separate 5-hour and weekly Gemini pool, on Jan's consumer login | `agy/gemini-4-neon`: long build tasks in projects without shared infra or credentials. Run it as a task with `agent task new --model agy/gemini-4-neon:high`, not as a quick subagent: it thinks silently for minutes. It has reported done without applying review corrections, so check its result against your brief |
+| Google AI Ultra 5x | separate 5-hour and weekly Gemini pool, on Jan's consumer login | `antigravity/gemini-4-neon`: long build tasks in projects without shared infra or credentials. Run it as a task with `agent task new --model antigravity/gemini-4-neon:high`, not as a quick subagent: it thinks silently for minutes. It has reported done without applying review corrections, so check its result against your brief |
 {{- end }}
 
 ### Start at the lowest level that fits

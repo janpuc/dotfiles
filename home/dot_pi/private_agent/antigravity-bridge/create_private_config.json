@@ -1,0 +1,6 @@
+{
+  "engine": "acp",
+  "askTool": false,
+  "webTools": false,
+  "approvals": { "gateMode": "shadow", "mode": "allow" }
+}

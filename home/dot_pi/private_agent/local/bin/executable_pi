@@ -13,6 +13,10 @@
 # - pi-agy-bridge sends Pi's system prompt inline: Antigravity answers 429 to it through agy's
 #   append hook, and on agy 1.5.13 the bridge's auto fallback never sees the refusal. Neon can
 #   think silently for minutes, so the bridge waits 5 minutes before calling a turn stalled.
+# - pi-antigravity-bridge (provider antigravity) lets agy run its own shell and file tools. Its
+#   approval gate is forced on, so each of those calls first passes Pi's tool_call hooks as a
+#   shadow bash, write or edit call, and agent-guard refuses the hard-deny list there. A caller
+#   cannot turn the gate off, only make its fallback stricter. It runs agy over ACP, without the AskAntigravity tool or web tools.
 set -euf
 : "${CLAUDE_CONFIG_DIR:=$HOME/.pi/agent/claude}"
 : "${GIT_EXTERNAL_DIFF:=$HOME/.pi/agent/local/git-plain-diff}"
@@ -22,6 +26,12 @@ set -euf
 # Turn metadata and refused native tool calls go to the bridge trace.log, capped at 512 KiB.
 : "${PI_AGY_TRACE:=1}"
 export CLAUDE_CONFIG_DIR GIT_EXTERNAL_DIFF PI_CLIPBOARD_OSC52 PI_AGY_SYSTEM_PROMPT PI_AGY_SILENCE_SEC PI_AGY_TRACE
+AGY_APPROVALS=shadow
+: "${AGY_APPROVALS_MODE:=allow}"
+: "${AGY_ENGINE:=acp}"
+: "${AGY_ASK_TOOL:=off}"
+: "${AGY_WEB_TOOLS:=off}"
+export AGY_APPROVALS AGY_APPROVALS_MODE AGY_ENGINE AGY_ASK_TOOL AGY_WEB_TOOLS
 [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || [ -z "${PI_CLAUDE_CODE_OAUTH_TOKEN:-}" ] || export CLAUDE_CODE_OAUTH_TOKEN="$PI_CLAUDE_CODE_OAUTH_TOKEN"
 [ -n "${OPENCODE_API_KEY:-}" ] || [ -z "${PI_OPENCODE_API_KEY:-}" ] || export OPENCODE_API_KEY="$PI_OPENCODE_API_KEY"
 [ -n "${MINIMAX_API_KEY:-}" ] || [ -z "${PI_MINIMAX_API_KEY:-}" ] || export MINIMAX_API_KEY="$PI_MINIMAX_API_KEY"

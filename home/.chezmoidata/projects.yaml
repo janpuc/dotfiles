@@ -88,8 +88,9 @@ projects:
     # Gaming hardware and game ports: the BC250 gaming box, inFamous on the Steam Deck (native
     # port and recompilation), and game reverse engineering (TDU, XBOX, spore). Not renplay.
     lifecycle: active
-    # Gemini 4 Neon trial from 2026-11-20 on Jan's AI Ultra login through pi-agy-bridge.
-    model: agy/gemini-4-neon
+    # Gemini 4 Neon trial from 2026-11-20 on Jan's AI Ultra login, through pi-antigravity-bridge
+    # since 2026-11-22.
+    model: antigravity/gemini-4-neon
     thinking: high
     repos:
       - name: bc250

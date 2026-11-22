@@ -18,7 +18,7 @@
 # path that exists on both ends, /tmp on aether.
 #
 # Pi gives each provider call a deadline of retry.provider.timeoutMs (default 5 minutes).
-# pi-agy-bridge applies it to the whole turn, and Gemini 4 Neon can think silently for longer
+# The agy bridges apply it to the whole turn, and Gemini 4 Neon can think silently for longer
 # on design work, so aether allows 20 minutes. HTTP providers keep their 5 minute idle timeout.
 {{- $host := default dict (get .hosts .chezmoi.hostname) -}}
 {{- $providers := default "all" (get $host "providers") -}}
@@ -39,6 +39,7 @@ managed='{
     "git:github.com/janpuc/pi-usage@v0.3.1",
     "git:github.com/janpuc/pi-footer@v0.2.1",
 {{- if eq .chezmoi.os "linux" }}
+    "npm:@estebanforge/pi-antigravity-bridge@1.13.1",
     "npm:@timmyjl12/pi-agy-bridge@0.1.5",
 {{- end }}
     "./local/agent-guard.ts",
@@ -75,6 +76,7 @@ managed='{
         "claude-bridge/claude-fable-5-1",
         "alibaba/qwen4-max-preview",
         "alibaba/deepseek-v4.1-flash"{{ if eq .chezmoi.os "linux" }},
+        "antigravity/gemini-4-neon",
         "agy/gemini-4-neon"{{ end }}
       ]
     },
