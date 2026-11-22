@@ -4,6 +4,25 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
+// agent task send queues messages from the coordinator. Each moves to delivered/ before it is
+// sent, so a crash never sends it twice. A message gone before the rename was claimed by someone
+// else, the agent job drain handing a closing task's result to the project, so it is skipped.
+export function take(inbox: string, list: (inbox: string) => string[] = readdirSync): string | undefined {
+	if (!existsSync(inbox)) return undefined;
+	for (const next of list(inbox).filter((name) => name.endsWith(".md")).sort()) {
+		mkdirSync(join(inbox, "delivered"), { recursive: true });
+		const delivered = join(inbox, "delivered", next);
+		try {
+			renameSync(join(inbox, next), delivered);
+		} catch (error: any) {
+			if (error?.code === "ENOENT") continue;
+			throw error;
+		}
+		return readFileSync(delivered, "utf8").trim();
+	}
+	return undefined;
+}
+
 export default function (pi: ExtensionAPI) {
 	const task = process.env.PI_TASK;
 	const project = process.env.PI_PROJECT;
@@ -44,17 +63,6 @@ export default function (pi: ExtensionAPI) {
 			const written = existsSync(join(folder, "RESULT.md"));
 			pi.sendUserMessage(`Close task ${task} now. The task stays open until this step is done: replying that the work is complete, or a status of closing in BRIEF.md, does not close it. ${written ? `${join(folder, "RESULT.md")} already exists. Check it is accurate and has the headings below, and fix it if not.` : `${join(folder, "RESULT.md")} does not exist yet.`} Do not rewrite deliverables or knowledge pages during close, they may hold the coordinator's review. Update STATE.md and write ${join(folder, "RESULT.md")} with a title including the ticket when attached and these level-two headings: Outcome, Changes, Verification, Learned, Open. Record only verified outcomes and preserve pending approvals. Save durable facts to the project memini namespace with ticket:<ID> or task:<slug> tags and metadata. Do not edit project PROJECT.md or STATE.md. When the result is complete, finish with TASK_CLOSE_READY on its own line. If blocked or a step fails, explain it and do not emit that marker.`);
 		}
-	};
-	// agent task send queues messages from the coordinator. Each moves to delivered/ before it is
-	// sent, so a crash never sends it twice.
-	const take = (inbox: string): string | undefined => {
-		if (!existsSync(inbox)) return undefined;
-		const next = readdirSync(inbox).filter((name) => name.endsWith(".md")).sort()[0];
-		if (!next) return undefined;
-		mkdirSync(join(inbox, "delivered"), { recursive: true });
-		const delivered = join(inbox, "delivered", next);
-		renameSync(join(inbox, next), delivered);
-		return readFileSync(delivered, "utf8").trim();
 	};
 	// An idle task takes a steering message like any other, steering ones first.
 	const deliver = (): boolean => {

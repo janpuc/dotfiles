@@ -288,6 +288,48 @@ class WorkSafetyTests(unittest.TestCase):
             self.assertEqual(state.read_text(), "STATE")
             self.assertTrue(work_session.is_dir())
             self.assertEqual(list(home.glob(".work-wipe-*")), [])
+            # A failed MOVED.txt write rolls back too.
+            real_write = Path.write_text
+            def no_manifest(path, *args, **kwargs):
+                if path.name == "MOVED.txt":
+                    raise OSError("disk full")
+                return real_write(path, *args, **kwargs)
+            with patch.object(wipe.Path, "write_text", no_manifest), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(ValueError, "disk full.*everything is back"):
+                    wipe.wipe(home, "hermes", really=True, migrated=True, inventory=digest)
+            self.assertEqual(state.read_text(), "STATE")
+            self.assertTrue(work_session.is_dir())
+            self.assertEqual(list(home.glob(".work-wipe-*")), [])
+            # Rollback never replaces what appeared at an original path, it keeps both and says where.
+            def replaced_meanwhile(units):
+                calls.append(1)
+                if len(calls) == 2:
+                    (home / "Work/NEW.md").write_text("new intake")
+                    # The unit moved aside turned out to be a file, swapped in after the check.
+                    [moved_session] = [actual for actual, _, own in units if own]
+                    os.rename(moved_session, home / "stash")
+                    moved_session.write_text("swapped in")
+                    work_session.write_text("a file where the session folder was")
+                    return "mismatch"
+                return real_summary(units)
+            calls.clear()
+            with patch.object(wipe, "summary", replaced_meanwhile), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(ValueError, "changed while it was moved aside.*stay where they are") as caught:
+                    wipe.wipe(home, "hermes", really=True, migrated=True, inventory=digest)
+            [aside] = home.glob(".work-wipe-*")
+            self.assertIn(f"{aside / '0'} (was {home / 'Work'})", str(caught.exception))
+            self.assertIn(f"{aside / '1'} (was {work_session})", str(caught.exception))
+            self.assertEqual(work_session.read_text(), "a file where the session folder was")
+            self.assertEqual((home / "Work/NEW.md").read_text(), "new intake")
+            self.assertEqual((aside / "0/work/notes/STATE.md").read_text(), "STATE")
+            # Put the test tree back by hand, as Jan would from the reported paths.
+            work_session.unlink()
+            (home / "Work/NEW.md").unlink()
+            (home / "Work").rmdir()
+            (aside / "1").unlink()
+            os.rename(home / "stash", work_session)
+            os.rename(aside / "0", home / "Work")
+            aside.rmdir()
             digest = self.migrated_digest(wipe, home)
             # Intake after the move lands in the new empty ~/Work. A writer that kept a folder open
             # writes into the moved tree after the check. Both survive, nothing is deleted.

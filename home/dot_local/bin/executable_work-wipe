@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Explicit work-only deletion inventory. Dry run unless Jan supplies --really."""
 import argparse
+import ctypes
 import hashlib
 import stat
 from datetime import datetime, timezone
@@ -138,6 +139,20 @@ def summary(units):
     return entries, size, newest, digest
 
 
+def rename_noreplace(source, target):
+    """Rename that fails instead of replacing anything already at target: renamex_np with
+    RENAME_EXCL on macOS, renameat2 with RENAME_NOREPLACE on Linux."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    old, new = os.fsencode(source), os.fsencode(target)
+    if sys.platform == "darwin":
+        result = libc.renamex_np(old, new, ctypes.c_uint(0x4))
+    else:
+        result = libc.renameat2(-100, old, -100, new, ctypes.c_uint(0x1))
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), str(target))
+
+
 def move_aside(home, units, approved):
     """Move every unit into one private folder with one rename each, then check the moved tree
     against the reviewed inventory. Nothing is deleted here: a process that still has a folder open
@@ -161,24 +176,27 @@ def move_aside(home, units, approved):
                 actual.mkdir(mode=mode)
         if summary(moved)[3] != approved:
             raise ValueError("The inventory changed while it was moved aside")
+        (aside / "MOVED.txt").write_text("".join(f"{target.name}\t{shown}\n" for target, shown, _ in moved))
     except (OSError, ValueError) as error:
         kept = restore(aside, moved)
         raise ValueError(f"{error}. Nothing was deleted, " + (
             "and these stay where they are: " + ", ".join(kept) if kept else "everything is back in place")) from error
-    (aside / "MOVED.txt").write_text("".join(f"{target.name}\t{shown}\n" for target, shown, _ in moved))
     return aside
 
 
 def restore(aside, moved):
-    """Move units back to their reviewed paths. Returns those it could not, with both paths."""
+    """Move units back to their reviewed paths, never over anything that appeared there since.
+    Returns those it could not, with both paths, and keeps the folder holding them."""
     kept = []
     for target, shown, own in reversed(moved):
         try:
             if not own:
+                # The recreated empty ~/Work goes, rmdir fails if anything was written into it.
                 shown.rmdir()
-            os.rename(target, shown)
+            rename_noreplace(target, shown)
         except OSError:
             kept.append(f"{target} (was {shown})")
+    (aside / "MOVED.txt").unlink(missing_ok=True)
     if not kept:
         aside.rmdir()
     return kept

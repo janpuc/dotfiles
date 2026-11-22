@@ -3,7 +3,7 @@ import { test } from "node:test";
 import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import extension from "./project-task.ts";
+import extension, { take } from "./project-task.ts";
 
 // Load the extension with a stub Pi, then settle a turn whose last prompt is `prompt`.
 function settle(prompt: string, settles = 1, work: any[] = []) {
@@ -155,4 +155,16 @@ test("a report ends with the tool calls, failures and files the session log show
 	];
 	const { items } = settle("Message for task speakers from the home coordinator, sent with agent task send:\n\nFix it.", 1, work);
 	assert.match(items[0].text, /\n\nTurn record from the session log: 3 tool calls, 1 failed\. Files written or edited: \/w\/STATE\.md, \/w\/IDEAS\.md\.$/);
+});
+
+test("a message claimed by someone else between listing and taking is skipped", () => {
+	const inbox = fs.mkdtempSync(join(tmpdir(), "project-task-take-"));
+	try {
+		fs.writeFileSync(join(inbox, "b.md"), "Second\n");
+		assert.equal(take(inbox, () => ["a.md", "b.md"]), "Second");
+		assert.ok(fs.existsSync(join(inbox, "delivered/b.md")));
+		assert.equal(take(inbox), undefined);
+	} finally {
+		fs.rmSync(inbox, { recursive: true, force: true });
+	}
 });
