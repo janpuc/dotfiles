@@ -17,6 +17,7 @@
 !.chezmoiscripts/*-linux-docker.sh
 !.chezmoiscripts/*-linux-backup.sh
 !.chezmoiscripts/*-linux-digest.sh
+!.chezmoiscripts/*-linux-jobs.sh
 !.chezmoiscripts/*-linux-agy.sh
 !.chezmoiscripts/*-pi-git-packages.sh
 !.chezmoiscripts/*-pi-release.sh

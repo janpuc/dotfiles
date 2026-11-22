@@ -101,6 +101,7 @@ def summary(paths):
     entries = size = 0
     newest = 0.0
     records = []
+    manifest = []
     for path in paths:
         stack = [path]
         while stack:
@@ -113,13 +114,40 @@ def summary(paths):
             size += info.st_size
             newest = max(newest, info.st_mtime)
             records.append(f"{current}\0{stat.S_IFMT(info.st_mode)}\0{info.st_size}\0{info.st_mtime_ns}")
+            manifest.append((current, info))
             if not current.is_symlink() and current.is_dir():
                 try:
                     stack.extend(current.iterdir())
                 except OSError:
                     pass
     digest = hashlib.sha256("\n".join(sorted(records)).encode("utf-8", "surrogateescape")).hexdigest()
-    return entries, size, newest, digest
+    return entries, size, newest, digest, manifest
+
+
+def same(info, seen):
+    return (stat.S_IFMT(info.st_mode), info.st_size, info.st_mtime_ns, info.st_ino) == \
+        (stat.S_IFMT(seen.st_mode), seen.st_size, seen.st_mtime_ns, seen.st_ino)
+
+
+def delete_manifest(manifest):
+    """Delete exactly the reviewed entries, deepest first. A file that changed since is kept, and a
+    folder is removed with rmdir only, so anything new inside it stays. Returns what was kept."""
+    kept = []
+    for path, seen in sorted(manifest, key=lambda item: len(item[0].parts), reverse=True):
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISDIR(seen.st_mode) and stat.S_ISDIR(info.st_mode) and info.st_ino == seen.st_ino:
+            try:
+                path.rmdir()
+            except OSError:
+                kept.append(path)
+        elif not stat.S_ISDIR(seen.st_mode) and same(info, seen):
+            path.unlink()
+        else:
+            kept.append(path)
+    return kept
 
 
 def wipe(home, host, really=False, migrated=False, inventory=None):
@@ -132,7 +160,7 @@ def wipe(home, host, really=False, migrated=False, inventory=None):
         if any(parent.is_symlink() for parent in path.parents if parent != home and parent.is_relative_to(home)):
             raise ValueError(f"Symlinked wipe ancestor: {path}")
     if migrated:
-        entries, size, newest, digest = summary(paths)
+        entries, size, newest, digest, manifest = summary(paths)
         # Deletion is bound to the dry run Jan reviewed: anything added or changed since refuses.
         if really and inventory != digest:
             raise ValueError("The inventory changed since the reviewed dry run, or --inventory is missing. "
@@ -145,6 +173,11 @@ def wipe(home, host, really=False, migrated=False, inventory=None):
         changed = datetime.fromtimestamp(newest, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if newest else "none"
         print(f"Entries: {entries}, bytes: {size}, newest change: {changed}")
         print(f"Inventory: {digest}")
+    if really and migrated:
+        kept = delete_manifest(manifest)
+        for path in kept:
+            print(f"Kept, changed since the dry run: {path}")
+        return
     if really:
         for path in paths:
             if path.is_symlink() or path.is_file():

@@ -240,6 +240,23 @@ class WorkSafetyTests(unittest.TestCase):
             with contextlib.redirect_stdout(again):
                 wipe.wipe(home, "hermes", migrated=True)
             digest = re.search(r"Inventory: ([0-9a-f]{64})", again.getvalue()).group(1)
+            # Intake that arrives after the hash check but before deletion survives.
+            real_summary = wipe.summary
+            def summary_then_intake(paths):
+                result = real_summary(paths)
+                (home / "Work/work/notes/LATE.md").write_text("late intake")
+                return result
+            with patch.object(wipe, "summary", summary_then_intake), contextlib.redirect_stdout(io.StringIO()) as late:
+                wipe.wipe(home, "hermes", really=True, migrated=True, inventory=digest)
+            self.assertEqual((home / "Work/work/notes/LATE.md").read_text(), "late intake")
+            self.assertFalse((home / "Work/work/notes/STATE.md").exists())
+            self.assertIn("Kept, changed since the dry run", late.getvalue())
+            self.assertEqual(sorted(p.name for p in (home / "Work").rglob("*")), ["LATE.md", "notes", "work"])
+            (home / "Work/work/notes/LATE.md").unlink()
+            again = io.StringIO()
+            with contextlib.redirect_stdout(again):
+                wipe.wipe(home, "hermes", migrated=True)
+            digest = re.search(r"Inventory: ([0-9a-f]{64})", again.getvalue()).group(1)
             with contextlib.redirect_stdout(io.StringIO()):
                 wipe.wipe(home, "hermes", really=True, migrated=True, inventory=digest)
             self.assertTrue((home / "Work").is_dir())
