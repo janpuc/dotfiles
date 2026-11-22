@@ -228,7 +228,7 @@ class WorkSafetyTests(unittest.TestCase):
             with contextlib.redirect_stdout(output):
                 wipe.wipe(home, "hermes", migrated=True)
             listed = output.getvalue()
-            self.assertIn("requires --really", listed)
+            self.assertIn("Dry run only, --really --inventory <hash> moves this aside", listed)
             self.assertIn(str(home / "Work/work"), listed)
             self.assertIn(str(work_session), listed)
             self.assertRegex(listed, r"Entries: 6, bytes: \d+, newest change: 20")
@@ -276,20 +276,45 @@ class WorkSafetyTests(unittest.TestCase):
             self.assertEqual(list(home.glob(".work-wipe-*")), [])
             (home / "Work/work/notes/LATE.md").unlink()
             digest = self.migrated_digest(wipe, home)
-            # Intake after the move lands in the new empty ~/Work and stays.
+            # A move that fails part way puts back what it already moved.
+            real_rename = os.rename
+            def fail_second(source, target):
+                if Path(target).name == "1":
+                    raise OSError("session folder vanished")
+                return real_rename(source, target)
+            with patch.object(wipe.os, "rename", fail_second), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(ValueError, "session folder vanished.*everything is back"):
+                    wipe.wipe(home, "hermes", really=True, migrated=True, inventory=digest)
+            self.assertEqual(state.read_text(), "STATE")
+            self.assertTrue(work_session.is_dir())
+            self.assertEqual(list(home.glob(".work-wipe-*")), [])
+            digest = self.migrated_digest(wipe, home)
+            # Intake after the move lands in the new empty ~/Work. A writer that kept a folder open
+            # writes into the moved tree after the check. Both survive, nothing is deleted.
+            held = os.open(home / "Work/work/notes", os.O_RDONLY)
             calls.clear()
             def intake_after_move(units):
                 calls.append(1)
                 if len(calls) == 2:
                     (home / "Work/AFTER.md").write_text("after the move")
-                return real_summary(units)
-            with patch.object(wipe, "summary", intake_after_move), contextlib.redirect_stdout(io.StringIO()):
-                wipe.wipe(home, "hermes", really=True, migrated=True, inventory=digest)
+                result = real_summary(units)
+                if len(calls) == 2:
+                    late = os.open("HELD.md", os.O_WRONLY | os.O_CREAT, 0o600, dir_fd=held)
+                    os.write(late, b"held open")
+                    os.close(late)
+                return result
+            try:
+                with patch.object(wipe, "summary", intake_after_move), contextlib.redirect_stdout(io.StringIO()) as moved:
+                    wipe.wipe(home, "hermes", really=True, migrated=True, inventory=digest)
+            finally:
+                os.close(held)
+            self.assertIn("Nothing is deleted yet", moved.getvalue())
             self.assertEqual([p.name for p in (home / "Work").iterdir()], ["AFTER.md"])
-            (home / "Work/AFTER.md").unlink()
-            self.assertEqual(list(home.glob(".work-wipe-*")), [])
-            self.assertTrue((home / "Work").is_dir())
-            self.assertEqual(list((home / "Work").iterdir()), [])
+            [aside] = home.glob(".work-wipe-*")
+            self.assertEqual((aside / "0/work/notes/STATE.md").read_text(), "STATE")
+            self.assertEqual((aside / "0/work/notes/HELD.md").read_text(), "held open")
+            self.assertTrue((aside / "1").is_dir())
+            self.assertEqual((aside / "MOVED.txt").read_text(), f"0\t{home / 'Work'}\n1\t{work_session}\n")
             self.assertFalse(work_session.exists())
             for kept in (".aws", ".granted", ".kube/clusters", ".local/state/ai/projects/work.env", "Development/keep"):
                 self.assertTrue((home / kept).exists(), kept)

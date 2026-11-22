@@ -138,34 +138,39 @@ def summary(units):
     return entries, size, newest, digest
 
 
-def quarantine_and_delete(home, units, approved):
-    """Move every unit aside with one rename each, check the moved tree against the reviewed
-    inventory and delete it only then. Anything written to the old paths after the move stays
-    where it is. A mismatch moves everything back and deletes nothing."""
+def move_aside(home, units, approved):
+    """Move every unit into one private folder with one rename each, then check the moved tree
+    against the reviewed inventory. Nothing is deleted here: a process that still has a folder open
+    could write into it after any check, so Jan deletes the folder himself once he is sure. Any
+    failure or mismatch moves everything back. Returns the folder."""
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     aside = home / f".work-wipe-{stamp}"
     aside.mkdir(mode=0o700)
-    device = aside.lstat().st_dev
-    if any(actual.lstat().st_dev != device for actual, _, _ in units):
-        aside.rmdir()
-        raise ValueError("An inventory path is on another volume, nothing was moved")
     moved = []
-    for index, (actual, shown, own) in enumerate(units):
-        target = aside / str(index)
-        mode = stat.S_IMODE(actual.lstat().st_mode)
-        os.rename(actual, target)
-        moved.append((target, shown, own))
-        if not own:
-            # ~/Work itself stays, empty.
-            actual.mkdir(mode=mode)
-    if summary(moved)[3] != approved:
-        kept = restore(moved)
-        raise ValueError("The inventory changed while it was moved aside. Nothing was deleted"
-                         + (f", and these stay under {aside}: " + ", ".join(kept) if kept else ", everything is back in place"))
-    shutil.rmtree(aside)
+    try:
+        device = aside.lstat().st_dev
+        if any(actual.lstat().st_dev != device for actual, _, _ in units):
+            raise ValueError("An inventory path is on another volume")
+        for index, (actual, shown, own) in enumerate(units):
+            target = aside / str(index)
+            mode = stat.S_IMODE(actual.lstat().st_mode)
+            os.rename(actual, target)
+            moved.append((target, shown, own))
+            if not own:
+                # ~/Work itself stays, empty.
+                actual.mkdir(mode=mode)
+        if summary(moved)[3] != approved:
+            raise ValueError("The inventory changed while it was moved aside")
+    except (OSError, ValueError) as error:
+        kept = restore(aside, moved)
+        raise ValueError(f"{error}. Nothing was deleted, " + (
+            "and these stay where they are: " + ", ".join(kept) if kept else "everything is back in place")) from error
+    (aside / "MOVED.txt").write_text("".join(f"{target.name}\t{shown}\n" for target, shown, _ in moved))
+    return aside
 
 
-def restore(moved):
+def restore(aside, moved):
+    """Move units back to their reviewed paths. Returns those it could not, with both paths."""
     kept = []
     for target, shown, own in reversed(moved):
         try:
@@ -173,9 +178,9 @@ def restore(moved):
                 shown.rmdir()
             os.rename(target, shown)
         except OSError:
-            kept.append(f"{target.name} (was {shown})")
+            kept.append(f"{target} (was {shown})")
     if not kept:
-        target.parent.rmdir()
+        aside.rmdir()
     return kept
 
 
@@ -196,7 +201,10 @@ def wipe(home, host, really=False, migrated=False, inventory=None):
             raise ValueError("The inventory changed since the reviewed dry run, or --inventory is missing. "
                              "Run the dry run again and review it")
     print(f"Host: {host}")
-    print("Deleting reviewed work inventory" if really else "Dry run only, deletion requires --really")
+    if migrated:
+        print("Moving the reviewed inventory aside" if really else "Dry run only, --really --inventory <hash> moves this aside")
+    else:
+        print("Deleting reviewed work inventory" if really else "Dry run only, deletion requires --really")
     for path in paths:
         print(path)
     if migrated:
@@ -204,7 +212,9 @@ def wipe(home, host, really=False, migrated=False, inventory=None):
         print(f"Entries: {entries}, bytes: {size}, newest change: {changed}")
         print(f"Inventory: {digest}")
     if really and migrated:
-        quarantine_and_delete(home, units, digest)
+        aside = move_aside(home, units, digest)
+        print(f"Moved aside to {aside}, checked against the reviewed inventory. Nothing is deleted yet.")
+        print(f"MOVED.txt there lists the original paths. Delete it yourself once sure: rm -rf '{aside}'")
         return
     if really:
         for path in paths:
@@ -220,7 +230,8 @@ def main():
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--really", action="store_true")
     parser.add_argument("--migrated", action="store_true",
-                        help="hermes only: just ~/Work contents and Work Pi sessions, which moved to sisyphus")
+                        help="hermes only: just ~/Work contents and Work Pi sessions, which moved to sisyphus. "
+                             "--really moves them aside into ~/.work-wipe-<time> and deletes nothing")
     parser.add_argument("--inventory", help="with --migrated --really: the Inventory hash of the reviewed dry run")
     args = parser.parse_args()
     if args.inventory and not args.migrated:

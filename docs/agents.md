@@ -100,6 +100,10 @@ when it is on, and it is often off.
   accepts only ping, job, fetch, `work-cleanup --dry-run` and `work-cleanup --really <inventory>`.
   The cleanup is `work-wipe --migrated`: `~/Work` contents and Work Pi sessions only, credentials
   stay. Its dry run prints an Inventory hash, and the real run refuses if anything changed since.
+  The real run deletes nothing: it moves the inventory into `~/.work-wipe-<time>` (MOVED.txt maps
+  the original paths), checks it there and moves everything back on any mismatch or failure. Jan
+  deletes that folder himself, since a program that still holds a folder open could write into
+  it after any check.
 - Turning it on once: System Settings, General, Sharing, Remote Login on, then `chezmoi update`
   on hermes. dotfiles pins the hermes host key in `~/.ssh/known_hosts_agents` on aether.
 
