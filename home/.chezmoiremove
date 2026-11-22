@@ -7,4 +7,8 @@
 # Replaced by the agent command from janpuc/agent, see .chezmoidata/agent.yaml.
 .config/fish/functions/agent.fish
 .pi/agent/local/memini-namespace.py
+# pi-agy-bridge, replaced by pi-antigravity-bridge on 2026-11-22. Its runtime folder and trace.log stay.
+.pi/agent/local/agy-bridge-patch.test.ts
+.pi/agent/local/agy-bridge-mcp.test.ts
+.pi/agent/pi-agy-bridge/gemini/antigravity-cli/antigravity-oauth-token
 {{- end }}

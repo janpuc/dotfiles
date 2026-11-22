@@ -1,8 +1,9 @@
 {{- if eq .chezmoi.os "linux" -}}
 #!/bin/sh
-# Google's Antigravity CLI (agy), which pi-agy-bridge drives so Pi can use Gemini on Jan's AI Ultra
-# login. Installed once to ~/.local/bin, agy updates itself. Google's installer would also append
-# PATH lines to config.fish, .profile and .bashrc, so it runs with agy install --skip-path.
+# Google's Antigravity CLI (agy), which pi-antigravity-bridge drives so Pi can use Gemini on Jan's AI
+# Ultra login, and from which pi-usage reads the Google quota. Installed once to ~/.local/bin, agy
+# updates itself. Google's installer would also append PATH lines to config.fish, .profile and
+# .bashrc, so it runs with agy install --skip-path.
 # Signing in is Jan's: ssh -t aether '~/.local/bin/agy'
 set -eu
 [ -x "$HOME/.local/bin/agy" ] && exit 0

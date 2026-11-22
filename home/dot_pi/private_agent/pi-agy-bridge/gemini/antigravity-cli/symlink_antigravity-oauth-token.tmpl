@@ -1,3 +1,0 @@
-{{- /* pi-agy-bridge runs agy with a private --gemini-dir. On a Mac agy's login sits in the keychain,
-on headless Linux in a file under ~/.gemini that the private dir would not see. */ -}}
-{{- if eq .chezmoi.os "linux" -}}{{ .chezmoi.homeDir }}/.gemini/antigravity-cli/antigravity-oauth-token{{- end -}}
