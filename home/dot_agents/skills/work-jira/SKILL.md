@@ -17,20 +17,23 @@ with tag `jira-site`.
 
 ## Read a ticket
 
-Prefer the REST API through the browser session, it returns everything in one call:
+Prefer the REST API through the browser session, it returns everything in one call. Text
+output is capped, so use `read --json` for full bodies. `--http` fetches never carry the
+login, so leave it off:
 
 ```sh
-ardia browse read --http "https://<site>/rest/api/2/issue/CEA-118277?fields=summary,status,assignee,reporter,priority,labels,description,comment,issuelinks,subtasks,parent&expand=renderedFields"
+ardia browse read --json "https://<site>/rest/api/2/issue/CEA-118277?fields=summary,status,assignee,reporter,priority,labels,description,comment,issuelinks,subtasks,parent&expand=renderedFields"
 ```
 
-Search with JQL the same way:
+Search with JQL the same way. `/rest/api/2/search` answers 410, use the v3 endpoint:
 
 ```sh
-ardia browse read --http "https://<site>/rest/api/2/search?jql=<url-encoded JQL>&fields=summary,status,assignee&maxResults=50"
+ardia browse read --json "https://<site>/rest/api/3/search/jql?jql=<url-encoded JQL>&fields=summary,status,assignee&maxResults=50"
 ```
 
-If the API answers 401 or 403, open `https://<site>/browse/<ID>` with `--read`. A login page
-means the session expired: stop and ask Jan to sign in to Jira in Ardia on sisyphus.
+If the API answers 401 or 403, open `https://<site>/browse/<ID>` with `--read`. A login page,
+or a 404 for a ticket that exists, means the session expired: sign in with the
+`work-sso-login` skill, and ask Jan only when it stops.
 
 ## Save it
 

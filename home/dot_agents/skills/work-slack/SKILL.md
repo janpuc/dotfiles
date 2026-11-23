@@ -16,8 +16,8 @@ sisyphus with the `ardia` skill's `ardia browse` commands. Read that skill first
 - Search: open `https://app.slack.com/client`, then in one batch click the search box, fill
   the query with Slack modifiers (`in:#channel`, `from:@name`, `after:2026-11-01`) and press
   Enter, then `read --scroll` for the results. Open the messages you cite.
-- A login page means the session expired: stop and ask Jan to sign in to Slack in Ardia on
-  sisyphus.
+- A login page means the session expired: sign in with the `work-sso-login` skill, and ask
+  Jan only when it stops.
 
 Record what you used as channel, author, date and permalink, summarised in your own words.
 Copy message text only where the exact wording matters.

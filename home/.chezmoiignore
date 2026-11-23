@@ -79,6 +79,9 @@ Library/LaunchAgents/local.agent-digest.plist
 .agents/skills/work-jira/**
 .agents/skills/work-slack
 .agents/skills/work-slack/**
+.agents/skills/work-sso-login
+.agents/skills/work-sso-login/**
+.local/bin/work-op-pipe
 {{ end }}
 {{ if and (ne .chezmoi.hostname "sisyphus") (ne .chezmoi.hostname "hermes") }}
 .ssh/authorized_keys
