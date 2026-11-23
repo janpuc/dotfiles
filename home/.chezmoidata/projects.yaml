@@ -39,7 +39,7 @@ defaults:
   host: aether
   providers: [claude-bridge, openai, minimax, opencode-go, alibaba, litellm]
   tasks: {maxOpen: 4}
-  model: claude-bridge/claude-opus-5-5
+  model: claude-bridge/claude-sonnet-5-5
   thinking: high
   meminiPrefix: homelab
   rotation:
@@ -50,6 +50,8 @@ projects:
   work:
     host: sisyphus
     lifecycle: active
+    # Work's Claude is its own Enterprise seat, outside the personal Sonnet trial of 2026-11-23.
+    model: claude-bridge/claude-opus-5-5
     meminiNamespace: work
     # Jan fills this item before ai-sync. Existing checkouts are registered during migration.
     secrets:
@@ -66,6 +68,8 @@ projects:
     # it to a project, agent scratch promote asks dotfiles for a new project. Added 2026-11-19.
     host: aether
     lifecycle: active
+    # Sonnet on the Ultra Claude pool, trial from 2026-11-23 (Claude Max sizing).
+    model: antigravity/claude-sonnet-5-5
   home:
     lifecycle: active
     repos:
@@ -84,6 +88,8 @@ projects:
     # Jan's engineering thesis (praca inżynierska, AGH): a multi-tier compute architecture for
     # games on handhelds, a Bevy voxel case study (Steam Deck client, BC250 home server).
     lifecycle: active
+    # Sonnet on the Ultra Claude pool, trial from 2026-11-23 (Claude Max sizing).
+    model: antigravity/claude-sonnet-5-5
   gaming:
     # Gaming hardware and game ports: the BC250 gaming box, inFamous on the Steam Deck (native
     # port and recompilation), and game reverse engineering (TDU, XBOX, spore). Not renplay.
@@ -124,6 +130,8 @@ projects:
     # algorithms, computer networks) and the car rental project, a local-only repo since its
     # GitHub copy (janpuc/WypozyczalniaSamochodow) is gone.
     lifecycle: active
+    # Sonnet on the Ultra Claude pool, trial from 2026-11-23 (Claude Max sizing).
+    model: antigravity/claude-sonnet-5-5
   ai:
     # Jan's AI tooling: the Pi packages (pi-usage, pi-footer, pi-title-spinner, pi-claude-bridge,
     # pi-optchat), model evals and the local models on sisyphus (mac-models). The agents on aether
@@ -133,15 +141,23 @@ projects:
     # polished: a self-hosted nail polish inventory (Python server, iOS app). The iOS app builds on
     # the Mac only.
     lifecycle: active
+    # Sonnet on the Ultra Claude pool, trial from 2026-11-23 (Claude Max sizing).
+    model: antigravity/claude-sonnet-5-5
   austerity:
     # austerity.watch (janpuc/austerity-watch): the public, city-level map of the 2026 protest wave
     # in Europe, a static site on GitHub Pages plus its data watcher.
     lifecycle: active
+    # Sonnet on the Ultra Claude pool, trial from 2026-11-23 (Claude Max sizing).
+    model: antigravity/claude-sonnet-5-5
   maker:
     # Jan's maker work: Xiao ESP32 boards and their 3D-printed cases (humidifier, soil and
     # moisture sensors, mmWave), and the earlier ESP32 experiments.
     lifecycle: active
+    # Sonnet on the Ultra Claude pool, trial from 2026-11-23 (Claude Max sizing).
+    model: antigravity/claude-sonnet-5-5
   apps:
     # Jan's paid iOS, iPadOS and iPhone Duo apps. Each app is its own repo registered as a member,
     # one coordinator runs per-app tasks. Builds, signing and upload need a Mac, aether only codes.
     lifecycle: active
+    # Sonnet on the Ultra Claude pool, trial from 2026-11-23 (Claude Max sizing).
+    model: antigravity/claude-sonnet-5-5

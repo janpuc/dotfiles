@@ -163,13 +163,13 @@ below. Any other id is refused.
 
 | Subscription | Size | Models |
 |---|---|---|
-| Alibaba Token Plan (Standard) | 80,000 credits a month, no 5-hour or weekly window: a hard task on DeepSeek V4.1 Flash costs about 14 credits. Up to 3 agents at once. Off-peak 15:00-01:00 Warsaw: 50% off DeepSeek. Interactive use only: never from a script. Its content filter can refuse a request (`data_inspection_failed`): rerun that one on OpenCode Go | `alibaba/deepseek-v4.1-flash`: the default worker, `alibaba/qwen4-max-preview`: a second-opinion review when Sol is busy, until 2026-11-25 (slow: 2-5 minutes a task) |
-| OpenCode Go | dollar-metered: a 5-minute `kimi-k3:high` investigation took 2.5% of its week | `opencode-go/deepseek-v4.1-flash`: the same model as Alibaba's, for when Alibaba refuses or has no headroom, `opencode-go/kimi-k3.1-pro`: hard open-model tasks |
+| Alibaba Token Plan (Standard) | 80,000 credits a month, no 5-hour or weekly window: a hard task on DeepSeek V4.1 Flash costs about 14 credits. Up to 3 agents at once. Off-peak 15:00-01:00 Warsaw: 50% off DeepSeek. Interactive use only: never from a script. Its content filter can refuse a request (`data_inspection_failed`): rerun that one on OpenCode Go | `alibaba/deepseek-v4.1-flash`: the default worker, `alibaba/deepseek-v4-pro`: hard open-model tasks, `alibaba/qwen3.8-max`: a second-opinion review when Sol is busy. Credits per task for Pro and Max are not measured yet |
+| OpenCode Go | dollar-metered and kept for the cluster's memini, so Pi uses it only as a fallback. Kimi is off: it emptied the month in November | `opencode-go/deepseek-v4.1-flash`: only when Alibaba refuses a request or has no headroom |
 | MiniMax | very large, slow | `minimax/MiniMax-M3.1-Flash`: long and bulk work when Alibaba has no headroom |
 | ChatGPT Plus | small, and the cluster runs austerity-curator and kritika confidence on it too. GPT-6.1 Sol used the fewest tokens: a 1-2 minute task took about 0.15% of the week, an 18-minute worker 1%. GPT-6.2 replaced 6.1 on 2026-11-20 at the same price, its token use is not measured yet | `openai/gpt-6.2-sol`: hard tasks, `openai/gpt-6.2-astra`: advisor only |
-| Claude Max | largest, but it is your own quota | `claude-bridge/claude-sonnet-5-5` only when Jan asks, `claude-bridge/claude-fable-5-1` only when Jan names Fable, never Opus |
+| Claude Max | your own quota, and the plan Jan wants to shrink: since 2026-11-23 project sessions run Sonnet to measure whether Pro would do | `claude-bridge/claude-sonnet-5-5` only when Jan asks, `claude-bridge/claude-opus-5-5` only as the decision advisor below, `claude-bridge/claude-fable-5-2` only when Jan names Fable |
 {{- if eq .chezmoi.os "linux" }}
-| Google AI Ultra 5x | separate 5-hour and weekly Gemini pool, on Jan's consumer login | `antigravity/gemini-4-neon`: long build tasks in projects without shared infra or credentials. Run it as a task with `agent task new --model antigravity/gemini-4-neon:high`, not as a quick subagent: it thinks silently for minutes. It has reported done without applying review corrections, so check its result against your brief |
+| Google AI Ultra 5x | separate 5-hour and weekly pools for Gemini and for Claude and GPT, on Jan's consumer login | `antigravity/claude-sonnet-5-5`: the main session model of scratch, thesis, agh, polished, austerity, maker and apps since 2026-11-23, not a subagent model. `antigravity/gemini-4-neon`: long build tasks in projects without shared infra or credentials. Run it as a task with `agent task new --model antigravity/gemini-4-neon:high`, not as a quick subagent: it thinks silently for minutes. It has reported done without applying review corrections, so check its result against your brief |
 {{- end }}
 
 ### Start at the lowest level that fits
@@ -180,10 +180,10 @@ on Sol, Astra, Fable or Neon.
 
 | Level | Task | Models, in order |
 |---|---|---|
-| Easy | one clear job: a lookup, a web fact, a small specified change, a small review | `alibaba/deepseek-v4.1-flash:low`, `opencode-go/deepseek-v4.1-flash:low`, `minimax/MiniMax-M3.1-Flash:medium` |
-| Normal | several files or steps with a clear goal | `alibaba/deepseek-v4.1-flash:medium`, `opencode-go/deepseek-v4.1-flash:medium`, `openai/gpt-6.2-sol:medium`, or `minimax/MiniMax-M3.1-Flash:medium` when Jan is not waiting |
+| Easy | one clear job: a lookup, a web fact, a small specified change, a small review | `alibaba/deepseek-v4.1-flash:low`, `minimax/MiniMax-M3.1-Flash:medium` |
+| Normal | several files or steps with a clear goal | `alibaba/deepseek-v4.1-flash:medium`, `openai/gpt-6.2-sol:medium`, or `minimax/MiniMax-M3.1-Flash:medium` when Jan is not waiting |
 | Long | research, bulk reading or an investigation that takes many turns, when Jan is not waiting | `alibaba/deepseek-v4.1-flash:medium`, `minimax/MiniMax-M3.1-Flash:medium` |
-| Hard | ambiguous, cross-cutting or a long investigation, or a lower level failed its check | `openai/gpt-6.2-sol:high` or `opencode-go/kimi-k3.1-pro:high`, whichever subscription has more headroom, `minimax/MiniMax-M3.1-Flash:high` when Jan is not waiting |
+| Hard | ambiguous, cross-cutting or a long investigation, or a lower level failed its check | `openai/gpt-6.2-sol:high` or `alibaba/deepseek-v4-pro:high`, whichever subscription has more headroom, `minimax/MiniMax-M3.1-Flash:high` when Jan is not waiting |
 | Advice | see Advisors | `oracle` on `openai/gpt-6.2-astra:high` |
 
 Reviews follow the same levels. Go to Sol for a review when the change touches security, data,
@@ -211,9 +211,13 @@ the strong ones on ambiguous work. Evidence and harness: `~/Development/pi-model
 
 `oracle` is the advisor class: for a decision or a design, a bug two levels could not fix, or a
 high-stakes review. "Ask astra" means `oracle` on `openai/gpt-6.2-astra:high`. "Ask fable" means
-`oracle` on `claude-bridge/claude-fable-5-1:high`, only when Jan names Fable.
+`oracle` on `claude-bridge/claude-fable-5-2:high`, only when Jan names Fable.
+
+When your own session runs Sonnet, take a consequential decision to `oracle` on
+`claude-bridge/claude-opus-5-5:high`: one that is hard to undo, touches security, credentials or
+shared infrastructure, or sets a design other projects build on. Routine steering stays with you.
 
 Its default context is fresh, so write it a brief: the question, the options, the constraints,
 the evidence so far, and the file paths. It can read files itself. Pass `context: "fork"` only
 when the conversation itself is the subject and the session is well inside the model's window
-(Astra 272K tokens, Fable 1M). Relay its advice to Jan as the advisor's, with your own view.
+(Astra 272K tokens, Opus and Fable 1M). Relay its advice to Jan as the advisor's, with your own view.

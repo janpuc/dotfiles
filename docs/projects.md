@@ -55,7 +55,7 @@ project has no seeds and GH_TOKEN from op://Work/github/GH_TOKEN. Sisyphus secre
 must use Work and aether secrets must never use Work, checked at registry render.
 Each project has host (default aether), providers and tasks.maxOpen
 (default four). The render resolves these fields into projects.json. Defaults retain
-model claude-bridge/claude-opus-5-5, thinking high and rotation sizeMB 100, compactions 5,
+model claude-bridge/claude-sonnet-5-5 (Opus until 2026-11-23), thinking high and rotation sizeMB 100, compactions 5,
 days 30. Providers preserve today's claude-bridge, openai, minimax, opencode-go, alibaba
 and litellm choices. The runner removes cached and plain provider keys when disallowed,
 not all PI_* identity variables. This is configuration, not network isolation or a

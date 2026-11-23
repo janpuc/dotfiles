@@ -29,7 +29,7 @@
 set -eu
 managed='{
   "defaultProvider": "claude-bridge",
-  "defaultModel": "claude-opus-5-5",
+  "defaultModel": "{{ if eq .chezmoi.hostname "sisyphus" }}claude-opus-5-5{{ else }}claude-sonnet-5-5{{ end }}",
   "enabledModels": {{ $enabled | toJson }},
   "packages": [
     "npm:pi-claude-bridge@0.9.3",
@@ -52,7 +52,8 @@ managed='{
   "retry": { "provider": { "timeoutMs": 1200000 } },
   "compaction": {
     "modelOverrides": {
-      "claude-bridge/claude-opus-5-5": { "reserveTokens": 750000, "keepRecentTokens": 60000 }
+      "claude-bridge/claude-opus-5-5": { "reserveTokens": 750000, "keepRecentTokens": 60000 },
+      "claude-bridge/claude-sonnet-5-5": { "reserveTokens": 750000, "keepRecentTokens": 60000 }
     }
   },
 {{- end }}
@@ -68,12 +69,13 @@ managed='{
       "allow": [
         "minimax/MiniMax-M3.1-Flash",
         "opencode-go/deepseek-v4.1-flash",
-        "opencode-go/kimi-k3.1-pro",
         "openai/gpt-6.2-sol",
         "openai/gpt-6.2-astra",
         "claude-bridge/claude-sonnet-5-5",
-        "claude-bridge/claude-fable-5-1",
-        "alibaba/qwen4-max-preview",
+        "claude-bridge/claude-opus-5-5",
+        "claude-bridge/claude-fable-5-2",
+        "alibaba/qwen3.8-max",
+        "alibaba/deepseek-v4-pro",
         "alibaba/deepseek-v4.1-flash"{{ if eq .chezmoi.os "linux" }},
         "antigravity/gemini-4-neon"{{ end }}
       ]

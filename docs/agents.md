@@ -12,7 +12,7 @@ is in [projects](projects.md), host details in [aether](aether.md) and
   with the project's code repos inside as git submodules, plus notes, plans and scripts.
 - Each project has one Rex session named after it, with two tabs: `pi` (the agent) and
   `shell` (a plain terminal in the project folder).
-- The agent is Pi on `claude-bridge/claude-opus-5-5` at high thinking, on session
+- The agent is Pi on `claude-bridge/claude-sonnet-5-5` at high thinking (a project may set another model), on session
   `<project>-<generation>`. Opening the project always resumes the same conversation.
 - All agents follow one central rule set: `~/.pi/agent/AGENTS.md` plus the standards in
   `~/.config/agents/standards/`. There is no per-project AGENTS.md to maintain.

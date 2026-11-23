@@ -13,23 +13,6 @@
       },
       "models": [
         {
-          "id": "qwen4-max-preview",
-          "name": "Qwen4 Max preview (until 2026-11-25)",
-          "reasoning": true,
-          "input": [
-            "text",
-            "image"
-          ],
-          "contextWindow": 1000000,
-          "maxTokens": 131072,
-          "cost": {
-            "input": 0,
-            "output": 0,
-            "cacheRead": 0,
-            "cacheWrite": 0
-          }
-        },
-        {
           "id": "qwen3.8-max",
           "name": "Qwen3.8 Max",
           "reasoning": true,
