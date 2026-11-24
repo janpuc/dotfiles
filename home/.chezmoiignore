@@ -102,6 +102,7 @@ Library/LaunchAgents/local.agent-digest.plist
 .config/hex
 .config/hex/**
 .local/bin/speak-review
+.local/bin/speak-accent
 Library/LaunchAgents/local.speak-review.plist
 {{ end }}
 .local/bin/agent-fetch

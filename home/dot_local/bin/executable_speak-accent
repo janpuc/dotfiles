@@ -1,0 +1,263 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["pronunciada==1.1.0", "soundfile>=0.12"]
+# ///
+"""Accent review of English Hex dictations on hermes, sound by sound.
+
+speak-accent            score new recordings, then print the accent report
+speak-accent --score    only score new recordings (the daily LaunchAgent)
+speak-accent --weeks N  how many weeks the report covers (default 4)
+
+Needs Hex › Labs › Keep recordings. Each recording is scored against its raw
+transcript with Pronunciada (https://github.com/moglearn/pronunciada), which
+judges every sound against US English. Results go to
+~/.local/state/speak-review/accent.jsonl, so trends outlive Hex's retention.
+Words outside its dictionary (jargon, names, numbers) and fillers are scored
+for alignment but left out of the counts. Nothing leaves the Mac.
+"""
+import argparse, collections, csv, datetime as dt, json, os, re, subprocess, sys, tempfile
+
+HEX = os.environ.get("HEX_BIN", "/Applications/Hex.app/Contents/MacOS/hex")
+STATE = os.path.expanduser(os.environ.get("SPEAK_REVIEW_STATE", "~/.local/state/speak-review"))
+SCORES = os.path.join(STATE, "accent.jsonl")
+VOCAB = os.path.expanduser("~/.config/hex/vocabulary.csv")
+
+FILLERS = re.compile(r"u+h+|u+h*m+|erm+|er|hmm+|ah|yyy+|eee+", re.I)
+POLISH = re.compile(r"[ąćęłńśźż]|\b(?:nie|jest|się|że|to jest|dobra|teraz)\b", re.I)
+MAX_SECONDS = 300   # longer recordings are skipped
+CHUNK_WORDS = 25    # long dictations are rescored in chunks of about a sentence
+SPLIT_AFTER = 15    # seconds, below this a recording is scored in one pass
+
+# Sounds where a Polish accent usually shows, with the words used to explain them.
+TRACES = [
+    ("th as in think", lambda p, pos: p == "θ"),
+    ("th as in this", lambda p, pos: p == "ð"),
+    ("w as in west", lambda p, pos: p == "w"),
+    ("final voiced b d g v z", lambda p, pos: p in ("b", "d", "g", "v", "z", "ʒ", "dʒ") and pos == "final"),
+    ("ng as in thing", lambda p, pos: p == "ŋ"),
+    ("short i as in ship", lambda p, pos: p == "ɪ" and pos != "only"),  # not the weak "a"
+    ("a as in cat", lambda p, pos: p == "æ"),
+    ("schwa, the weak vowel", lambda p, pos: p == "ə"),
+    ("English r", lambda p, pos: p == "ɹ"),
+]
+
+
+def hex_history():
+    out = subprocess.run([HEX, "history", "--since", "8d", "--raw", "--json", "--limit", "10000"],
+                         capture_output=True, text=True, timeout=60)
+    if out.returncode != 0:
+        sys.exit(f"hex history failed ({out.returncode}): {out.stderr.strip()} (is Hex running?)")
+    return json.loads(out.stdout).get("entries", [])
+
+
+def vocab_words():
+    words = set()
+    if os.path.exists(VOCAB):
+        with open(VOCAB, newline="") as f:
+            for row in csv.reader(f):
+                for cell in row:
+                    words.update(w.lower() for w in re.findall(r"[A-Za-z']+", cell))
+    return words
+
+
+def scored_ids():
+    if not os.path.exists(SCORES):
+        return set()
+    with open(SCORES) as f:
+        return {json.loads(line)["id"] for line in f if line.strip()}
+
+
+def chunks(words, total):
+    """Split first-pass word timings into chunks at pauses, as (start, end, first, last)."""
+    out, first = [], 0
+    for i in range(len(words)):
+        last = i == len(words) - 1
+        gap = 0 if last else words[i + 1].start - words[i].end
+        n = i - first + 1
+        if last or n >= CHUNK_WORDS or (n >= 6 and gap >= 0.35):
+            out.append((first, i))
+            first = i + 1
+    spans = []
+    for k, (a, b) in enumerate(out):
+        lo = 0.0 if k == 0 else (words[out[k - 1][1]].end + words[a].start) / 2
+        hi = total if k == len(out) - 1 else (words[b].end + words[out[k + 1][0]].start) / 2
+        spans.append((max(lo, words[a].start - 0.3), min(hi, words[b].end + 0.3), a, b))
+    return spans
+
+
+def results_for(scorer, path, text, sf):
+    audio, sr = sf.read(path)
+    secs = len(audio) / sr
+    if secs > MAX_SECONDS:
+        return secs, []
+    first = scorer.score(path, text)
+    if secs <= SPLIT_AFTER or len(first.words) <= CHUNK_WORDS:
+        return secs, [first]
+    out = []
+    with tempfile.TemporaryDirectory() as tmp:
+        seg_path = os.path.join(tmp, "seg.wav")
+        for lo, hi, a, b in chunks(first.words, secs):
+            sf.write(seg_path, audio[int(lo * sr):int(hi * sr)], sr)
+            out.append(scorer.score(seg_path, " ".join(w.text for w in first.words[a:b + 1])))
+    return secs, out
+
+
+def tally(results, g2p, skip):
+    """Per sound: [occurrences, flagged], plus what was heard instead and the tips."""
+    sounds = collections.defaultdict(lambda: [0, 0])
+    heard, words_off, stress, tips_seen = collections.Counter(), collections.Counter(), collections.Counter(), collections.Counter()
+    counted = 0
+    from pronunciada.tips import tips
+    for r in results:
+        if r.audio.get("retry_recommended") or (r.completeness is not None and r.completeness < 0.8):
+            continue  # noisy audio or a transcript that does not match the speech
+        items = r.coaching(sensitivity="careful")
+        flagged = {(i["word_index"], i["phone_index"]): i for i in items if i["kind"] == "substitution"}
+        usable = set()
+        for wi, w in enumerate(r.words):
+            key = re.sub(r"[^a-z']", "", w.text.lower())
+            if not key or w.omitted or FILLERS.fullmatch(key) or key in skip or re.search(r"\d", w.text) \
+                    or g2p.lookup(key) is None:
+                continue
+            usable.add(wi)
+            counted += 1
+            n = len(w.phones)
+            for pi, p in enumerate(w.phones):
+                pos = "only" if n == 1 else "initial" if pi == 0 else "final" if pi == n - 1 else "medial"
+                s = sounds[f"{p.ipa}|{pos}"]
+                s[0] += 1
+                item = flagged.get((wi, pi))
+                if item:
+                    s[1] += 1
+                    heard[f"{p.ipa}>{item['heard'] or '?'}"] += 1
+        for i in items:
+            if i["word_index"] not in usable:
+                continue
+            if i["kind"] == "mispronounced_word":
+                words_off[i["word"].lower()] += 1
+            elif i["kind"] == "stress":
+                stress[i["word"].lower()] += 1
+        keep = [i for i in items if i["word_index"] in usable]
+        for t in tips(keep, max_tips=3, result=r):
+            tips_seen[t["tip_key"] + "|" + re.sub(r"\s+in “[^”]*”", "", t["text"])] += 1
+    return counted, dict(sounds), heard, words_off, stress, tips_seen
+
+
+def score_new():
+    import soundfile as sf
+    from pronunciada import Scorer
+    from pronunciada.text.en import build
+    done, skip = scored_ids(), vocab_words()
+    todo = [e for e in hex_history() if e.get("recording") and e["id"] not in done
+            and e.get("kind") == "dictation" and (e.get("raw_text") or "").strip()]
+    if not todo:
+        print("no new recordings (is Labs › Keep recordings on?)")
+        return
+    scorer, g2p = Scorer("en"), build()
+    os.makedirs(STATE, mode=0o700, exist_ok=True)
+    n = 0
+    with open(SCORES, "a") as f:
+        for e in sorted(todo, key=lambda e: e["timestamp_ms"]):
+            row = {"id": e["id"], "timestamp_ms": e["timestamp_ms"]}
+            text = e["raw_text"]
+            if POLISH.search(text):
+                row["skipped"] = "polish"
+            elif not os.path.exists(e["recording"]):
+                row["skipped"] = "no audio"
+            else:
+                try:
+                    secs, results = results_for(scorer, e["recording"], text, sf)
+                except Exception as err:  # one bad file must not stop the batch
+                    row["skipped"] = f"error: {type(err).__name__}"
+                else:
+                    if not results:
+                        row["skipped"] = "too long"
+                    else:
+                        counted, sounds, heard, words_off, stress, tips_seen = tally(results, g2p, skip)
+                        row.update(seconds=round(secs, 1), words=counted, sounds=sounds, heard=dict(heard),
+                                   words_off=dict(words_off), stress=dict(stress), tips=dict(tips_seen),
+                                   sentence=round(sum(r.prob for r in results) / len(results), 3))
+                        n += 1
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    print(f"scored {n} of {len(todo)} new recordings")
+
+
+def week_of(ms):
+    d = dt.datetime.fromtimestamp(ms / 1000).date()
+    return d - dt.timedelta(days=d.weekday())
+
+
+def merge(rows):
+    sounds = collections.defaultdict(lambda: [0, 0])
+    heard, words_off, stress, tips_seen = (collections.Counter() for _ in range(4))
+    words = 0
+    for r in rows:
+        words += r["words"]
+        for k, (n, bad) in r["sounds"].items():
+            sounds[k][0] += n; sounds[k][1] += bad
+        heard.update(r["heard"]); words_off.update(r["words_off"]); stress.update(r["stress"]); tips_seen.update(r["tips"])
+    return words, sounds, heard, words_off, stress, tips_seen
+
+
+def rate(sounds, test):
+    n = sum(v[0] for k, v in sounds.items() if test(*k.split("|")))
+    bad = sum(v[1] for k, v in sounds.items() if test(*k.split("|")))
+    return n, (100.0 * bad / n if n else None)
+
+
+def report(weeks):
+    if not os.path.exists(SCORES):
+        print("No scored recordings yet. Turn on Hex › Labs › Keep recordings and dictate in English.")
+        return
+    with open(SCORES) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    rows = [r for r in rows if "sounds" in r]
+    this = week_of(dt.datetime.now().timestamp() * 1000)
+    order = [this - dt.timedelta(weeks=i) for i in range(weeks)]
+    period = [r for r in rows if week_of(r["timestamp_ms"]) in order]
+    if not period:
+        print("No scored English recordings in this period yet.")
+        return
+    words, sounds, heard, words_off, stress, tips_seen = merge(period)
+    by_week = {w: merge([r for r in period if week_of(r["timestamp_ms"]) == w]) for w in order}
+
+    print(f"Accent review, last {weeks} weeks: {len(period)} dictations, {words} words scored against US English\n")
+    print("Polish traces, % of sounds a teacher would likely mark, all weeks then each week from this one back:")
+    for name, test in TRACES:
+        n, pct = rate(sounds, test)
+        if not n:
+            continue
+        trend = "  ".join("  -" if rate(by_week[w][1], test)[1] is None else f"{rate(by_week[w][1], test)[1]:3.0f}"
+                          for w in order)
+        print(f"  {name:<24}{pct:5.0f}%  of {n:<5} {trend}")
+    worst = sorted(((v[1] / v[0], k, v) for k, v in sounds.items() if v[0] >= 20), reverse=True)[:6]
+    if worst:
+        print("\nSounds marked most often (sound, position in word):")
+        for share, k, (n, bad) in worst:
+            ipa, pos = k.split("|")
+            as_ = [h.split(">")[1] for h, _ in heard.most_common() if h.startswith(ipa + ">") and not h.endswith("?")][:2]
+            print(f"  /{ipa}/ {pos:<8}{100 * share:4.0f}% of {n}" + (f", heard as /{'/, /'.join(as_)}/" if as_ else ""))
+    if stress:
+        print("\nWrong word stress: " + ", ".join(f"{w} ({c})" for w, c in stress.most_common(8)))
+    if words_off:
+        print("Words marked most: " + ", ".join(f"{w} ({c})" for w, c in words_off.most_common(10)))
+    if tips_seen:
+        print("\nAdvice that came up most:")
+        for k, c in tips_seen.most_common(4):
+            print(f"  {c:>3}x  {k.split('|', 1)[1]}")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--score", action="store_true", help="only score new recordings")
+    ap.add_argument("--weeks", type=int, default=4)
+    a = ap.parse_args()
+    score_new()
+    if not a.score:
+        print()
+        report(max(1, a.weeks))
+
+
+if __name__ == "__main__":
+    main()

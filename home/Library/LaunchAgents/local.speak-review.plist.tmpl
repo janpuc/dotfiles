@@ -3,7 +3,8 @@
 <plist version="1.0"><dict>
   <key>Label</key><string>local.speak-review</string>
   <key>ProgramArguments</key><array>
-    <string>/usr/bin/python3</string><string>{{ .chezmoi.homeDir }}/.local/bin/speak-review</string><string>--archive</string>
+    <string>/bin/sh</string><string>-c</string>
+    <string>"$HOME/.local/bin/speak-review" --archive; "$HOME/.local/bin/speak-accent" --score</string>
   </array>
   <key>WorkingDirectory</key><string>{{ .chezmoi.homeDir }}</string>
   <key>EnvironmentVariables</key><dict>

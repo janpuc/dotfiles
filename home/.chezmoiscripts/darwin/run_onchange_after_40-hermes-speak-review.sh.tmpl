@@ -1,6 +1,7 @@
 {{ if eq .chezmoi.hostname "hermes" -}}
 #!/bin/sh
-# Daily archive of Hex dictations for speak-review, so trends outlive Hex's History retention.
+# Daily archive of Hex dictations for speak-review and accent scores for speak-accent, so trends
+# outlive Hex's History retention.
 # Agent: {{ include "Library/LaunchAgents/local.speak-review.plist.tmpl" | sha256sum }}
 set -eu
 mkdir -p "$HOME/.local/state/speak-review"
