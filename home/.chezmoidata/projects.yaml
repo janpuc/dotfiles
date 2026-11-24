@@ -161,3 +161,7 @@ projects:
     lifecycle: active
     # Sonnet on the Ultra Claude pool, trial from 2026-11-23 (Claude Max sizing).
     model: antigravity/claude-sonnet-5-5
+  polyglot:
+    # Jan's language learning system: Spanish first, then German, later Mandarin. A self-hosted
+    # service on the cluster (deployed through kubernetes) with web, Mac and iOS clients.
+    lifecycle: active
