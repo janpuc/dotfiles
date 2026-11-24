@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""Weekly speaking review from Hex dictation history, on hermes.
+
+speak-review            archive new dictations, then print this week against the last ones
+speak-review --archive  only archive (the daily LaunchAgent)
+speak-review --weeks N  how many past weeks to show (default 4)
+
+Hex keeps History for its retention window only, so every run copies new entries
+into ~/.local/state/speak-review/entries.jsonl. Counts come from the raw transcript
+(before Output steps strip fillers). Nothing leaves the Mac.
+"""
+import argparse, collections, datetime as dt, json, os, re, subprocess, sys
+
+HEX = os.environ.get("HEX_BIN", "/Applications/Hex.app/Contents/MacOS/hex")
+STATE = os.path.expanduser(os.environ.get("SPEAK_REVIEW_STATE", "~/.local/state/speak-review"))
+ARCHIVE = os.path.join(STATE, "entries.jsonl")
+
+FILLERS = r"u+h+|u+h*m+|erm+|er|hmm+|ah"
+HABITS = {  # phrase -> pattern, counted per 100 words
+    "you know": r"you know",
+    "actually": r"actually",
+    "basically": r"basically",
+    "like,": r"like,",
+    "I mean": r"I mean",
+    "kind of / sort of": r"(?:kind|sort) of",
+    "in terms of": r"in terms of",
+    "etc.": r"etc\.?|et cetera",
+    "to be honest": r"to be honest",
+    "obviously": r"obviously",
+}
+TARGET = 2.0  # fillers per 100 words that count as a good week
+POLISH = re.compile(r"[ąćęłńśźż]|\b(?:nie|jest|się|że|to jest|dobra|teraz)\b", re.I)
+WORD = re.compile(r"[A-Za-z][A-Za-z'’-]*")
+SKIP3 = set("the a an to of and in on for is it i that this you be".split())
+
+
+def fetch(since="30d"):
+    out = subprocess.run([HEX, "history", "--since", since, "--raw", "--json", "--limit", "10000"],
+                         capture_output=True, text=True, timeout=60)
+    if out.returncode != 0:
+        sys.exit(f"hex history failed ({out.returncode}): {out.stderr.strip()} (is Hex running?)")
+    return json.loads(out.stdout)
+
+
+def archive(history):
+    os.makedirs(STATE, mode=0o700, exist_ok=True)
+    seen = set()
+    if os.path.exists(ARCHIVE):
+        with open(ARCHIVE) as f:
+            seen = {json.loads(line)["id"] for line in f if line.strip()}
+    new = [e for e in history.get("entries", []) if e["id"] not in seen and e.get("kind") != "raw"]
+    with open(ARCHIVE, "a") as f:
+        for e in sorted(new, key=lambda e: e["timestamp_ms"]):
+            f.write(json.dumps({k: e.get(k) for k in ("id", "timestamp_ms", "application", "kind", "raw_text", "final_text")}) + "\n")
+    return len(new), history.get("retention")
+
+
+def load():
+    if not os.path.exists(ARCHIVE):
+        return []
+    with open(ARCHIVE) as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def week_of(ms):
+    d = dt.datetime.fromtimestamp(ms / 1000).date()
+    return d - dt.timedelta(days=d.weekday())
+
+
+def measure(entries):
+    words = fillers = restarts = 0
+    habits = collections.Counter()
+    grams = collections.Counter()
+    days = set()
+    for e in entries:
+        text = e.get("raw_text") or e.get("final_text") or ""
+        if POLISH.search(text):
+            continue
+        toks = WORD.findall(text)
+        words += len(toks)
+        days.add(dt.datetime.fromtimestamp(e["timestamp_ms"] / 1000).date())
+        fillers += len(re.findall(rf"(?<![\w'’-])(?:{FILLERS})(?![\w'’-])", text, re.I))
+        for name, pat in HABITS.items():
+            habits[name] += len(re.findall(rf"(?<![\w'’-]){pat}(?![\w'’-])", text, re.I))
+        clean = [t.lower() for t in toks if not re.fullmatch(FILLERS, t, re.I)]
+        # A restart repeats the last one or two words: "I I", "for the for the".
+        i = 0
+        while i < len(clean):
+            if i + 1 < len(clean) and clean[i] == clean[i + 1]:
+                restarts += 1; i += 2; continue
+            if i + 3 < len(clean) and clean[i:i + 2] == clean[i + 2:i + 4]:
+                restarts += 1; i += 4; continue
+            i += 1
+        for j in range(len(clean) - 2):
+            g = clean[j:j + 3]
+            if sum(w in SKIP3 for w in g) < 2:
+                grams[" ".join(g)] += 1
+    per100 = lambda n: 100.0 * n / words if words else 0.0
+    return {
+        "dictations": len(entries), "words": words, "days": len(days),
+        "fillers": per100(fillers), "restarts": per100(restarts),
+        "habits": {k: per100(v) for k, v in habits.items()},
+        "grams": grams.most_common(5),
+    }
+
+
+def streak(entries, today):
+    days = {dt.datetime.fromtimestamp(e["timestamp_ms"] / 1000).date() for e in entries}
+    d = today if today in days else today - dt.timedelta(days=1)
+    n = 0
+    while d in days:
+        n += 1; d -= dt.timedelta(days=1)
+    return n
+
+
+def report(entries, weeks):
+    today = dt.date.today()
+    by_week = collections.defaultdict(list)
+    for e in entries:
+        by_week[week_of(e["timestamp_ms"])].append(e)
+    this = week_of(dt.datetime.now().timestamp() * 1000)
+    order = [this - dt.timedelta(weeks=i) for i in range(weeks)]
+    stats = {w: measure(by_week.get(w, [])) for w in order}
+    cur, prev = stats[order[0]], stats[order[1]] if len(order) > 1 else None
+    best = min((s["fillers"] for w, s in stats.items() if s["words"] >= 200), default=None)
+
+    n = streak(entries, today)
+    print(f"Speaking review, week of {this:%d %b}  (streak {n} day{'' if n == 1 else 's'})\n")
+    print(f"{'week of':<10}{'words':>7}{'days':>6}{'fillers/100':>13}{'restarts/100':>14}")
+    for w in order:
+        s = stats[w]
+        mark = "  *" if s["words"] >= 200 and s["fillers"] <= TARGET else ""
+        print(f"{w:%d %b}{s['words']:>11}{s['days']:>6}{s['fillers']:>13.1f}{s['restarts']:>14.1f}{mark}")
+    print(f"\n* a week under {TARGET:g} fillers per 100 words" + (f", best so far {best:.1f}" if best is not None else ""))
+    if cur["words"]:
+        print("\nHabit phrases this week, per 100 words (last week):")
+        for name, v in sorted(cur["habits"].items(), key=lambda kv: -kv[1]):
+            if v or (prev and prev["habits"].get(name)):
+                was = f"  ({prev['habits'][name]:.1f})" if prev and prev["words"] else ""
+                print(f"  {name:<20}{v:>5.1f}{was}")
+        repeated = [(g, n) for g, n in cur["grams"] if n > 1]
+        if repeated:
+            print("\nPhrases you repeated most:")
+            for g, n in repeated:
+                print(f"  {n:>3}x  {g}")
+    else:
+        print("\nNo English dictations this week yet.")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--archive", action="store_true", help="only copy new dictations into the archive")
+    ap.add_argument("--weeks", type=int, default=4)
+    a = ap.parse_args()
+    new, retention = archive(fetch())
+    if a.archive:
+        print(f"archived {new} new dictations (Hex retention {retention})")
+        return
+    report(load(), max(2, a.weeks))
+
+
+if __name__ == "__main__":
+    main()

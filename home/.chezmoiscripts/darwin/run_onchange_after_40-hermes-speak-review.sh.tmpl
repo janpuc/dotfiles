@@ -1,0 +1,10 @@
+{{ if eq .chezmoi.hostname "hermes" -}}
+#!/bin/sh
+# Daily archive of Hex dictations for speak-review, so trends outlive Hex's History retention.
+# Agent: {{ include "Library/LaunchAgents/local.speak-review.plist.tmpl" | sha256sum }}
+set -eu
+mkdir -p "$HOME/.local/state/speak-review"
+chmod 700 "$HOME/.local/state/speak-review"
+launchctl bootout "gui/$(id -u)/local.speak-review" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/local.speak-review.plist"
+{{ end -}}

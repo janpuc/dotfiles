@@ -101,6 +101,8 @@ Library/LaunchAgents/local.agent-digest.plist
 .config/rex/agents.lua
 .config/hex
 .config/hex/**
+.local/bin/speak-review
+Library/LaunchAgents/local.speak-review.plist
 {{ end }}
 .local/bin/agent-fetch
 .config/aether-backup
