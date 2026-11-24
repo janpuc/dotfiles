@@ -81,6 +81,7 @@ packages:
         casks:
           - android-commandlinetools
           - android-platform-tools # adb
+          - anomalyco/tap/hex # local voice dictation
           - discord
           - prismlauncher
           - protonvpn
