@@ -99,6 +99,8 @@ Library/LaunchAgents/local.agent-digest.plist
 .config/rex/init.lua
 {{ if ne .chezmoi.hostname "hermes" }}
 .config/rex/agents.lua
+.config/hex
+.config/hex/**
 {{ end }}
 .local/bin/agent-fetch
 .config/aether-backup
