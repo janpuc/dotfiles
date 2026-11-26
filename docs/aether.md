@@ -7,7 +7,7 @@ through its Rex login server. It hosts one long-lived Pi per project under
 `~/Development/<project>`. Project agents do their own work and use local Rex tabs for
 bounded child jobs, with no remote subagent machines. The Mac can still place children on
 aether. See [Projects on aether](projects.md) for the registry, tools, approvals and rotation.
-`chezmoi` gives it common shell basics, project launchers, the memory hold and Rex. Home names resolve through Tailscale split DNS (see [Home network](#home-network)).
+`chezmoi` gives it common shell basics, project launchers and Rex. Home names resolve through Tailscale split DNS (see [Home network](#home-network)).
 Laptop configuration stays on the Mac. An allowlist in `home/.chezmoiignore` makes that boundary
 explicit: new laptop files do not reach Linux unless deliberately added there.
 
@@ -16,14 +16,14 @@ explicit: new laptop files do not reach Linux unless deliberately added there.
 | Source | Purpose |
 |---|---|
 | `home/.chezmoidata/packages.yaml` → `linux.apt` | ca-certificates, curl, fish, git, jq (Pi's settings script), python3-yaml and zsh |
-| `home/dot_config/mise/config.toml` | chezmoi, gh, 1Password CLI, shell tools, yq, ripgrep, uv, node and Pi, with trusted configs under ~/Development |
+| `home/dot_config/mise/config.toml.tmpl` | chezmoi, gh, 1Password CLI, shell tools, yq, ripgrep, uv, node and Pi, with trusted configs under ~/Development |
 | `home/dot_config/fish/config.fish.tmpl` and fish theme | fish with mise activation and the common shell tools, the AI endpoints, ai-sync's credential cache and the memini namespace hook, as on the Macs |
 | `home/dot_config/fish/functions/ai-sync.fish.tmpl` | through the read-only service account in `~/.config/op/aether.env`: log ubuntu's gh in from `op://Kubernetes/aether/GH_TOKEN` and write the same `~/.local/state/ai/credentials.fish` as the Macs (including the bridge's `claude setup-token`), plus 0600 per-project dotenv files, the restic password and the backup's Pushover credentials |
 | `home/dot_config/git/` | gh credential helper, bat pager, difftastic diff, SSH commit signing |
 | `home/dot_config/{starship.toml,atuin,bat,eza}` and `home/dot_editorconfig` | prompt, history, file display and editing basics |
 | `home/dot_pi/private_agent/` and `home/dot_config/fish/functions/pi.fish` | common Pi packages, OS-aware instructions/settings, approval guard, project rotation, scoped Opus compaction and additive project trust |
 | `home/.chezmoidata/projects.yaml` and `home/dot_config/agents/projects.json.tmpl` | project registry and runtime JSON on Linux and Mac |
-| `home/dot_config/fish/functions/agent.fish` and `home/dot_local/bin/executable_agent-run` | Linux project cloning, Rex reconciliation and generation loop |
+| `agent` (Go, pinned in `home/.chezmoidata/agent.yaml`) and `home/dot_local/bin/executable_agent-run` for runners started before the switch | project cloning, Rex reconciliation, the generation loop, `agent watch` (every 10 minutes from `agent-watch.timer`), `agent todo`, `agent schedule` and `agent doctor` |
 | `home/.chezmoiscripts/*-linux-*.sh.tmpl` | apt, project apt packages, Docker CE from the official resolute repo, system helpers, Rex and mise setup |
 | `home/.system/rex-*` (installed by `07-linux-rex`) | Rex from its apt repository. The packaged login server plus a listener on the tailnet address port 7297, where tailscaled identifies each caller, lets `tailscale:janpuc@github` in as ubuntu. Clients use the bare name `aether.tail17d532.ts.net` |
 | `home/.system/aether-backup*` (installed by `25-linux-backup`) | the hourly encrypted restic backup to BigMouth, its failure and staleness alerts, and the pinned host key placeholder `~/.config/aether-backup/known_hosts` |
@@ -141,7 +141,7 @@ The restic options are the script's own, because `~/.ssh/config` is not managed 
 ```sh
 restic -r sftp:aether-backup@192.168.69.15:/aether/restic \
     --password-file ~/.config/restic/aether.password \
-    -o "sftp.command=ssh -i ~/.ssh/aether-backup -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.config/aether-backup/known_hosts -s sftp" \
+    -o "sftp.args=-i ~/.ssh/aether-backup -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.config/aether-backup/known_hosts" \
     snapshots --latest 1
 ```
 

@@ -37,11 +37,12 @@ give it its first brief separately. Other agents request platform work with
 Connect the Rex app to aether for personal projects or sisyphus for work, pick the
 project's session and talk to the agent in its `pi` tab. Nothing executes on hermes.
 
-The agent edits, tests and commits locally on its own. It asks you in the tab before
-anything that leaves aether or changes a shared system: git push, merging or opening PRs,
-other GitHub writes, kubectl, flux, talosctl and helm changes, chezmoi apply and every
-Home Assistant write. Answer the prompt in the tab. Subagents it starts are blocked from
-those commands outright.
+The agent edits, tests, commits, pushes, merges its own PRs and deploys without asking, then
+reports what it did. A short hard-deny list is refused outright and only you can lift one item,
+for one command, by telling the agent: force push or history rewrite on a default branch,
+deleting NAS datasets or GitHub repositories, talosctl reset or wipe, deleting a Kubernetes
+namespace or volume, a Terraform or OpenTofu destroy, and messages sent in your name.
+Subagents cannot override the list. See `approvals.md` in the standards.
 
 ## Commands on execution hosts
 
@@ -69,6 +70,10 @@ A project agent cannot send as `jan` or impersonate `dotfiles`.
 | `agent ask <project> <text>` | Ask the owner of another project's system to do work. The request lands in that project's inbox and Jan decides whether its agent sees it |
 | `agent reply <project> <id> <text>` | Answer a request you accepted. The reply lands in the requester's inbox and Jan decides the same way |
 | `agent restart <project>\|all` | Restart a project's agent, or every running one, on the same generation and session, to load new central config. `all` skips projects whose Pi is not running |
+| `agent todo` | The one needs-Jan list: what waits on you, oldest first, with who waits on whom. `--all` shows every open question |
+| `agent watch [--dry-run]` | Start dead runners, continue a stalled turn and deliver due schedules. A timer runs it every 10 minutes, you rarely need it |
+| `agent schedule add\|ls\|rm` | Run a request on a schedule (`daily HH:MM`, `weekly mon HH:MM`, `every Nh`), results show in `agent todo` |
+| `agent doctor [project]` | Read-only lint of notes, context size, recovery state and the timers. Prints problems only |
 | `agent-run --register <project> <repo> [url]` | Add a code repo to a project as a submodule. With a URL it clones or registers the existing checkout, without one it makes a local-only repo. The agent normally does this itself |
 | `aether-backup status` | When the last backup succeeded |
 | `ai-sync` | Refresh all keys from 1Password: model keys, `gh` login, per-project secrets, backup password. Run it after rotating any of them |
@@ -118,11 +123,14 @@ system is changed by asking its owner.
 | `work` (sisyphus) | All work projects, tasks, work credentials and work host coordination |
 | `network` | UniFi gateway, Wi-Fi, firewall, Tailscale, DNS |
 | `kubernetes` | home-ops, the cluster, Flux, Talos |
-| `agh` | Jan's studies at AGH: numerical methods, algorithms, networks lab, exam prep | local-only `wypozyczalnia-samochodow` (its GitHub copy is gone) |
-| `ai` | Jan's AI tooling: Pi packages, model evals, the local models on sisyphus | `pi-usage`, `pi-footer`, `pi-title-spinner`, `pi-claude-bridge`, `pi-optchat`, `pi-model-eval`, `mac-models` |
-| `polished` | Self-hosted nail polish inventory (Python server, iOS app built on the Mac) | `polished` |
-| `austerity` | austerity.watch, the public map of the 2026 protest wave in Europe | `austerity-watch` |
-| `maker` | Xiao ESP32 boards and 3D-printed cases, earlier ESP32 experiments | none, local repo `esp32/mmWave1` pending |
+| `agh` | Jan's studies at AGH: numerical methods, algorithms, networks lab, exam prep |
+| `ai` | Jan's AI tooling: Pi packages, model evals, the local models on sisyphus |
+| `polished` | Self-hosted nail polish inventory (Python server, iOS app built on the Mac) |
+| `austerity` | austerity.watch, the public map of the 2026 protest wave in Europe |
+| `maker` | Xiao ESP32 boards and 3D-printed cases, earlier ESP32 experiments |
+| `apps` | Jan's paid iOS apps, one repo per app, builds run on hermes through jobs |
+| `polyglot` | Jan's language learning system, deployed on the cluster through kubernetes |
+| `scratch` | Free-standing work and its folds into other projects |
 | `home` | Home Assistant and the DietPi speakers |
 | `bigmouth` | the NAS |
 | `renplay` | renplay-org repositories and deploys |
