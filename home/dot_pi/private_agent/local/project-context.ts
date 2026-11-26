@@ -186,7 +186,28 @@ function build(project: string, workspace: string): Context {
 		injectedAt: new Date().toISOString(),
 		files: Object.fromEntries([...standards, ...notes].map((file) => [file.path, { sha256: file.sha256, bytes: file.bytes }])),
 	};
-	return { revision, text, problems, record };
+	return { revision, text, problems, record, delta: (changed: string[]) => renderDelta(project, revision, open, changed, notes.map((file) => ({ path: file.path, text: file.text, sha256: file.sha256, bytes: file.bytes }))) };
+}
+
+// A short update for a session that already holds the full context. Only the changed project
+// notes are repeated, the standards and the unchanged notes stay as injected earlier.
+function renderDelta(
+	project: string,
+	revision: string,
+	open: string[],
+	changed: string[],
+	notes: { path: string; text: string; sha256: string; bytes: number }[],
+) {
+	const parts = notes.filter((file) => changed.includes(file.path)).map((file) =>
+		`## ${file.path}\n\nsha256 ${file.sha256}, ${file.bytes} bytes. Replaces the earlier copy.\n\n${file.text}`);
+	return [
+		"# Project context update",
+		"",
+		`This message is injected by the platform. It updates the full project context for ${project} injected earlier in this conversation. Context revision: ${revision}. Everything not repeated below is unchanged.`,
+		`- Open cross-project requests: ${open.length}${open.length ? ` (${open.join(", ")})` : ""}. The inbox delivers them, do not act on them before then.`,
+		`- Changed: ${changed.length ? changed.join(", ") : "none"}`,
+		...(parts.length ? ["", parts.join("\n\n")] : []),
+	].join("\n") + "\n";
 }
 
 export default function (pi: ExtensionAPI) {
@@ -194,6 +215,7 @@ export default function (pi: ExtensionAPI) {
 	const project = process.env.PI_PROJECT;
 	if (!project) return;
 	let injected = "";
+	let injectedFiles: Record<string, { sha256: string | null }> = {};
 	let lastNotice = "";
 
 	const fail = (ctx: ExtensionContext, message: string) => {
@@ -222,7 +244,7 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	// A new, resumed or forked session and a compaction both drop the injected context.
-	const reset = () => { injected = ""; };
+	const reset = () => { injected = ""; injectedFiles = {}; };
 	pi.on("session_start", reset);
 	pi.on("session_compact", reset);
 	pi.on("before_agent_start", (_event, ctx) => {
@@ -234,7 +256,14 @@ export default function (pi: ExtensionAPI) {
 		lastNotice = "";
 		const context = build(project, known.workspace);
 		if (context.revision === injected) return;
+		const files = context.record.files as Record<string, { sha256: string | null }>;
+		const changed = Object.keys(files).filter((path) => files[path]?.sha256 !== injectedFiles[path]?.sha256);
+		const standardsChanged = changed.some((path) => !path.startsWith("notes/") && !path.startsWith("tasks/"));
+		// The full context is sent once per session and after a compaction or session switch.
+		// Later changes to the project notes or the inbox send only the changed notes.
+		const full = injected === "" || standardsChanged;
 		injected = context.revision;
+		injectedFiles = files;
 		try {
 			const state = process.env.PI_TASK ? join(known.workspace, ".agent/tasks", process.env.PI_TASK) : join(known.workspace, ".agent");
 			mkdirSync(state, { recursive: true });
@@ -243,6 +272,6 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`project-context: cannot record ${join(known.workspace, ".agent/context.json")}: ${error}`, "warning");
 		}
 		for (const problem of context.problems) ctx.ui.notify(`project-context: ${problem}`, "error");
-		return { message: { customType: CUSTOM_TYPE, content: context.text, display: false } };
+		return { message: { customType: CUSTOM_TYPE, content: full ? context.text : context.delta(changed), display: false } };
 	});
 }

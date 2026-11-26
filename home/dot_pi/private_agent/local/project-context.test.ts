@@ -69,6 +69,10 @@ test("context is injected again after compaction and after a changed STATE hash"
 		const afterChange = h.inject();
 		assert.ok(afterChange);
 		assert.match(afterChange.message.content, /rewritten\./);
+		// Only the changed note is repeated, not the standards or the unchanged PROJECT.md.
+		assert.doesNotMatch(afterChange.message.content, /## Standard: session\.md/);
+		assert.doesNotMatch(afterChange.message.content, /One cluster\./);
+		assert.ok(afterChange.message.content.length < afterCompaction.message.content.length);
 		assert.equal(h.inject(), undefined);
 		const record = JSON.parse(fs.readFileSync(join(f.workspace, ".agent/context.json"), "utf8"));
 		assert.equal(record.files["notes/STATE.md"].sha256, sha("# State\n\n## Current work\n\nrewritten.\n"));
