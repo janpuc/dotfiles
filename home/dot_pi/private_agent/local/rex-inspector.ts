@@ -95,7 +95,8 @@ async function blockAlive(b: Binding) {
 
 const rexInspector = {
 	name: "rex",
-	available: (context: Context) => context.env.TERM_PROGRAM === "rex" && Boolean(context.env.REX_SESSION?.trim()),
+	// Rex server 0.1.0-preview.23 replaced REX_SESSION with REX_BLOCK, so accept either.
+	available: (context: Context) => context.env.TERM_PROGRAM === "rex" && Boolean((context.env.REX_SESSION || context.env.REX_BLOCK)?.trim()),
 	owns: (context: Context) => placed(context.target) !== undefined || binding(context.target) !== undefined,
 
 	async open(context: Context, launch: Launch, params: { focus?: boolean }) {
@@ -114,7 +115,7 @@ const rexInspector = {
 				if (params.focus !== false) await show([], existing.session, existing.windowId);
 				return result(`The Rex inspector tab for run ${target.runId} is already open.`);
 			}
-			const session = context.env.REX_SESSION as string;
+			const session = context.env.REX_SESSION?.trim() || JSON.parse(await rex(["block", "inspect", context.env.REX_BLOCK as string, "--json"])).session_id as string;
 			const opened = JSON.parse(await rex(["run", "-s", session, "--label", `inspect-${target.runId.slice(0, 8)}`, "--shell=none", `--focus=${params.focus !== false}`, "--json", "--", launch.executable, ...launch.argv]));
 			const b: Binding = { schemaVersion: 1, kind: "rex-inspector", runId: target.runId, asyncDir: target.asyncDir, ...(target.index !== undefined ? { index: target.index } : {}), session, windowId: opened.window_id, blockId: opened.block_ids[0] };
 			fs.mkdirSync(path.dirname(bindingPath(target)), { recursive: true, mode: 0o700 });
