@@ -30,6 +30,9 @@ function atomicWrite(path: string, text: string) {
 	}
 }
 
+// A due rotation starts after this much quiet. It can be shortened for tests.
+const IDLE_ROTATE_MS = Number(process.env.PI_ROTATE_IDLE_MS) || 15 * 60 * 1000;
+
 export default function (pi: ExtensionAPI) {
 	const project = process.env.PI_PROJECT;
 	if (!project || process.env.PI_TASK || process.env.PI_SUBAGENT_CHILD === "1" || process.env.PI_SUBAGENTS_HERDR_BRIDGE === "1") return;
@@ -45,6 +48,7 @@ export default function (pi: ExtensionAPI) {
 	let note = "";
 	let currentGeneration = 0;
 	let timer: ReturnType<typeof setInterval> | undefined;
+	let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
 	const refresh = (ctx: ExtensionContext) => {
 		const file = ctx.sessionManager.getSessionFile();
@@ -129,7 +133,10 @@ If anything fails or needs Jan's input, explain it and do not emit that marker.`
 		timer = setInterval(() => refresh(ctx), 60000);
 		timer.unref();
 	});
-	pi.on("session_shutdown", () => { if (timer) clearInterval(timer); });
+	pi.on("session_shutdown", () => {
+		if (timer) clearInterval(timer);
+		if (idleTimer) clearTimeout(idleTimer);
+	});
 	pi.on("session_compact", (_event, ctx) => { compactions++; refresh(ctx); });
 	pi.on("agent_end", (_event, ctx) => refresh(ctx));
 	// agent_end may precede retries and queued messages. Pi's final-idle event is settled.
@@ -147,11 +154,20 @@ If anything fails or needs Jan's input, explain it and do not emit that marker.`
 				return;
 			}
 			await finish(ctx);
-		} else if (phase === "idle" && due && !asked && ctx.mode === "tui" && ctx.hasUI) {
-			asked = true;
-			if (await ctx.ui.confirm("Rotate now?", "Checkpoint this project and start its next conversation generation?")) begin(ctx, "");
+		} else if (phase === "idle" && due && !asked) {
+			// Jan does not manage sessions, so a due rotation runs by itself once the conversation has
+			// been quiet for a while. Any new turn cancels it, /rotate still works at any time.
+			if (idleTimer) clearTimeout(idleTimer);
+			idleTimer = setTimeout(() => {
+				idleTimer = undefined;
+				if (phase !== "idle" || asked || !ctx.isIdle() || ctx.hasPendingMessages()) return;
+				asked = true;
+				begin(ctx, "Automatic rotation after the conversation grew past its limits.");
+			}, IDLE_ROTATE_MS);
+			idleTimer.unref();
 		}
 	});
+	pi.on("agent_start", () => { if (idleTimer) { clearTimeout(idleTimer); idleTimer = undefined; } });
 	pi.registerCommand("rotate", {
 		description: "Checkpoint the project and start a new conversation generation",
 		handler: async (args, ctx) => {
