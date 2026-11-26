@@ -1,0 +1,9 @@
+[Unit]
+Description=Agent watch: restart dead project runners, continue stalled sessions
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+ExecStart=/home/ubuntu/.local/bin/agent watch
+UMask=0077

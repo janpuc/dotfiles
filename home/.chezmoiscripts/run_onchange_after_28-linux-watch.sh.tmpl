@@ -1,0 +1,11 @@
+{{- if eq .chezmoi.os "linux" -}}
+#!/bin/sh
+# Agent watch every 10 minutes: restarts a dead project runner and continues a stalled Neon turn (agent watch).
+#   service {{ include ".system/agent-watch.service" | sha256sum }}
+#   timer   {{ include ".system/agent-watch.timer" | sha256sum }}
+set -eu
+src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
+sudo install -o root -g root -m 644 "$src/agent-watch.service" "$src/agent-watch.timer" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now agent-watch.timer
+{{- end }}

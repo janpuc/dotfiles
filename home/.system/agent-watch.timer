@@ -1,0 +1,10 @@
+[Unit]
+Description=Agent watch every 10 minutes, outside Rex
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=10min
+Unit=agent-watch.service
+
+[Install]
+WantedBy=timers.target
