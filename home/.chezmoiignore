@@ -18,6 +18,7 @@
 !.chezmoiscripts/*-linux-backup.sh
 !.chezmoiscripts/*-linux-digest.sh
 !.chezmoiscripts/*-linux-jobs.sh
+!.chezmoiscripts/*-linux-watch.sh
 !.chezmoiscripts/*-linux-agy.sh
 !.chezmoiscripts/*-pi-git-packages.sh
 !.chezmoiscripts/*-pi-release.sh
