@@ -1,7 +1,7 @@
 {{- /*
   What each kind of machine manages. Paths are targets, relative to $HOME.
 
-  Linux is the aether server: shell basics, project agents, Rex, keepalive and the hourly backup
+  Linux is the aether server: shell basics, project agents, Rex and the hourly backup
   configuration. It takes an allowlist so files added for the laptop stay off the server until
   listed here.
   Pi is the same everywhere (~/.pi/agent, the pi function, ai-sync's cache); other AI runtimes

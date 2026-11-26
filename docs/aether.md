@@ -26,7 +26,6 @@ explicit: new laptop files do not reach Linux unless deliberately added there.
 | `home/dot_config/fish/functions/agent.fish` and `home/dot_local/bin/executable_agent-run` | Linux project cloning, Rex reconciliation and generation loop |
 | `home/.chezmoiscripts/*-linux-*.sh.tmpl` | apt, project apt packages, Docker CE from the official resolute repo, system helpers, Rex and mise setup |
 | `home/.system/rex-*` (installed by `07-linux-rex`) | Rex from its apt repository. The packaged login server plus a listener on the tailnet address port 7297, where tailscaled identifies each caller, lets `tailscale:janpuc@github` in as ubuntu. Clients use the bare name `aether.tail17d532.ts.net` |
-| `home/.system/aether-keepalive*` (installed by `05-linux-system`) | hold 25% of RAM without CPU load to avoid Oracle's idle-instance reclamation criteria |
 | `home/.system/aether-backup*` (installed by `25-linux-backup`) | the hourly encrypted restic backup to BigMouth, its failure and staleness alerts, and the pinned host key placeholder `~/.config/aether-backup/known_hosts` |
 
 The allowlist includes the project registry, `~/.local/bin/agent-run` and the backup's host key
@@ -183,7 +182,7 @@ Apps and their 1Password items in `op://Kubernetes`, and delete the `pi-pocket` 
 and Role from home-ops.
 
 Read-only checks include `chezmoi managed`, `mise ls`, `gh auth status`,
-`systemctl status aether-keepalive.service`, `resolvectl query k8s.janpuc.com`,
+`resolvectl query k8s.janpuc.com`,
 `systemctl status rex-login-server.service`, `systemctl --user list-unit-files`,
 `systemctl status aether-backup.timer`, `aether-backup status`, `agent ls`, `rex ls --json`,
 `docker version` and `docker compose version`. From the Mac target aether with `rex -S aether`.

@@ -1,21 +1,19 @@
 {{- if eq .chezmoi.os "linux" -}}
 #!/bin/sh
-# System files for the aether server: the memory hold that keeps Oracle from reclaiming the
-# instance as idle. Internal names (janpuc.com, internal) come from Tailscale split DNS to the
-# UniFi gateway, so this also retires the old /etc/hosts sync if it is still installed.
-# Re-runs when they change.
-#   keepalive {{ include ".system/aether-keepalive" | sha256sum }} {{ include ".system/aether-keepalive.service" | sha256sum }}
+# Retires old system files on the aether server. Internal names (janpuc.com, internal) come from
+# Tailscale split DNS to the UniFi gateway, so this removes the old /etc/hosts sync. The memory hold
+# that kept Oracle from reclaiming the instance as idle is gone too: the project agents use well over
+# 20% of RAM, which is the line Oracle checks. Re-runs when this file changes.
 set -eu
-src={{ joinPath .chezmoi.sourceDir ".system" | quote }}
 if [ -e /etc/systemd/system/aether-hosts-sync.timer ]; then
   sudo systemctl disable --now aether-hosts-sync.timer
   sudo rm -f /etc/systemd/system/aether-hosts-sync.service /etc/systemd/system/aether-hosts-sync.timer /usr/local/sbin/aether-hosts-sync
   sudo rm -rf /var/lib/aether-hosts-sync
   sudo sed -i '/^# BEGIN aether-hosts-sync/,/^# END aether-hosts-sync/d' /etc/hosts
 fi
-sudo install -m 755 "$src/aether-keepalive" /usr/local/sbin/
-sudo install -m 644 "$src/aether-keepalive.service" /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable aether-keepalive.service
-sudo systemctl restart aether-keepalive.service
+if [ -e /etc/systemd/system/aether-keepalive.service ]; then
+  sudo systemctl disable --now aether-keepalive.service
+  sudo rm -f /etc/systemd/system/aether-keepalive.service /usr/local/sbin/aether-keepalive
+  sudo systemctl daemon-reload
+fi
 {{- end }}

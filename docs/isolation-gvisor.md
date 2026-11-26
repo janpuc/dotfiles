@@ -139,7 +139,7 @@ For each project:
 - Use gVisor’s isolated network stack, not its host-network mode.
 - Apply Docker workload CPU, memory and process limits, bounded temporary filesystems and bounded logs.
 - Enforce storage quotas across persistent project data and caches. Quota support on the existing ext4 mount must be verified before launch. Disk limits cannot be merely an alert.
-- Reserve host capacity explicitly, including the existing keepalive allocation. Reject project starts that exceed the admitted budget.
+- Reserve host capacity explicitly. Reject project starts that exceed the admitted budget.
 
 Rootful Docker and the provisioner remain trusted infrastructure. The project never receives a general-purpose control socket or passwordless lifecycle command.
 
