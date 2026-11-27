@@ -40,9 +40,10 @@ project's session and talk to the agent in its `pi` tab. Nothing executes on her
 The agent edits, tests, commits, pushes, merges its own PRs and deploys without asking, then
 reports what it did. A short hard-deny list is refused outright and only you can lift one item,
 for one command, by telling the agent: force push or history rewrite on a default branch,
-deleting NAS datasets or GitHub repositories, talosctl reset or wipe, deleting a Kubernetes
-namespace or volume, a Terraform or OpenTofu destroy, and messages sent in your name.
-Subagents cannot override the list. See `approvals.md` in the standards.
+deleting one, a mirror push, deleting NAS datasets or snapshots or a GitHub repository,
+talosctl reset, wipe or upgrade-k8s, kubectl delete of a namespace, persistent volume or
+claim, terraform or tofu destroy and apply on production at work, and sending messages or
+posts in your name. Subagents cannot override the list. See `approvals.md` in the standards.
 
 ## Commands on execution hosts
 
@@ -67,8 +68,8 @@ A project agent cannot send as `jan` or impersonate `dotfiles`.
 | `agent ls` | One line per project: lifecycle, folder, Rex session, whether Pi runs, generation, open requests, a pending restart, and each repo's branch, dirty state and unpushed commits |
 | `agent adopt <project>` | Take over a folder that already exists but was never set up by the platform. It only inspects and records, it changes nothing |
 | `agent archive <project>` | Stop the project's agent and leave it out of `agent up`. Files, tabs and backups stay |
-| `agent ask <project> <text>` | Ask the owner of another project's system to do work. The request lands in that project's inbox and Jan decides whether its agent sees it |
-| `agent reply <project> <id> <text>` | Answer a request you accepted. The reply lands in the requester's inbox and Jan decides the same way |
+| `agent ask <project> <text>` | Ask the owner of another project's system to do work. The request lands in that project's inbox and its agent picks it up at its next idle point |
+| `agent reply <project> <id> <text>` | Answer a request you accepted. The reply lands in the requester's inbox and its agent picks it up the same way |
 | `agent restart <project>\|all` | Restart a project's agent, or every running one, on the same generation and session, to load new central config. `all` skips projects whose Pi is not running |
 | `agent todo` | The one needs-Jan list: what waits on you, oldest first, with who waits on whom. `--all` shows every open question |
 | `agent watch [--dry-run]` | Start dead runners, continue a stalled turn and deliver due schedules. A timer runs it every 10 minutes, you rarely need it |
@@ -192,9 +193,10 @@ needed. Task sessions do not rotate. Restart resumes the same task conversation.
 
 Close waits for the task's next idle boundary, asks it to write RESULT.md with Outcome,
 Changes, Verification, Learned and Open, then sends a `fold` request to the project
-inbox. Jan accepts the fold before the project agent updates shared notes. A close
-that fails stays `closing` and counts toward the limit. Resolve its blocker and repeat
-close. Nothing is deleted: folders, branches, worktrees, sessions and drafts remain.
+inbox. The project agent takes the fold at its next idle point and reconciles it into
+its notes, with no approval in between. A close that fails stays `closing` and counts
+toward the limit. Resolve its blocker and repeat close. Nothing is deleted: folders,
+branches, worktrees, sessions and drafts remain.
 Tasks may write their own folder, new knowledge evidence pages and their worktrees,
 not project PROJECT.md, STATE.md or other tasks. Close all open tasks before archiving
 the project.
@@ -310,15 +312,25 @@ Pushover push. The restore runbook is the Restore section of [aether](aether.md)
 
 ## Current projects
 
-| Project | What | Repos |
-|---|---|---|
-| `dotfiles` | Always-on platform owner | `dotfiles` (janpuc/dotfiles) |
-| `home` | Jan's Home Assistant config and the DietPi AirPlay speaker nodes | `home-assistant` (janpuc/home-assistant), `dietpi/` as plain content |
-| `bigmouth` | BigMouth NAS storage and its off-site backup plan | none yet |
-| `thesis` | Jan's engineering thesis (AGH): multi-tier compute for games on handhelds, a Bevy voxel case study | none, the PoC code lives in the workspace |
-| `gaming` | BC250 gaming box, inFamous on the Steam Deck (native port, recomp), game reverse engineering (TDU, XBOX, spore). Not renplay | `bc250` (janpuc/BC250), local-only `bc250-control-center`, `infamous-reborn`, `infamous-work` |
-| `network` | Jan's home network: UniFi gateway, Wi-Fi and VLANs, firewall, Tailscale and split DNS, Thread and Matter | none, audits, config backups and scripts live in the workspace |
-| `kubernetes` | Jan's Talos and Flux homelab cluster | `home-ops` (janpuc/home-ops), worktrees under `.worktrees/home-ops/` |
+| Project | What |
+|---|---|
+| `dotfiles` | Machine config and the agent platform (janpuc/dotfiles), the always-on platform owner |
+| `work` (sisyphus) | Work projects and tasks, its own Enterprise Claude seat outside the personal Sonnet trial |
+| `scratch` | Free-standing work from `agent scratch`, folded into a project or promoted to a new one |
+| `home` | Jan's Home Assistant config and the DietPi AirPlay speaker nodes |
+| `bigmouth` | Plan and run BigMouth's (TrueNAS, 192.168.69.15) storage and backups |
+| `thesis` | Jan's engineering thesis (AGH): multi-tier compute for games on handhelds, a Bevy voxel case study |
+| `gaming` | BC250 gaming box, inFamous on the Steam Deck (native port, recomp), game reverse engineering (TDU, XBOX, spore). Not renplay |
+| `network` | Jan's home network: UniFi gateway, Wi-Fi, VLANs, firewall, Tailscale subnet routing, Thread and Matter, Shelly |
+| `kubernetes` | Jan's Talos and Flux homelab cluster: janpuc/home-ops |
+| `renplay` | renplay-org: the Ren'Py player (core), lab, catalog, engines, website and org profile |
+| `agh` | AGH studies: assignments, lab reports and exam prep (numerical methods, algorithms, computer networks), and the car rental project |
+| `ai` | AI tooling: the Pi packages, model evals and the local models on sisyphus |
+| `polished` | A self-hosted nail polish inventory: Python server, iOS app built on the Mac |
+| `austerity` | austerity.watch (janpuc/austerity-watch): the public city-level map of the 2026 protest wave in Europe |
+| `maker` | Xiao ESP32 boards and their 3D-printed cases (humidifier, soil and moisture sensors, mmWave), and the earlier ESP32 experiments |
+| `apps` | Paid iOS, iPadOS and iPhone Duo apps, one repo each, builds run on hermes |
+| `polyglot` | Language learning: Spanish first, then German, later Mandarin, a cluster service with web, Mac and iOS clients |
 
 ## Cluster access from the Mac
 
@@ -351,5 +363,5 @@ It is not migration cleanup. `/delegate` and automated migration remain out of s
 
 - All agents run as `ubuntu` with no isolation between projects. A gVisor design for later
   is in [isolation-gvisor](isolation-gvisor.md).
-- The approval prompt checks command patterns. It is a safety net, not a sandbox.
+- The hard-deny guard checks command patterns. It is a safety net, not a sandbox.
 - One Claude login is shared by every agent, so their usage counts against the same plan.

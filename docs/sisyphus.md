@@ -128,19 +128,19 @@ the laptop. This is work configuration, never a copy into an aether workspace.
 On sisyphus the function uses the Work service account for `op://Work/K8S` discovery.
 Generated work kubeconfigs live in `~/.kube/clusters`, with legacy direct files
 included in the wipe inventory. `~/.kube/config` remains the homelab config and is
-never wiped. AWS, EKS, terraform and tofu changes ask Jan. The work guard allows
-AWS read-only verb prefixes describe-, list-, get-, head-, lookup-, search-, batch-get-
-and validate-, plus scan, query, wait, help and S3 ls. All other AWS operations ask,
-including S3 downloads and any new write verbs. Terraform and tofu apply/destroy/
-import/taint/state rm/state mv and prod-profile assumptions also ask, alongside every
-existing shared-system rule. Even AWS `--dry-run` waits for approval on
-non-allowlisted operations. Read-only describe, S3 ls, STS get-caller-identity and
-terraform or tofu plan remain allowed. The guard is a safety net, not a sandbox or API permission boundary.
+never wiped. AWS writes and terraform work run without asking. The work guard refuses
+terraform or tofu destroy, an apply with `--destroy`, and a terraform apply on
+production, judged from the command text or the working directory. Everything else
+runs. AWS writes, other terraform changes and assuming a production profile are
+recorded as notable actions in `~/.local/state/agents/actions.jsonl`, next to pushes,
+merges and deploys. The guard is a pattern check, not a sandbox or an API permission
+boundary.
 
 ## Keep awake and model retirement
 
 A root LaunchDaemon `local.caffeinate` runs `/usr/bin/caffeinate -ims`, keeping the
-system awake while the display may sleep. The host script also applies
+system awake while the display may sleep. The host script,
+`run_onchange_after_21-sisyphus-keepawake.sh.tmpl`, also applies
 `sudo pmset -c sleep 0 disksleep 0 womp 1`. Once Jan verifies the daemon, he can stop
 the manual caffeinate in the Rex pane. No display assertion is installed.
 

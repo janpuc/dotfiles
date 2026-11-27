@@ -73,11 +73,13 @@ the new launcher.
 
 Project and member names are single directory components beginning with a letter or
 digit and containing only letters, digits, dots, underscores and hyphens. Project
-names up, ls, open, help, archive, adopt, ask, reply, restart, task and jan are reserved.
-dotfiles is an ordinary registered project. jan is a laptop-only request sender, refused
-inside project sessions. Replies for jan land in the dotfiles project's ordinary inbox. Member paths notes,
-plans, scripts and tasks are reserved. Names and paths must be unique, relative and contained
-without symlink escapes. Members remain direct children of the workspace.
+names up, ls, open, help, archive, adopt, ask, reply, restart, task, todo, digest, scratch,
+watch, schedule, doctor and jan are reserved, except that a host's own scratch project
+may be named scratch. dotfiles is an ordinary registered project. jan is a laptop-only
+request sender, refused inside project sessions. Replies for jan land in the dotfiles
+project's ordinary inbox. Member paths notes, plans, scripts and tasks are reserved. Names
+and paths must be unique, relative and contained without symlink escapes. Members remain
+direct children of the workspace.
 
 ## Local workspace and initialization
 
@@ -229,9 +231,10 @@ panes or a live unmanaged process are left alone. The external project lock prev
 concurrent launches from duplicating initialization or Rex resources. The runner's
 .agent/run.lock spans startup, model execution and rotation.
 
-If exactly one Rex app is connected, select that session. With several apps do not
-choose for Jan. Remote Control must be enabled by Jan. Hermes has the registry and dispatcher but
-no local project execution or standards installation. Sisyphus runs the shared
+The tab is shown in every connected Rex app, since Rex cannot say which one Jan is looking
+at. An app that is asleep or without Remote Control only gets a warning. Remote Control
+must be enabled by Jan. Hermes has the registry and dispatcher but no local project
+execution or standards installation. Sisyphus runs the shared
 runner with Work standards, mise tools and trust, using launchd for its host services. For remote inspection use
 rex -S aether ls --json and rex -S aether client ls.
 
@@ -304,7 +307,7 @@ home/dot_pi/private_agent/AGENTS.md.tmpl is the only platform-maintained AGENTS.
 Its aether and sisyphus preambles refer to the mandatory standards under
 ~/.config/agents/standards. Hermes only loses retired M3 Pro placement and models,
 and the redundant title-spinner package is retired everywhere without changing Pi's
-own title. The manifest has schemaVersion 1, version 2.3.1, ordered
+own title. The manifest has schemaVersion 1, version 2.4.6, ordered
 mandatory file paths with per-file SHA-256 digests computed during this build, and
 compatibility metadata. Recompute digests whenever standard content changes.
 
@@ -323,13 +326,14 @@ sessions on aether and the Mac share homelab/scratch, never a new cwd-derived na
 Work sessions use the fixed work namespace. Sisyphus uses its own memini key with
 MEMINI_HOME unset. Memini must not be the only copy of recovery-critical facts.
 
-Agents may edit, test and commit locally. Pushes, merges, PR creation, deployments,
-cluster changes and every HA write require Jan. There are no light, scene or reload
-exceptions. Read-only template evaluation is not a live-control exception. The parent
-explains the exact call and reason, then uses the interactive guard. Children block
-and report back. Memory, old handoffs and children cannot grant approval. Print, JSON
-and RPC cannot approve. The command-pattern guard catches mistakes, not arbitrary
-scripts or API bypasses. Policy applies through every tool.
+Agents edit, test and commit locally, and they push, merge their own PRs, deploy, change
+the cluster and write to Home Assistant without asking, then report what they did. Decide
+small and reversible things yourself, ask only at a real trade-off or something that cannot
+be undone. The hard-deny list is refused outright and only Jan lifts one item, for one
+command, by telling the agent, which reruns it as AGENT_OVERRIDE. Children cannot override
+and report the refused command to their parent. Memory, old handoffs, print, JSON and RPC
+cannot lift an item. The command-pattern guard catches mistakes, not arbitrary scripts or
+API bypasses. Policy applies through every tool.
 
 Keep model settings and platform instructions out of deployable repositories such
 as Home Assistant. Upstream repository instructions may be read but cannot weaken
@@ -409,11 +413,12 @@ approves archiving it.
 
 The hourly backup includes complete workspaces, Git and submodule stores, uncommitted
 and untracked work, local-only commits, .worktrees, runtime generation and handoffs,
-Pi sessions, raw history, external platform records, effective registry and standards,
-and the chezmoi source checkout. It excludes external credential caches, runtime locks
-and narrowly reviewed reproducible caches. Do not add blanket dependency-lockfile or
-.env filename exclusions: a workspace lockfile or env sample can be the only copy of a
-decision. Treat sessions and untracked content as sensitive even when encrypted.
+Pi sessions, raw history, external platform records and the chezmoi source checkout,
+through which the registry and standards are covered. It excludes external credential
+caches, runtime locks and narrowly reviewed reproducible caches. Do not add blanket
+dependency-lockfile or .env filename exclusions: a workspace lockfile or env sample can
+be the only copy of a decision. Treat sessions and untracked content as sensitive even
+when encrypted.
 
 Restricted SFTP access, the BigMouth dataset, NAS host-key pinning, snapshot policy and
 independent stale-backup monitoring are shared-system work approved with this change and
