@@ -165,3 +165,11 @@ projects:
     # Jan's language learning system: Spanish first, then German, later Mandarin. A self-hosted
     # service on the cluster (deployed through kubernetes) with web, Mac and iOS clients.
     lifecycle: active
+  shelfkeeper:
+    # Working slug for Jan's commercial iOS app (freemium or flat fee) plus a clean-room companion
+    # host daemon in Rust (Decky Loader plugin first) to manage PC and handheld game libraries
+    # from an iPhone. Separate from gaming (request cfa916 from gaming, Jan 2026-11-27). Builds,
+    # signing and upload need a Mac, aether only codes. Fable has its own weekly pool, advisors
+    # are astra and fable, long build tasks run on neon with agent task new --model.
+    lifecycle: active
+    model: claude-bridge/claude-fable-5-2
