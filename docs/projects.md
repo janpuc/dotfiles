@@ -257,7 +257,9 @@ After TASK_CLOSE_READY the extension validates headings and calls the runner to
 finalize. It writes an idempotent fold request to the project inbox before closing
 metadata and the closed marker, then gracefully stops Pi. The fold waits for Jan.
 Failed closes retain data and stay closing, counting toward maxOpen. Repeat close
-after resolving the blocker. Closed ids, folders, worktrees, branches and sessions
+after resolving the blocker. A task whose Pi stops without closing it writes one exit
+notice into the project inbox, so a child that dies mid turn is never left waiting on
+nobody and the project does not treat it as idle. Closed ids, folders, worktrees, branches and sessions
 are never deleted or reused. Runtime metadata and result writes are not one atomic
 transaction, but finalization can be retried without duplicating an accepted fold.
 

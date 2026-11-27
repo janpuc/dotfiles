@@ -81,6 +81,9 @@ function setStatus(folder: string, item: InboxItem, status: string) {
 }
 
 function message(item: InboxItem, project: string) {
+	if (item.kind === "exit") {
+		return `Exit ${item.id} from task ${item.task}, which stopped before it closed and is not running now:\n\n${item.text}\n\nRestart it with agent task restart ${project} ${item.task}, or close it.`;
+	}
 	if (item.kind === "report") {
 		return `Report ${item.id} from task ${item.task}, which finished the turn you started and is idle. Its last reply:\n\n${item.text}\n\nCheck it before relaying anything to Jan. Answer the task with agent task send ${project} ${item.task} <text>, or close it.`;
 	}
