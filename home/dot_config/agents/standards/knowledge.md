@@ -39,6 +39,11 @@ records the last check date and confidence as verified, tentative or historical.
 History dates superseded facts and explains what replaced them. Do not present stale
 facts as current or silently discard a contradiction. Avoid credentials and raw tokens.
 
+When Jan corrects the same thing a second time, ask first whether a guard rule, a check or
+a script can enforce it instead of writing another paragraph. Record the rule and what
+enforces it together in notes/knowledge/rules-and-enforcement.md, one row each. Prose that
+nothing enforces will be corrected again.
+
 Mandatory standards plus PROJECT and STATE have a combined 48 KiB UTF-8 budget.
 Move history and details to indexed topic pages rather than silently truncating.
 Detailed pages are loaded as needed, not all injected at startup.

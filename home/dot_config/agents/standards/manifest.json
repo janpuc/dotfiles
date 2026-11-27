@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2.4.5",
+  "version": "2.4.6",
   "compatibility": {
     "contextSchemaVersion": 1,
     "bootstrapMaxBytes": 49152
@@ -24,7 +24,7 @@
     },
     {
       "path": "knowledge.md",
-      "sha256": "102dd27ceaff5e4ee5c4c41252122b659a52e3fe26905e8542e351ab6ffcf650"
+      "sha256": "4851fe6e4ff50adc4250c06b970ccf5e33bd4c7d935f4635cfd83233ddc9f556"
     },
     {
       "path": "git.md",
