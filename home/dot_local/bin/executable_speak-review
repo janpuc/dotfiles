@@ -31,6 +31,8 @@ HABITS = {  # phrase -> pattern, counted per 100 words
 TARGET = 2.0  # fillers per 100 words that count as a good week
 POLISH = re.compile(r"[ąćęłńśźż]|\b(?:nie|jest|się|że|to jest|dobra|teraz)\b", re.I)
 WORD = re.compile(r"[A-Za-z][A-Za-z'’-]*")
+# Names you say on purpose ("bc two fifty"), kept out of the repeated phrases.
+JARGON = re.compile(r"bc[ -]?(?:two[ -]fifty|250)|steam deck|home assistant|chezmoi|tailscale|kubernetes|memini", re.I)
 SKIP3 = set("the a an to of and in on for is it i that this you be".split())
 
 
@@ -91,10 +93,12 @@ def measure(entries):
             if i + 3 < len(clean) and clean[i:i + 2] == clean[i + 2:i + 4]:
                 restarts += 1; i += 4; continue
             i += 1
-        for j in range(len(clean) - 2):
-            g = clean[j:j + 3]
-            if sum(w in SKIP3 for w in g) < 2:
-                grams[" ".join(g)] += 1
+        for part in JARGON.split(text):  # a name breaks the phrase, so no gram spans it
+            plain = [t.lower() for t in WORD.findall(part) if not re.fullmatch(FILLERS, t, re.I)]
+            for j in range(len(plain) - 2):
+                g = plain[j:j + 3]
+                if sum(w in SKIP3 for w in g) < 2:
+                    grams[" ".join(g)] += 1
     per100 = lambda n: 100.0 * n / words if words else 0.0
     return {
         "dictations": len(entries), "words": words, "days": len(days),
@@ -131,7 +135,7 @@ def report(entries, weeks):
         s = stats[w]
         mark = "  *" if s["words"] >= 200 and s["fillers"] <= TARGET else ""
         print(f"{w:%d %b}{s['words']:>11}{s['days']:>6}{s['fillers']:>13.1f}{s['restarts']:>14.1f}{mark}")
-    print(f"\n* a week under {TARGET:g} fillers per 100 words" + (f", best so far {best:.1f}" if best is not None else ""))
+    print(f"\n* = a good week: at least 200 words and {TARGET:g} fillers or fewer per 100 words" + (f". Best so far {best:.1f}" if best is not None else ""))
     if cur["words"]:
         print("\nHabit phrases this week, per 100 words (last week):")
         for name, v in sorted(cur["habits"].items(), key=lambda kv: -kv[1]):
