@@ -30,6 +30,13 @@ export AGY_APPROVALS AGY_APPROVALS_MODE AGY_ENGINE AGY_ASK_TOOL AGY_WEB_TOOLS
 [ -n "${MINIMAX_API_KEY:-}" ] || [ -z "${PI_MINIMAX_API_KEY:-}" ] || export MINIMAX_API_KEY="$PI_MINIMAX_API_KEY"
 [ -n "${ALIBABA_API_KEY:-}" ] || [ -z "${PI_ALIBABA_API_KEY:-}" ] || export ALIBABA_API_KEY="$PI_ALIBABA_API_KEY"
 
+# Rex server 0.1.0-preview.23 and newer export REX_BLOCK to a pane and no longer REX_SESSION, which
+# pi-subagents needs to open children in Rex tabs. Derive it once from the block.
+if [ -z "${REX_SESSION:-}" ] && [ -n "${REX_BLOCK:-}" ]; then
+	REX_SESSION=$(rex block inspect "$REX_BLOCK" --json 2>/dev/null | sed -n 's/^  "session_id": "\(session:[^"]*\)".*/\1/p' | head -n 1) || REX_SESSION=
+	[ -z "$REX_SESSION" ] || export REX_SESSION
+fi
+
 # A project runner keeps shims first for cwd-sensitive bash tools. Starting Pi through mise's
 # own pi shim would let mise prepend real tool paths again, so run the package's launcher (a
 # small sh script that leaves PATH alone and starts its bundle with node) directly.
