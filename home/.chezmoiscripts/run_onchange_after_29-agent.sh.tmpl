@@ -5,7 +5,6 @@
 # version {{ .agent.version }}
 set -eu
 PATH="$HOME/.local/share/mise/shims:/opt/homebrew/bin:$HOME/.local/bin:$PATH"
-[ -e "$HOME/.local/bin/agent-run" ] || exit 0
 command -v go >/dev/null || { echo "agent: go is not installed" >&2; exit 1; }
 # go install never replaces a file that is not a Go binary, such as the old sh wrapper, so it
 # builds next to the target and renames over it, which also leaves running commands intact.

@@ -28,7 +28,7 @@ not be rewound by checkout. Backup includes it and worktrees, excluding runtime 
 Never create a workspace AGENTS.md or instruction file. Central standards are policy,
 knowledge is evidence.
 
-agent-run --register <project> <member> [url] registers and stages .gitmodules and the
+agent --register <project> <member> [url] registers and stages .gitmodules and the
 gitlink. Without a URL it creates or records a local-only repo. Review and commit
 explicit paths afterward. Member names and paths are unique single components,
 contained without symlink escapes. notes, plans, scripts and tasks are reserved.

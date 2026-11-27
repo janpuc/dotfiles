@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "2.4.4",
+  "version": "2.4.5",
   "compatibility": {
     "contextSchemaVersion": 1,
     "bootstrapMaxBytes": 49152
@@ -16,7 +16,7 @@
     },
     {
       "path": "workspace.md",
-      "sha256": "0645160bb5c9f3ca14d3721c1774a05e23f7ce5ead98e0b4563662c228057f14"
+      "sha256": "cf556d3468ff1c753c3957de0ff7a3c07728f8ed117c7e43147e2fe96a8a3fb6"
     },
     {
       "path": "session.md",
@@ -28,7 +28,7 @@
     },
     {
       "path": "git.md",
-      "sha256": "68b31b7c0cbb0549d0b46fc8a84390c46742bfc37d2b19621bf7b4723b7aa40a"
+      "sha256": "7b1c1cea4f0682d5794a19d881b3345e28f598646c9427686963c891124a1453"
     },
     {
       "path": "tools.md",

@@ -147,7 +147,7 @@ when staging. Never git add -A at the workspace root.
 Register with:
 
 ```text
-agent-run --register <project> <member> [url]
+agent --register <project> <member> [url]
 ```
 
 This requires an initialized workspace, registers an existing Git root without
@@ -184,7 +184,7 @@ a standalone .git directory, the supported old-form submodule layout.
 
 ## Launcher and Rex
 
-Both the fish function and sh agent script delegate to ~/.local/bin/agent-run.
+The agent command in ~/.local/bin is the only entry point and the runner.
 The runner resolves its own hostname in hosts, exports PI_PROJECT_ROOT and serves
 only projects assigned to that host. Unknown execution hosts fail closed. Help and
 validation have one implementation. agent -h, --help, help and task -h list grouped

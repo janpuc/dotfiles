@@ -6,6 +6,8 @@
 .pi/agent/local/agent-guard-child.ts
 # Replaced by the agent command from janpuc/agent, see .chezmoidata/agent.yaml.
 .config/fish/functions/agent.fish
+# The Python runner agent-run, replaced by the same agent command.
+.local/bin/agent-run
 .pi/agent/local/memini-namespace.py
 # pi-agy-bridge, replaced by pi-antigravity-bridge on 2026-11-22. Its runtime folder and trace.log stay.
 .pi/agent/local/agy-bridge-patch.test.ts

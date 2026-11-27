@@ -12,7 +12,7 @@ work locally, then explicitly stage updated gitlinks with .gitmodules and releva
 notes in a workspace checkpoint. Do not manufacture member commits to make the
 workspace clean. A dirty member stays dirty until its work is intentionally committed.
 
-Register through agent-run --register <project> <member> [url]. An existing checkout
+Register through agent --register <project> <member> [url]. An existing checkout
 is inspected and staged without branch changes. Without a URL, a new local repository
 gets an initial commit before registration. Its .gitmodules entry contains:
 
