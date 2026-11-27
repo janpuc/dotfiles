@@ -73,7 +73,7 @@ A project agent cannot send as `jan` or impersonate `dotfiles`.
 | `agent todo` | The one needs-Jan list: what waits on you, oldest first, with who waits on whom. `--all` shows every open question |
 | `agent watch [--dry-run]` | Start dead runners, continue a stalled turn and deliver due schedules. A timer runs it every 10 minutes, you rarely need it |
 | `agent schedule add\|ls\|rm` | Run a request on a schedule (`daily HH:MM`, `weekly mon HH:MM`, `every Nh`), results show in `agent todo` |
-| `agent doctor [project]` | Read-only lint of notes, context size, recovery state and the timers. Prints problems only |
+| `agent doctor [project]` | Read-only lint of notes, context size, recovery state and the timers. Prints problems only, and for a topic page missing from the knowledge index it prints the index line to paste |
 | `agent --register <project> <repo> [url]` | Add a code repo to a project as a submodule. With a URL it clones or registers the existing checkout, without one it makes a local-only repo. The agent normally does this itself |
 | `aether-backup status` | When the last backup succeeded |
 | `ai-sync` | Refresh all keys from 1Password: model keys, `gh` login, per-project secrets, backup password. Run it after rotating any of them |
