@@ -174,10 +174,10 @@ The new tab is shown in every connected Rex app, since Rex cannot say which one 
 next idle point, starting the task if it stopped. Coordinators use it instead of typing
 into a task tab.
 
-A task has no channel except its turn report. It cannot run  against its own
+A task has no channel except its turn report. It cannot run `agent ask` against its own
 project and it cannot close itself. Its report reaches the coordinator by itself, so a
-request or blocker goes in the report and the coordinator answers with  or
-.
+request or blocker goes in the report and the coordinator answers with `task send` or
+`task close`.
 
 `agent <TICKET>` shows the task with that id if a project on its host has one, and
 restarts it if it stopped. Otherwise it opens it with `--wait` in the current project, or
