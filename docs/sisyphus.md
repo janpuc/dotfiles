@@ -22,7 +22,7 @@ the same provider list, while project key stripping is applied at launch.
 Chezmoi installs the runner, standards, Work mise trust and tools on sisyphus, but
 not aether's systemd units. Python, Node, Pi and restic come from mise. The runner
 also includes Homebrew and the installed Rex CLI in PATH:
-`/Applications/Rex Beta.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex`.
+`/Applications/Rex.app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex`, or under `Rex Beta.app` before the 2026-11-27 rename.
 LaunchAgents use `mise exec -- python3`, so Apple's old system Python is not used.
 The user must be logged in for the backup LaunchAgents. No secrets are in plists.
 
