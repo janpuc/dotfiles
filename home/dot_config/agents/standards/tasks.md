@@ -16,6 +16,9 @@ user message when the task is idle and start a stopped task. Cwd is tasks/<id>, 
 stays the workspace. Context includes standards, project PROJECT.md, task BRIEF.md
 and STATE.md within 48 KiB. Tasks restart on the same session and never rotate.
 Runtime state is .agent/tasks/<id>/, outside Git.
+A task cannot ask its own project and cannot close itself. It reaches its coordinator by
+ending its turn: the report arrives by itself, so put requests and blockers there, and the
+coordinator answers with task send or task close.
 
 Write only your task folder, new notes/knowledge/ evidence pages, your worktrees and
 tools you add to the workspace mise.toml.

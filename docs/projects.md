@@ -307,7 +307,7 @@ home/dot_pi/private_agent/AGENTS.md.tmpl is the only platform-maintained AGENTS.
 Its aether and sisyphus preambles refer to the mandatory standards under
 ~/.config/agents/standards. Hermes only loses retired M3 Pro placement and models,
 and the redundant title-spinner package is retired everywhere without changing Pi's
-own title. The manifest has schemaVersion 1, version 2.4.6, ordered
+own title. The manifest has schemaVersion 1, version 2.4.7, ordered
 mandatory file paths with per-file SHA-256 digests computed during this build, and
 compatibility metadata. Recompute digests whenever standard content changes.
 
