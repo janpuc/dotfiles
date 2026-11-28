@@ -165,3 +165,13 @@ projects:
     # Jan's language learning system: Spanish first, then German, later Mandarin. A self-hosted
     # service on the cluster (deployed through kubernetes) with web, Mac and iOS clients.
     lifecycle: active
+  faber:
+    # Specialized self-maintaining GitOps operator for Kubernetes: event or cron triggers, an
+    # operator-owned LLM loop with strict output schemas and MCP tools, zero-secret gVisor sandbox
+    # validation and signed GitHub App PRs, first on home-ops. Born from the ephemeral agents
+    # theory task (tasks/ephemeral-agents-homeops, Jan 2026-11-28). Standalone, no shared infra
+    # or credentials yet, and nothing touches the cluster without the kubernetes owner.
+    lifecycle: active
+    # Jan named Gemini 4 Neon for the session itself, on his AI Ultra login through the bridge.
+    model: antigravity/gemini-4-neon
+    thinking: high
